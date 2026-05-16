@@ -1,0 +1,15 @@
+# base config, stow-managed
+model = "gpt-5"
+
+[ui]
+theme = "auto"
+
+[tools]
+enabled = true
+
+# === Machine-local (preserved by codex-session) ===
+[projects."/tmp/example"]
+trust_level = "trusted"
+
+[projects."/tmp/other"]
+trust_level = "untrusted"

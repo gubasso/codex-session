@@ -1,0 +1,13 @@
+# riptask config (scope: local)
+projects:
+- name: codex-session
+  vc_backend:
+    type: github
+    host: https://github.com
+    repo: gubasso/codex-session
+  tasks_backend:
+    type: github
+    host: https://github.com
+    repo: gubasso/codex-session
+  default_board: personal
+  key: CODEXSESSION

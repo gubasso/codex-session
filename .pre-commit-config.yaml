@@ -1,0 +1,114 @@
+# Bash-centric pre-commit configuration for codex-session.
+#
+# Tailored from the dotfiles bash template:
+#   ~/.dotfiles/pre-commit/bash.pre-commit-config.yaml
+
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+
+repos:
+  # Generic housekeeping hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: detect-private-key
+      - id: check-executables-have-shebangs
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: no-commit-to-branch
+        args: [--branch, develop, --branch, main, --branch, master]
+
+  # ShellCheck – static analysis
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+
+  # shfmt – code formatter
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.13.1-1
+    hooks:
+      - id: shfmt
+        args: ["-i", "2", "-ci"]   # 2-space indent, keep control-indented
+
+  # bashate – style checker
+  - repo: https://github.com/openstack/bashate
+    rev: 2.1.1
+    hooks:
+      - id: bashate
+        # E003/E006: indent/line-length tolerated.
+        # E005 not escalated: this project uses .bash extension for sourced
+        # libraries (lib/, commands/), which legitimately have no shebang.
+        # E011: false positives on the `if ... ; then ... ; fi` single-line idiom.
+        args: ["-i", "E003,E006,E011"]
+        exclude: ^tests/(.*\.bats|test_helper\.bash)$
+
+  # typos – spelling mistakes
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.45.1
+    hooks:
+      - id: typos
+        args: ["--write-changes"]
+
+  # gitleaks – secret scanner
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        pass_filenames: false      # let gitleaks handle its own scanning scope
+        stages: [pre-commit]
+
+  # shellharden – auto-quote variables and command substitutions.
+  # Requires `shellharden` on PATH (cargo install shellharden).
+  - repo: local
+    hooks:
+      - id: shellharden
+        name: shellharden
+        language: system
+        entry: shellharden --replace
+        types: [shell]
+
+  # gitlint – commit-message linter
+  - repo: https://github.com/jorisroovers/gitlint
+    rev: v0.19.1
+    hooks:
+      - id: gitlint
+        stages: [commit-msg]
+        types_or: [text]
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.13.9
+    hooks:
+      - id: commitizen
+      - id: commitizen-branch
+        stages: [pre-push]
+
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
+
+  # bats – Bash Automated Testing System.
+  # Requires `bats` on PATH.
+  - repo: local
+    hooks:
+      - id: bats-tests
+        name: bats tests
+        language: system
+        entry: bats tests/codex-session.bats
+        pass_filenames: false
+        always_run: true
+      # smoke test – exercises the installed entrypoint end-to-end before push.
+      - id: smoke
+        name: smoke test
+        language: system
+        entry: bash tests/smoke.sh
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

@@ -1,0 +1,8 @@
+# base config, stow-managed
+model = "gpt-5"
+
+[ui]
+theme = "auto"
+
+[tools]
+enabled = true

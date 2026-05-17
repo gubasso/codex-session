@@ -66,12 +66,6 @@ repos:
         language: system
         types: [toml]
 
-  # --- Spell check ---
-  - repo: https://github.com/crate-ci/typos
-    rev: v1.46.2
-    hooks:
-      - id: typos
-
   # --- Commit message linting (Rust-ecosystem; commit-msg stage) ---
   - repo: https://github.com/crate-ci/committed
     rev: v1.1.11

@@ -1,21 +1,25 @@
 //! Path resolution.
+//!
+//! Unlike the legacy bash wrapper running under `set -u`, this module does not
+//! abort when `HOME` is unset. It instead resolves a coherent fallback path so
+//! the binary can return a normal error rather than panicking.
 
 /// Resolved runtime paths.
 #[derive(Debug, Clone)]
-pub struct CodexPaths {
+pub(crate) struct CodexPaths {
     /// Base config path.
-    pub base: std::path::PathBuf,
+    pub(crate) base: std::path::PathBuf,
     /// Target config path.
-    pub target: std::path::PathBuf,
+    pub(crate) target: std::path::PathBuf,
     /// Cache directory path.
-    pub cache_dir: std::path::PathBuf,
+    pub(crate) cache_dir: std::path::PathBuf,
     /// Stamp file path.
-    pub stamp: std::path::PathBuf,
+    pub(crate) stamp: std::path::PathBuf,
 }
 
 impl CodexPaths {
     /// Build from the process environment.
-    pub fn from_env() -> Self {
+    pub(crate) fn from_env() -> Self {
         // Treat empty env vars as absent so we never produce relative paths.
         // Bash uses `${XDG_CACHE_HOME:-$HOME/.cache}`, where the `:-` operator
         // falls back on either unset OR empty; mirror that here. An empty

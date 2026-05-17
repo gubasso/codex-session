@@ -2,4 +2,4 @@
 
 /// Zero-argument `self config-status`.
 #[derive(Debug, clap::Args, Default)]
-pub struct SelfConfigStatusArgs;
+pub(crate) struct SelfConfigStatusArgs;

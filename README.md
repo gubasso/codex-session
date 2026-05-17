@@ -34,11 +34,27 @@ cargo install --path . --force
 
 `just install` wraps the same command.
 
+This deliberately differs from the legacy bash project's `make install` /
+`make relink` / `make uninstall` flow. Cargo owns `~/.cargo/bin/codex-session`,
+so there is no managed-versus-unmanaged symlink ambiguity to protect. If you
+still have a hand-managed `~/.local/bin/codex-session` symlink from the bash
+wrapper, remove it before installing the Rust binary so `PATH` resolution is
+unambiguous.
+
 ## Environment
 
 - `HOME` is used to resolve `~/.codex/config.base.toml` and `~/.codex/config.toml`.
 - `XDG_CACHE_HOME` overrides the cache root for `codex-session/last-merge`.
 - `PATH` must contain the real `codex` binary for pass-through mode.
+- `RUST_LOG` controls wrapper logging. Logging is silent by default; set
+  `RUST_LOG=info` or `RUST_LOG=trace` to inspect merge and pass-through
+  decisions.
+
+Example:
+
+```bash
+RUST_LOG=info cargo run -- self config-status
+```
 
 ## Unix-only
 

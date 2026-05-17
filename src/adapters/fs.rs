@@ -2,7 +2,7 @@
 #![allow(clippy::missing_errors_doc)]
 
 /// Filesystem operations used by the application.
-pub trait Fs {
+pub(crate) trait Fs {
     /// Return whether the path exists.
     fn exists(&self, path: &std::path::Path) -> bool;
 
@@ -24,7 +24,7 @@ pub trait Fs {
 
 /// Real filesystem adapter.
 #[derive(Debug, Clone, Copy)]
-pub struct StdFs;
+pub(crate) struct StdFs;
 
 impl Fs for StdFs {
     fn exists(&self, path: &std::path::Path) -> bool {

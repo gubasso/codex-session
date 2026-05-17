@@ -2,4 +2,4 @@
 
 /// Zero-argument `self show-local`.
 #[derive(Debug, clap::Args, Default)]
-pub struct SelfShowLocalArgs;
+pub(crate) struct SelfShowLocalArgs;

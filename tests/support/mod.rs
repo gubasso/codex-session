@@ -64,6 +64,47 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         std::fs::set_permissions(&codex, perms).unwrap();
     }
 
+    pub fn make_fake_codex_printing_stdout(&self, stdout: &str) {
+        Self::write_executable(
+            &self.fake_bin.join("codex"),
+            &format!("#!/usr/bin/env bash\nprintf '%s' '{stdout}'\n"),
+        );
+    }
+
+    pub fn make_fake_codex_in_dir(&self, dir_name: &str, script_body: &str) -> PathBuf {
+        let dir = self.tmp.path().join(dir_name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let codex = dir.join("codex");
+        Self::write_executable(&codex, script_body);
+        dir
+    }
+
+    pub fn make_non_executable_codex_in_dir(&self, dir_name: &str, contents: &str) -> PathBuf {
+        let dir = self.tmp.path().join(dir_name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let codex = dir.join("codex");
+        std::fs::write(&codex, contents).unwrap();
+        dir
+    }
+
+    pub fn cmd_with_path(&self, path: &str) -> assert_cmd::Command {
+        let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
+        cmd.env_clear()
+            .env("HOME", &self.home)
+            .env("XDG_CACHE_HOME", &self.cache)
+            .env("PATH", path);
+        cmd
+    }
+
+    pub fn cmd_without_home(&self) -> assert_cmd::Command {
+        let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
+        let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
+        cmd.env_clear()
+            .env("XDG_CACHE_HOME", &self.cache)
+            .env("PATH", path);
+        cmd
+    }
+
     pub fn install_base(&self) {
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/base.toml");
         std::fs::copy(src, self.home.join(".codex/config.base.toml")).unwrap();
@@ -112,5 +153,17 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
     fn set_mtime(path: &Path, seconds: i64) {
         let mtime = filetime::FileTime::from_unix_time(seconds, 0);
         filetime::set_file_mtime(path, mtime).unwrap();
+    }
+
+    fn write_executable(path: &Path, contents: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+        let mut perms = std::fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(path, perms).unwrap();
     }
 }

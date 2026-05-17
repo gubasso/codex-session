@@ -4,7 +4,10 @@
 use crate::adapters::fs::Fs as _;
 
 /// Print local-only sections that would be preserved by a merge.
-pub fn run(ctx: &crate::context::AppContext) -> Result<(), crate::error::AppError> {
+pub(crate) fn run(
+    ctx: &crate::context::AppContext,
+    _args: crate::cli::self_show_local::SelfShowLocalArgs,
+) -> Result<(), crate::error::AppError> {
     if !ctx.fs.exists(&ctx.paths.target) {
         return Ok(());
     }
@@ -14,7 +17,7 @@ pub fn run(ctx: &crate::context::AppContext) -> Result<(), crate::error::AppErro
         String::new()
     };
     let target = ctx.fs.read_to_string(&ctx.paths.target)?;
-    let local = crate::adapters::merge::extract_local_sections(&base, &target);
+    let local = crate::domain::config_merge::extract_local_sections(&base, &target);
     ctx.ui.print_local_sections(&local)?;
     Ok(())
 }

@@ -105,15 +105,13 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
-      # cargo-deny disabled: no deny.toml yet in this repo. Re-enable after
-      # adding deny.toml with at least an `advisories` and `bans` section.
       # Requires `cargo-deny` on PATH (cargo install cargo-deny).
-      # - id: cargo-deny
-      #   name: cargo deny
-      #   entry: cargo deny check advisories bans sources
-      #   language: system
-      #   pass_filenames: false
-      #   stages: [pre-push]
+      - id: cargo-deny
+        name: cargo deny
+        entry: cargo deny check advisories bans sources
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
 
   - repo: meta
     hooks:

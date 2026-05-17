@@ -2,7 +2,10 @@
 #![allow(clippy::missing_errors_doc)]
 
 /// Print the wrapper version.
-pub fn run(ctx: &crate::context::AppContext) -> Result<(), crate::error::AppError> {
+pub(crate) fn run(
+    ctx: &crate::context::AppContext,
+    _args: crate::cli::self_version::SelfVersionArgs,
+) -> Result<(), crate::error::AppError> {
     ctx.ui.print_version(crate::domain::version::current())?;
     Ok(())
 }

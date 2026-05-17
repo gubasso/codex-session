@@ -4,7 +4,10 @@
 use crate::adapters::fs::Fs as _;
 
 /// Force a merge regardless of stamp freshness.
-pub fn run(ctx: &crate::context::AppContext) -> Result<(), crate::error::AppError> {
+pub(crate) fn run(
+    ctx: &crate::context::AppContext,
+    _args: crate::cli::self_config_merge::SelfConfigMergeArgs,
+) -> Result<(), crate::error::AppError> {
     if !ctx.fs.exists(&ctx.paths.base) {
         return Err(crate::error::AppError::BaseMissing(ctx.paths.base.clone()));
     }

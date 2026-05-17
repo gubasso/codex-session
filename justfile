@@ -22,7 +22,7 @@ fix:
     cargo fmt --all
     cargo clippy --fix --allow-dirty --allow-staged --all-features -- -W clippy::all
 
-# Local quality gates (Rust only; bash payload is gated by pre-commit).
+# Local quality gates.
 lint:
     cargo fmt --check
     cargo clippy --all-targets --all-features -- -D warnings
@@ -46,7 +46,7 @@ uninstall:
 clean:
     cargo clean
 
-# Run pre-commit-stage hooks (shellcheck/shfmt/bashate/cargo fmt/clippy/taplo).
+# Run pre-commit-stage hooks.
 precommit:
     pre-commit run --all-files
 

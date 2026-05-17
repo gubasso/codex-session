@@ -1,6 +1,3 @@
-# shellcheck shell=bash
-__cmd_self_help() {
-  cat <<'EOF'
 codex-session — wrapper around `codex` that keeps ~/.codex/config.toml in sync
 with the stow-managed ~/.codex/config.base.toml while preserving machine-local
 sections (e.g. [projects."..."]).
@@ -18,5 +15,3 @@ Wrapper verbs:
 
 Anything not under `self` is forwarded verbatim to the real `codex` binary,
 including `--help`, `--version`, `exec`, `resume`, `login`, and any future verbs.
-EOF
-}

@@ -41,6 +41,22 @@ still have a hand-managed `~/.local/bin/codex-session` symlink from the bash
 wrapper, remove it before installing the Rust binary so `PATH` resolution is
 unambiguous.
 
+## Design decisions
+
+The migration-specific design decisions for this wrapper are recorded under
+[`docs/adr/`](docs/adr/):
+
+- [ADR-0001: top-level pass-through bypasses clap](docs/adr/0001-top-level-passthrough-bypasses-clap.md)
+- [ADR-0002: preserve legacy exit codes 1 and 2](docs/adr/0002-preserve-legacy-exit-codes-1-and-2.md)
+- [ADR-0003: install via cargo install](docs/adr/0003-install-via-cargo-install.md)
+- [ADR-0004: codex resolution via which crate](docs/adr/0004-codex-resolution-via-which-crate.md)
+- [ADR-0005: atomic write via named tempfile](docs/adr/0005-atomic-write-via-named-tempfile.md)
+- [ADR-0006: unset HOME falls back to root](docs/adr/0006-unset-home-falls-back-to-root.md)
+- [ADR-0007: no global verbosity flag](docs/adr/0007-no-global-verbosity-flag.md)
+- [ADR-0008: skip directories and figment](docs/adr/0008-skip-directories-and-figment.md)
+- [ADR-0009: foo.rs over mod.rs](docs/adr/0009-foo-dot-rs-over-mod-rs.md)
+- [ADR-0010: paths stay as PathBuf](docs/adr/0010-paths-stay-as-pathbuf.md)
+
 ## Environment
 
 - `HOME` is used to resolve `~/.codex/config.base.toml` and `~/.codex/config.toml`.

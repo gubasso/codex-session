@@ -40,6 +40,25 @@ fn exec_foo_bar_is_passed_through_to_codex() {
 }
 
 #[test]
+fn resume_is_passed_through_to_codex() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.cmd().arg("resume").assert().success();
+    assert_eq!(env.argv(), vec![String::from("resume")]);
+}
+
+#[test]
+fn unknown_future_verb_is_passed_through_to_codex() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.cmd().args(["future-verb", "--flag"]).assert().success();
+    assert_eq!(
+        env.argv(),
+        vec![String::from("future-verb"), String::from("--flag")]
+    );
+}
+
+#[test]
 fn no_arg_invocation_calls_codex_with_zero_argv() {
     let env = TestEnv::new();
     env.make_fake_codex();
@@ -153,6 +172,21 @@ fn missing_target_with_existing_base_writes_base_only() {
 }
 
 #[test]
+fn merge_creates_stamp_and_cache_dir_on_virgin_machine() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.install_base();
+    env.install_target_with_local();
+    let cache = env.stamp_path().parent().unwrap().to_path_buf();
+    if cache.exists() {
+        std::fs::remove_dir_all(&cache).unwrap();
+    }
+    env.cmd().arg("exec").assert().success();
+    assert!(cache.exists(), "cache dir must be created");
+    assert!(env.stamp_path().exists(), "stamp must be created");
+}
+
+#[test]
 fn zero_argv_resolves_codex_and_attempts_exec() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("OK");
@@ -259,4 +293,25 @@ fn rust_log_does_not_pollute_stdout() {
         .assert()
         .success()
         .stdout("OK");
+}
+
+#[test]
+fn default_stderr_is_silent_on_passthrough() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.cmd().assert().success().stderr("");
+}
+
+#[test]
+fn rust_log_info_emits_merge_line_to_stderr() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.install_base();
+    env.install_target_with_local();
+    env.cmd()
+        .env("RUST_LOG", "info")
+        .arg("exec")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("merging config"));
 }

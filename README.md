@@ -26,21 +26,18 @@ Everything outside `self` is pass-through to the real `codex`.
 
 ## Install
 
-Use `make install` to stage the runtime under `~/.local/share/codex-session` and create `~/.local/bin/codex-session` as a symlink to the staged entrypoint.
+Build and install the binary into `~/.cargo/bin` via Cargo:
 
-`make install` refuses to overwrite an existing unmanaged `~/.local/bin/codex-session`. This is intentional because that path is currently provided by the dotfiles wrapper and must not be replaced implicitly.
-
-- `make install`
-- `make relink`
-- `make uninstall`
-
-`make relink` is the explicit opt-in path that backs up the existing `~/.local/bin/codex-session` to a timestamped `.bak.<ts>` name before replacing it.
+- `just install` &mdash; `cargo install --path . --force`
+- `just uninstall` &mdash; `cargo uninstall codex-session`
 
 ## Development
 
-- `make lint`
-- `make test`
-- `make smoke`
+- `just check` &mdash; `cargo fmt --check` + `cargo clippy -D warnings` + `cargo nextest run`
+- `just fix` &mdash; auto-apply `cargo fmt` and `cargo clippy --fix`
+- `just precommit` / `just precommit-all` &mdash; run pre-commit hooks (the `-all` form also runs the pre-push stage: bats, cargo-audit, cargo-machete, gitleaks)
+
+Run `just` with no arguments to see every recipe.
 
 ## Architecture
 

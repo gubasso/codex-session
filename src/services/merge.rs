@@ -4,7 +4,7 @@
 use crate::adapters::fs::Fs;
 
 /// Mirror bash `__needs_merge` without a BASE existence guard.
-pub fn needs_merge_raw<F: Fs>(
+pub(crate) fn needs_merge_raw<F: Fs>(
     fs: &F,
     paths: &crate::domain::paths::CodexPaths,
 ) -> std::io::Result<bool> {
@@ -21,7 +21,7 @@ pub fn needs_merge_raw<F: Fs>(
 }
 
 /// Mirror `self config-status` behavior, reporting no merge when BASE is absent.
-pub fn needs_merge_observed<F: Fs>(
+pub(crate) fn needs_merge_observed<F: Fs>(
     fs: &F,
     paths: &crate::domain::paths::CodexPaths,
 ) -> std::io::Result<bool> {
@@ -32,21 +32,27 @@ pub fn needs_merge_observed<F: Fs>(
 }
 
 /// Perform the merge and update the stamp.
-pub fn perform_merge<F: Fs>(
+#[tracing::instrument(
+    skip(fs),
+    fields(base = %paths.base.display(), target = %paths.target.display())
+)]
+pub(crate) fn perform_merge<F: Fs>(
     fs: &F,
     paths: &crate::domain::paths::CodexPaths,
 ) -> Result<(), crate::error::AppError> {
+    tracing::info!("merging config");
     let base = fs.read_to_string(&paths.base)?;
     let local_sections = if fs.exists(&paths.target) {
         let target = fs.read_to_string(&paths.target)?;
-        crate::adapters::merge::extract_local_sections(&base, &target)
+        crate::domain::config_merge::extract_local_sections(&base, &target)
     } else {
         String::new()
     };
-    let merged = crate::adapters::merge::merge_contents(&base, &local_sections);
+    let merged = crate::domain::config_merge::merge_contents(&base, &local_sections);
     fs.write_atomic(&paths.target, &merged)?;
     fs.create_dir_all(&paths.cache_dir)?;
     fs.touch(&paths.stamp)?;
+    tracing::debug!(bytes_written = merged.len(), "wrote merged target");
     Ok(())
 }
 

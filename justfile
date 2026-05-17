@@ -62,3 +62,7 @@ audit:
 # Detect unused dependencies. Not part of `check`.
 machete:
     cargo machete
+
+# Run cargo-deny checks (requires cargo install --locked cargo-deny).
+deny:
+    cargo deny check

@@ -2,4 +2,4 @@
 
 /// Zero-argument `self version`.
 #[derive(Debug, clap::Args, Default)]
-pub struct SelfVersionArgs;
+pub(crate) struct SelfVersionArgs;

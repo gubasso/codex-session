@@ -8,31 +8,31 @@
 use std::io::Write as _;
 
 /// UI renderer.
-pub struct Ui;
+pub(crate) struct Ui;
 
 impl Ui {
     /// Construct the UI.
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 
     /// Print raw help text to stdout.
     #[allow(clippy::unused_self)]
-    pub fn print_help_raw(&self, text: &str) -> std::io::Result<()> {
+    pub(crate) fn print_help_raw(&self, text: &str) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         stdout.write_all(text.as_bytes())
     }
 
     /// Print the wrapper version.
     #[allow(clippy::unused_self)]
-    pub fn print_version(&self, version: &str) -> std::io::Result<()> {
+    pub(crate) fn print_version(&self, version: &str) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         writeln!(stdout, "codex-session {version}")
     }
 
     /// Print the merge status.
     #[allow(clippy::unused_self, clippy::fn_params_excessive_bools)]
-    pub fn print_config_status(
+    pub(crate) fn print_config_status(
         &self,
         paths: &crate::domain::paths::CodexPaths,
         base_exists: bool,
@@ -65,14 +65,14 @@ impl Ui {
 
     /// Print local sections verbatim.
     #[allow(clippy::unused_self)]
-    pub fn print_local_sections(&self, text: &str) -> std::io::Result<()> {
+    pub(crate) fn print_local_sections(&self, text: &str) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         stdout.write_all(text.as_bytes())
     }
 
     /// Print a successful merge line.
     #[allow(clippy::unused_self)]
-    pub fn print_merge_success(
+    pub(crate) fn print_merge_success(
         &self,
         base: &std::path::Path,
         target: &std::path::Path,

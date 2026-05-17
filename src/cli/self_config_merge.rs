@@ -2,4 +2,4 @@
 
 /// Zero-argument `self config-merge`.
 #[derive(Debug, clap::Args, Default)]
-pub struct SelfConfigMergeArgs;
+pub(crate) struct SelfConfigMergeArgs;

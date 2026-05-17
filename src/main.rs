@@ -51,49 +51,34 @@ fn main() -> ExitCode {
 }
 
 fn dispatch_self(ctx: &context::AppContext, rest: &[OsString]) -> Result<(), error::AppError> {
-    use clap::Parser as _;
-    use cli::self_cmd::{SelfArgs, SelfCommand};
+    use std::ffi::OsStr;
 
-    #[derive(clap::Parser)]
-    #[command(
-        name = "codex-session self",
-        disable_help_flag = false,
-        disable_help_subcommand = true
-    )]
-    struct SelfCli {
-        #[command(flatten)]
-        args: SelfArgs,
-    }
-
-    let mut argv = vec![OsString::from("codex-session self")];
-    argv.extend(rest.iter().cloned());
-
-    let parsed = match SelfCli::try_parse_from(&argv) {
-        Ok(p) => p,
-        Err(e) => {
-            if e.kind() == clap::error::ErrorKind::InvalidSubcommand
-                || e.kind() == clap::error::ErrorKind::UnknownArgument
-            {
-                let verb = rest
-                    .first()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                return Err(error::AppError::UnknownSelfVerb(verb));
-            }
-            e.exit();
-        }
+    // Bash semantics (`${1:-help}`): a missing OR empty first token defaults
+    // to "help". Non-UTF-8 tokens are never equal to any known verb and must
+    // fall through to the unknown-verb arm (rendered with lossy display).
+    let token = rest
+        .first()
+        .map_or_else(|| OsStr::new(""), OsString::as_os_str);
+    let token = if token.is_empty() {
+        OsStr::new("help")
+    } else {
+        token
     };
 
-    match parsed
-        .args
-        .command
-        .unwrap_or(SelfCommand::Help(crate::cli::self_help::SelfHelpArgs))
-    {
-        SelfCommand::Help(a) => commands::self_help::run(ctx, a),
-        SelfCommand::Version(a) => commands::self_version::run(ctx, a),
-        SelfCommand::ConfigStatus(a) => commands::self_config_status::run(ctx, a),
-        SelfCommand::ConfigMerge(a) => commands::self_config_merge::run(ctx, a),
-        SelfCommand::ShowLocal(a) => commands::self_show_local::run(ctx, a),
+    if token == OsStr::new("help") {
+        commands::self_help::run(ctx, cli::self_help::SelfHelpArgs)
+    } else if token == OsStr::new("version") {
+        commands::self_version::run(ctx, cli::self_version::SelfVersionArgs)
+    } else if token == OsStr::new("config-status") {
+        commands::self_config_status::run(ctx, cli::self_config_status::SelfConfigStatusArgs)
+    } else if token == OsStr::new("config-merge") {
+        commands::self_config_merge::run(ctx, cli::self_config_merge::SelfConfigMergeArgs)
+    } else if token == OsStr::new("show-local") {
+        commands::self_show_local::run(ctx, cli::self_show_local::SelfShowLocalArgs)
+    } else {
+        Err(error::AppError::UnknownSelfVerb(
+            token.to_string_lossy().into_owned(),
+        ))
     }
 }
 

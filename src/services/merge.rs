@@ -3,11 +3,19 @@
 
 use crate::adapters::fs::Fs;
 
+/// Merge-layer failures.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum MergeError {
+    /// Filesystem failure during merge orchestration.
+    #[error(transparent)]
+    Fs(#[from] crate::adapters::fs::FsError),
+}
+
 /// Mirror bash `__needs_merge` without a BASE existence guard.
 pub(crate) fn needs_merge_raw<F: Fs>(
     fs: &F,
     paths: &crate::domain::paths::CodexPaths,
-) -> std::io::Result<bool> {
+) -> Result<bool, MergeError> {
     if !fs.exists(&paths.target) {
         return Ok(true);
     }
@@ -20,11 +28,14 @@ pub(crate) fn needs_merge_raw<F: Fs>(
     Ok(base_mtime > stamp_mtime)
 }
 
-/// Mirror `self config-status` behavior, reporting no merge when BASE is absent.
+/// Mirrors `self config-status` bash semantics.
+///
+/// Returns `false` whenever BASE is absent, even if STAMP is missing, because
+/// no merge can run without BASE. See ADR-0001.
 pub(crate) fn needs_merge_observed<F: Fs>(
     fs: &F,
     paths: &crate::domain::paths::CodexPaths,
-) -> std::io::Result<bool> {
+) -> Result<bool, MergeError> {
     if !fs.exists(&paths.base) {
         return Ok(false);
     }
@@ -39,7 +50,7 @@ pub(crate) fn needs_merge_observed<F: Fs>(
 pub(crate) fn perform_merge<F: Fs>(
     fs: &F,
     paths: &crate::domain::paths::CodexPaths,
-) -> Result<(), crate::error::AppError> {
+) -> Result<(), MergeError> {
     tracing::info!("merging config");
     let base = fs.read_to_string(&paths.base)?;
     let local_sections = if fs.exists(&paths.target) {
@@ -91,26 +102,33 @@ mod tests {
             self.exists.contains(path)
         }
 
-        fn read_to_string(&self, _path: &Path) -> std::io::Result<String> {
+        fn read_to_string(&self, _path: &Path) -> Result<String, crate::adapters::fs::FsError> {
             unimplemented!()
         }
 
-        fn modified(&self, path: &Path) -> std::io::Result<SystemTime> {
+        fn modified(&self, path: &Path) -> Result<SystemTime, crate::adapters::fs::FsError> {
             self.modified
                 .get(path)
                 .copied()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "missing mtime"))
+                .ok_or_else(|| crate::adapters::fs::FsError::Stat {
+                    path: path.to_path_buf(),
+                    source: std::io::Error::new(std::io::ErrorKind::NotFound, "missing mtime"),
+                })
         }
 
-        fn create_dir_all(&self, _path: &Path) -> std::io::Result<()> {
+        fn create_dir_all(&self, _path: &Path) -> Result<(), crate::adapters::fs::FsError> {
             unimplemented!()
         }
 
-        fn write_atomic(&self, _target: &Path, _contents: &str) -> std::io::Result<()> {
+        fn write_atomic(
+            &self,
+            _target: &Path,
+            _contents: &str,
+        ) -> Result<(), crate::adapters::fs::FsError> {
             unimplemented!()
         }
 
-        fn touch(&self, _path: &Path) -> std::io::Result<()> {
+        fn touch(&self, _path: &Path) -> Result<(), crate::adapters::fs::FsError> {
             unimplemented!()
         }
     }

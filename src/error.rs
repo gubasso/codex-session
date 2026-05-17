@@ -20,6 +20,14 @@ pub(crate) enum AppError {
     #[error(transparent)]
     Process(#[from] crate::adapters::process::ProcessError),
 
+    /// Filesystem adapter failure.
+    #[error(transparent)]
+    Fs(#[from] crate::adapters::fs::FsError),
+
+    /// Merge service failure.
+    #[error(transparent)]
+    Merge(#[from] crate::services::merge::MergeError),
+
     /// Unexpected I/O failure.
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
@@ -35,11 +43,36 @@ impl AppError {
         match self {
             Self::CodexNotFound | Self::BaseMissing(_) => 1,
             Self::UnknownSelfVerb(_) => 2,
+            Self::Fs(err) | Self::Merge(crate::services::merge::MergeError::Fs(err)) => {
+                fs_error_exit_code(err)
+            }
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => 66,
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => 77,
             Self::Process(_) | Self::Io(_) => 74,
             Self::Other(_) => 70,
         }
+    }
+}
+
+fn fs_error_exit_code(err: &crate::adapters::fs::FsError) -> u8 {
+    use crate::adapters::fs::FsError;
+    match err {
+        FsError::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound => 66,
+        FsError::Read { source, .. } if source.kind() == std::io::ErrorKind::PermissionDenied => 77,
+        FsError::Stat { source, .. } if source.kind() == std::io::ErrorKind::NotFound => 66,
+        FsError::Stat { source, .. } if source.kind() == std::io::ErrorKind::PermissionDenied => 77,
+        FsError::Write { source, .. }
+        | FsError::Mkdir { source, .. }
+        | FsError::Touch { source, .. }
+            if source.kind() == std::io::ErrorKind::PermissionDenied =>
+        {
+            77
+        }
+        FsError::Read { .. }
+        | FsError::Write { .. }
+        | FsError::Mkdir { .. }
+        | FsError::Stat { .. }
+        | FsError::Touch { .. } => 74,
     }
 }
 
@@ -100,6 +133,84 @@ mod tests {
         assert_eq!(
             AppError::Io(std::io::Error::from(std::io::ErrorKind::Other)).exit_code(),
             74
+        );
+    }
+
+    #[test]
+    fn fs_read_not_found_is_sixty_six() {
+        assert_eq!(
+            AppError::Fs(crate::adapters::fs::FsError::Read {
+                path: std::path::PathBuf::from("/tmp/missing"),
+                source: std::io::Error::from(std::io::ErrorKind::NotFound),
+            })
+            .exit_code(),
+            66
+        );
+    }
+
+    #[test]
+    fn fs_read_permission_denied_is_seventy_seven() {
+        assert_eq!(
+            AppError::Fs(crate::adapters::fs::FsError::Read {
+                path: std::path::PathBuf::from("/tmp/secret"),
+                source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            })
+            .exit_code(),
+            77
+        );
+    }
+
+    #[test]
+    fn fs_write_is_seventy_four() {
+        assert_eq!(
+            AppError::Fs(crate::adapters::fs::FsError::Write {
+                path: std::path::PathBuf::from("/tmp/out"),
+                source: std::io::Error::from(std::io::ErrorKind::Other),
+            })
+            .exit_code(),
+            74
+        );
+    }
+
+    #[test]
+    fn merge_fs_write_other_is_seventy_four() {
+        assert_eq!(
+            AppError::Merge(crate::services::merge::MergeError::Fs(
+                crate::adapters::fs::FsError::Write {
+                    path: std::path::PathBuf::from("/tmp/out"),
+                    source: std::io::Error::from(std::io::ErrorKind::Other),
+                },
+            ))
+            .exit_code(),
+            74
+        );
+    }
+
+    #[test]
+    fn merge_fs_read_not_found_is_sixty_six() {
+        assert_eq!(
+            AppError::Merge(crate::services::merge::MergeError::Fs(
+                crate::adapters::fs::FsError::Read {
+                    path: std::path::PathBuf::from("/tmp/missing"),
+                    source: std::io::Error::from(std::io::ErrorKind::NotFound),
+                },
+            ))
+            .exit_code(),
+            66
+        );
+    }
+
+    #[test]
+    fn merge_fs_write_permission_denied_is_seventy_seven() {
+        assert_eq!(
+            AppError::Merge(crate::services::merge::MergeError::Fs(
+                crate::adapters::fs::FsError::Write {
+                    path: std::path::PathBuf::from("/tmp/out"),
+                    source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+                },
+            ))
+            .exit_code(),
+            77
         );
     }
 

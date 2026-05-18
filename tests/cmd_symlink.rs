@@ -24,7 +24,10 @@ fn symlinked_entrypoint_still_resolves_project_root_and_prints_version() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        format!("codex-session {}\n", env!("CARGO_PKG_VERSION"))
+        format!(
+            "codex-session {}\ncodex unavailable\n",
+            env!("CARGO_PKG_VERSION")
+        )
     );
 }
 
@@ -48,6 +51,9 @@ fn symlinked_launcher_still_prints_version() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        format!("codex-session {}\n", env!("CARGO_PKG_VERSION"))
+        format!(
+            "codex-session {}\ncodex unavailable\n",
+            env!("CARGO_PKG_VERSION")
+        )
     );
 }

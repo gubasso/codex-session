@@ -16,13 +16,20 @@ clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 anyhow = "1"
 thiserror = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "fmt",
+    "json",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tempfile = "3"
 which = "6"
 filetime = "0.2"
 
 [dev-dependencies]
 assert_cmd = "2"
+insta = { version = "1", features = ["json"] }
 predicates = "3"
 tempfile = "3"
 filetime = "0.2"
@@ -36,6 +43,7 @@ strip = "symbols"
 unsafe_code = "forbid"
 missing_docs = "allow"
 unreachable_pub = "warn"
+unused_must_use = "deny"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

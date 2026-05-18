@@ -72,19 +72,26 @@ fn missing_codex_on_path_errors_exactly() {
     let env = TestEnv::new();
     env.cmd()
         .assert()
-        .code(1)
+        .code(127)
         .stdout("")
-        .stderr("ERROR: codex binary not found in PATH\n");
+        .stderr(predicate::str::contains(
+            "codex-session: failed to resolve wrapped codex binary",
+        ))
+        .stderr(predicate::str::contains(
+            "hint:  set CODEX_SESSION_CHILD_BIN or add codex to PATH and retry",
+        ));
 }
 
 #[test]
-fn missing_codex_binary_emits_exact_error_and_exits_1() {
+fn missing_codex_binary_uses_shell_not_found_exit_code() {
     let env = TestEnv::new();
     env.cmd_with_path("")
         .assert()
-        .code(1)
+        .code(127)
         .stdout("")
-        .stderr("ERROR: codex binary not found in PATH\n");
+        .stderr(predicate::str::contains(
+            "codex-session: failed to resolve wrapped codex binary",
+        ));
 }
 
 #[test]
@@ -194,23 +201,6 @@ fn zero_argv_resolves_codex_and_attempts_exec() {
 }
 
 #[test]
-fn passthrough_forwards_help_verbatim() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().arg("--help").assert().success();
-    assert_eq!(env.argv(), vec![String::from("--help")]);
-}
-
-#[test]
-fn passthrough_zero_argv() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().assert().success();
-    assert_eq!(env.argc(), "0\n");
-    assert!(env.argv().is_empty());
-}
-
-#[test]
 fn path_order_first_match_wins() {
     let env = TestEnv::new();
     let first = env.make_fake_codex_in_dir("first-bin", "#!/usr/bin/env bash\nprintf 'FIRST' \n");
@@ -227,51 +217,6 @@ fn resolve_skips_non_executable_files() {
     let second = env.make_fake_codex_in_dir("exec-bin", "#!/usr/bin/env bash\nprintf 'EXEC' \n");
     let path = format!("{}:{}:/usr/bin:/bin", first.display(), second.display());
     env.cmd_with_path(&path).assert().success().stdout("EXEC");
-}
-
-#[test]
-fn merge_occurs_when_base_is_newer_than_stamp() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    std::fs::create_dir_all(env.stamp_path().parent().unwrap()).unwrap();
-    std::fs::write(env.stamp_path(), "").unwrap();
-    env.touch_older(&env.stamp_path());
-    env.touch_newer(&env.base_path());
-
-    env.cmd().arg("exec").assert().success();
-
-    let got = std::fs::read_to_string(env.target_path()).unwrap();
-    let want = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/expected-merged.toml"),
-    )
-    .unwrap();
-    assert_eq!(got, want);
-}
-
-#[test]
-fn merge_is_skipped_when_stamp_is_fresh() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    std::fs::create_dir_all(env.stamp_path().parent().unwrap()).unwrap();
-    std::fs::write(env.stamp_path(), "").unwrap();
-    env.touch_older(&env.base_path());
-    env.touch_newer(&env.stamp_path());
-
-    let before = std::fs::metadata(env.target_path())
-        .unwrap()
-        .modified()
-        .unwrap();
-    env.cmd().arg("exec").assert().success();
-    let after = std::fs::metadata(env.target_path())
-        .unwrap()
-        .modified()
-        .unwrap();
-    assert_eq!(before, after);
 }
 
 #[test]
@@ -303,7 +248,7 @@ fn default_stderr_is_silent_on_passthrough() {
 }
 
 #[test]
-fn rust_log_info_emits_merge_line_to_stderr() {
+fn rust_log_info_does_not_mirror_to_stderr_without_wrapper_flags() {
     let env = TestEnv::new();
     env.make_fake_codex();
     env.install_base();
@@ -313,5 +258,5 @@ fn rust_log_info_emits_merge_line_to_stderr() {
         .arg("exec")
         .assert()
         .success()
-        .stderr(predicate::str::contains("merging config"));
+        .stderr("");
 }

@@ -11,15 +11,18 @@ is to preserve observable behavior, not the shell implementation detail.
 
 ## Decision
 
-The Rust wrapper resolves `codex` with `which::which("codex")`. This is the
-supported replacement for the bash `command -v codex` implementation.
+The Rust wrapper first honors `CODEX_SESSION_CHILD_BIN` when it is set and
+non-empty. When no explicit override is present, it resolves `codex` with
+`which::which("codex")`. This remains the supported replacement for the bash
+`command -v codex` implementation.
 
 ## Consequences
 
-The observable behavior remains aligned with the bash contract: first PATH match
-wins, and non-executable files are skipped. Those invariants are locked by the
-existing integration tests `path_order_first_match_wins` and
-`resolve_skips_non_executable_files`.
+The observable behavior remains aligned with the bash contract for PATH-based
+lookup: first PATH match wins, and non-executable files are skipped. The wrapper
+also gains an explicit child override for CI, debugging, and deterministic test
+setups. These invariants are locked by integration tests for PATH ordering,
+skipping non-executable PATH entries, and the override precedence.
 
 ## Alternatives considered
 

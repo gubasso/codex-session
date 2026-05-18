@@ -139,6 +139,8 @@ mod tests {
             target: PathBuf::from("/tmp/target.toml"),
             cache_dir: PathBuf::from("/tmp/cache"),
             stamp: PathBuf::from("/tmp/cache/last-merge"),
+            log_file: PathBuf::from("/tmp/state/codex-session/codex-session.log"),
+            log_path_degraded: false,
         }
     }
 

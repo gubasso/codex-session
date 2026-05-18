@@ -1,7 +1,10 @@
 # ADR-0002 — Preserve legacy exit codes 1 and 2
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0011
 **Date:** 2026-05-17
+
+> Superseded on 2026-05-18 by [ADR-0011](0011-wrapper-env-vars-and-exit-codes.md).
+> Kept for history only.
 
 ## Context
 

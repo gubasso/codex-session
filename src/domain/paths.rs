@@ -15,6 +15,10 @@ pub(crate) struct CodexPaths {
     pub(crate) cache_dir: std::path::PathBuf,
     /// Stamp file path.
     pub(crate) stamp: std::path::PathBuf,
+    /// Program-log file path.
+    pub(crate) log_file: std::path::PathBuf,
+    /// Whether log path resolution had to fall back to a degraded location.
+    pub(crate) log_path_degraded: bool,
 }
 
 impl CodexPaths {
@@ -30,11 +34,14 @@ impl CodexPaths {
         let cache_root = non_empty_var("XDG_CACHE_HOME")
             .map_or_else(|| home.join(".cache"), std::path::PathBuf::from);
         let cache_dir = cache_root.join("codex-session");
+        let (log_file, log_path_degraded) = resolve_log_file();
         Self {
             base: codex_dir.join("config.base.toml"),
             target: codex_dir.join("config.toml"),
             cache_dir: cache_dir.clone(),
             stamp: cache_dir.join("last-merge"),
+            log_file,
+            log_path_degraded,
         }
     }
 }
@@ -42,4 +49,35 @@ impl CodexPaths {
 /// Read an environment variable, treating empty values as absent.
 fn non_empty_var(name: &str) -> Option<std::ffi::OsString> {
     std::env::var_os(name).filter(|value| !value.is_empty())
+}
+
+/// Resolve the wrapper program-log path.
+fn resolve_log_file() -> (std::path::PathBuf, bool) {
+    if let Some(path) = non_empty_var("CODEX_SESSION_LOG_FILE") {
+        return (std::path::PathBuf::from(path), false);
+    }
+    if let Some(dir) = non_empty_var("CODEX_SESSION_LOG_DIR") {
+        return (
+            std::path::PathBuf::from(dir).join("codex-session.log"),
+            false,
+        );
+    }
+    if let Some(state_home) = non_empty_var("XDG_STATE_HOME") {
+        return (
+            std::path::PathBuf::from(state_home)
+                .join("codex-session")
+                .join("codex-session.log"),
+            false,
+        );
+    }
+    if let Some(home) = non_empty_var("HOME") {
+        return (
+            std::path::PathBuf::from(home).join(".local/state/codex-session/codex-session.log"),
+            false,
+        );
+    }
+    (
+        std::path::PathBuf::from("/tmp/codex-session/codex-session.log"),
+        true,
+    )
 }

@@ -37,16 +37,17 @@ fn self_config_merge_forces_rewrite_when_stamp_is_fresh() {
 #[test]
 fn self_config_merge_without_base_errors_exactly() {
     let env = TestEnv::new();
-    let expected = format!(
-        "ERROR: base config not found at {}\n",
-        env.base_path().display()
-    );
     env.cmd()
         .args(["self", "config-merge"])
         .assert()
-        .code(1)
+        .code(66)
         .stdout("")
-        .stderr(expected);
+        .stderr(predicates::str::contains(
+            "codex-session: failed to load base config",
+        ))
+        .stderr(predicates::str::contains(
+            env.base_path().to_string_lossy().as_ref(),
+        ));
 }
 
 #[test]

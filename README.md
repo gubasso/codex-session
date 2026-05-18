@@ -11,18 +11,17 @@
 - If `BASE` is missing, skips merge logic and `exec`s the real `codex` unchanged.
 - If merge is needed, rewrites `TARGET` as base config plus preserved local-only sections.
 - Uses a same-directory temporary file plus atomic rename for config rewrites.
-- Uses the exact missing-binary error string: `ERROR: codex binary not found in PATH`.
 - Passes all non-`self` argv through verbatim to the real `codex`, including `--help`, `--version`, `exec`, `resume`, and future verbs.
 
 ## `self` Verbs
 
 - `codex-session self help`
-- `codex-session self version`
-- `codex-session self config-status`
+- `codex-session self version [--format text|json]`
+- `codex-session self config-status [--format text|json]`
 - `codex-session self config-merge`
-- `codex-session self show-local`
+- `codex-session self show-local [--format text|json]`
 
-Everything outside `self` is pass-through to the real `codex`.
+Everything outside `self` is pass-through to the real `codex`. Wrapper-owned flags live only under `self` so the top-level argv contract stays transparent.
 
 ## Install
 
@@ -47,30 +46,68 @@ The migration-specific design decisions for this wrapper are recorded under
 [`docs/adr/`](docs/adr/):
 
 - [ADR-0001: top-level pass-through bypasses clap](docs/adr/0001-top-level-passthrough-bypasses-clap.md)
-- [ADR-0002: preserve legacy exit codes 1 and 2](docs/adr/0002-preserve-legacy-exit-codes-1-and-2.md)
 - [ADR-0003: install via cargo install](docs/adr/0003-install-via-cargo-install.md)
 - [ADR-0004: codex resolution via which crate](docs/adr/0004-codex-resolution-via-which-crate.md)
 - [ADR-0005: atomic write via named tempfile](docs/adr/0005-atomic-write-via-named-tempfile.md)
 - [ADR-0006: unset HOME falls back to root](docs/adr/0006-unset-home-falls-back-to-root.md)
-- [ADR-0007: no global verbosity flag](docs/adr/0007-no-global-verbosity-flag.md)
 - [ADR-0008: skip directories and figment](docs/adr/0008-skip-directories-and-figment.md)
 - [ADR-0009: foo.rs over mod.rs](docs/adr/0009-foo-dot-rs-over-mod-rs.md)
 - [ADR-0010: paths stay as PathBuf](docs/adr/0010-paths-stay-as-pathbuf.md)
+- [ADR-0011: wrapper env vars and exit codes](docs/adr/0011-wrapper-env-vars-and-exit-codes.md)
+- [ADR-0012: two-layer logging and JSON output](docs/adr/0012-two-layer-logging-and-json-output.md)
 
 ## Environment
 
 - `HOME` is used to resolve `~/.codex/config.base.toml` and `~/.codex/config.toml`.
 - `XDG_CACHE_HOME` overrides the cache root for `codex-session/last-merge`.
-- `PATH` must contain the real `codex` binary for pass-through mode.
-- `RUST_LOG` controls wrapper logging. Logging is silent by default; set
-  `RUST_LOG=info` or `RUST_LOG=trace` to inspect merge and pass-through
-  decisions.
+- `PATH` is used to resolve the real `codex` binary when `CODEX_SESSION_CHILD_BIN` is unset.
+- `RUST_LOG` overrides the wrapper's default verbosity mapping.
 
-Example:
+Wrapper-specific environment variables:
 
-```bash
-RUST_LOG=info cargo run -- self config-status
-```
+- `CODEX_SESSION_CHILD_BIN` points at the wrapped `codex` binary explicitly.
+- `CODEX_SESSION_LOG_FILE` sets the full path for the program log file.
+- `CODEX_SESSION_LOG_DIR` sets only the log directory; the file name stays `codex-session.log`.
+
+## Logging & Diagnostics
+
+`codex-session` always writes structured JSON logs to a file. The default path is:
+
+- `${XDG_STATE_HOME}/codex-session/codex-session.log`
+- or `${HOME}/.local/state/codex-session/codex-session.log`
+- or a degraded fallback under `/tmp/codex-session/codex-session.log` when neither state root is usable
+
+Wrapper-owned verbosity is exposed only under `self`:
+
+- `codex-session self -v ...`
+- `codex-session self -vv ...`
+- `codex-session self -vvv ...`
+- `codex-session self --log-stderr ...`
+
+`-v` levels widen the wrapper log filter, `--log-stderr` mirrors wrapper logs to stderr for interactive debugging, and `RUST_LOG` still takes precedence over the default verbosity-derived filter.
+
+## Exit Codes
+
+`codex-session` uses BSD `sysexits` plus the standard shell child-resolution codes:
+
+- `0` success
+- `64` usage / clap parse failure
+- `66` missing input such as a forced merge with no base config
+- `70` internal software error
+- `74` generic I/O failure or failed `exec` handoff
+- `77` permission denied
+- `126` child resolved but is not executable
+- `127` child not found
+
+## Machine-readable Output
+
+These wrapper-owned read paths support `--format json`:
+
+- `codex-session self version --format json`
+- `codex-session self config-status --format json`
+- `codex-session self show-local --format json`
+
+The structured program log is JSON-per-line and includes stable fields such as `op`, `status`, `err.kind`, `err.msg`, and `bin.resolved`. Stdout remains reserved for command results; wrapper diagnostics go to the log file and optionally to stderr when stderr mirroring is enabled.
 
 ## Unix-only
 
@@ -78,6 +115,6 @@ RUST_LOG=info cargo run -- self config-status
 
 ## Development
 
-- `just check` runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo nextest run`.
+- `just check` runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `just lint-print`, and `cargo nextest run`.
 - `just fix` runs `cargo fmt --all` and `cargo clippy --fix --allow-dirty --allow-staged --all-features -- -W clippy::all`.
 - `just precommit` and `just precommit-all` run the configured pre-commit hooks.

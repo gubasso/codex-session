@@ -68,7 +68,30 @@ impl AppError {
                 "io-permission-denied"
             }
             Self::Io(_) => "io-other",
+            Self::Other(err) if is_config_marker(err) => "config",
             Self::Other(_) => "internal",
+        }
+    }
+
+    /// Tag a `ConfigError` so `exit_code` returns 78 without a dedicated variant yet.
+    pub(crate) fn from_config_error(err: crate::config::ConfigError) -> Self {
+        Self::Other(anyhow::Error::new(err).context("config-error"))
+    }
+
+    /// Convert a process-adapter error into the matching application variant.
+    pub(crate) fn from_process_error(err: crate::adapters::process::ProcessError) -> Self {
+        match err {
+            crate::adapters::process::ProcessError::NotFound {
+                tried,
+                path_searched,
+            } => Self::ChildNotFound {
+                tried,
+                path_searched,
+            },
+            crate::adapters::process::ProcessError::NotExecutable { path } => {
+                Self::ChildNotExecutable { path }
+            }
+            other @ crate::adapters::process::ProcessError::Exec(_) => Self::Process(other),
         }
     }
 
@@ -85,6 +108,7 @@ impl AppError {
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => 66,
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => 77,
             Self::Process(_) | Self::Io(_) => 74,
+            Self::Other(err) if is_config_marker(err) => 78,
             Self::Other(_) => 70,
         }
     }
@@ -199,12 +223,32 @@ fn detail(err: &AppError) -> ErrorDetail {
             why_line: source.to_string(),
             hint_line: None,
         },
+        AppError::Other(source) if is_config_marker(source) => config_error_detail(source),
         AppError::Other(source) => ErrorDetail {
             what: "internal wrapper failure",
             where_line: None,
             why_line: source.to_string(),
             hint_line: None,
         },
+    }
+}
+
+fn config_error_detail(err: &anyhow::Error) -> ErrorDetail {
+    // Walk the chain past the `config-error` marker context and emit the
+    // root cause as `why`. Without this branch, `why` reads `config-error`
+    // and the user sees "internal wrapper failure" for what is in fact a
+    // config problem.
+    let why_line = err
+        .chain()
+        .find(|cause| cause.to_string() != "config-error")
+        .map_or_else(|| err.to_string(), ToString::to_string);
+    ErrorDetail {
+        what: "configuration error",
+        where_line: None,
+        why_line,
+        hint_line: Some(
+            "check your config files under $XDG_CONFIG_HOME/codex-session and ./.codex-session",
+        ),
     }
 }
 
@@ -275,6 +319,10 @@ fn fs_error_detail(err: &crate::adapters::fs::FsError) -> ErrorDetail {
             hint_line: None,
         },
     }
+}
+
+fn is_config_marker(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| cause.to_string() == "config-error")
 }
 
 #[cfg(test)]
@@ -433,6 +481,12 @@ mod tests {
     #[test]
     fn other_is_seventy() {
         assert_eq!(AppError::Other(anyhow::anyhow!("boom")).exit_code(), 70);
+    }
+
+    #[test]
+    fn config_marker_is_seventy_eight() {
+        let err = AppError::Other(anyhow::anyhow!("boom").context("config-error"));
+        assert_eq!(err.exit_code(), 78);
     }
 
     #[test]

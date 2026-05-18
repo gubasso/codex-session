@@ -12,7 +12,7 @@ pub(crate) fn run(
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
     let real_codex = ctx
         .process
-        .resolve_codex()
+        .resolve_codex(ctx.config.child.bin.as_deref())
         .map_err(crate::error::AppError::from_process_error)?;
     tracing::info!(
         op = "child.resolve",
@@ -20,10 +20,10 @@ pub(crate) fn run(
         bin.resolved = %real_codex.display()
     );
 
-    if ctx.fs.exists(&ctx.paths.base)
-        && crate::services::merge::needs_merge_raw(&ctx.fs, &ctx.paths)?
+    if ctx.fs.exists(ctx.paths().base_config.as_std_path())
+        && crate::services::merge::needs_merge_raw(&ctx.fs, ctx.paths())?
     {
-        crate::services::merge::perform_merge(&ctx.fs, &ctx.paths)?;
+        crate::services::merge::perform_merge(&ctx.fs, ctx.paths())?;
     }
 
     let err = ctx.process.exec_replace(&real_codex, argv);

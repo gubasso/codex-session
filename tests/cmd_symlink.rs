@@ -16,8 +16,10 @@ fn symlinked_entrypoint_still_resolves_project_root_and_prints_version() {
         .env_clear()
         .env("HOME", &env.home)
         .env("XDG_CACHE_HOME", &env.cache)
+        .env("XDG_CONFIG_HOME", &env.config_home)
+        .env("XDG_STATE_HOME", &env.state_home)
         .env("PATH", "/usr/bin:/bin")
-        .args(["self", "version"])
+        .arg("version")
         .output()
         .unwrap();
 
@@ -25,7 +27,7 @@ fn symlinked_entrypoint_still_resolves_project_root_and_prints_version() {
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         format!(
-            "codex-session {}\ncodex unavailable\n",
+            "codex-session {}\ncodex (unresolved)\n",
             env!("CARGO_PKG_VERSION")
         )
     );
@@ -43,8 +45,10 @@ fn symlinked_launcher_still_prints_version() {
         .env_clear()
         .env("HOME", &env.home)
         .env("XDG_CACHE_HOME", &env.cache)
+        .env("XDG_CONFIG_HOME", &env.config_home)
+        .env("XDG_STATE_HOME", &env.state_home)
         .env("PATH", "/usr/bin:/bin")
-        .args(["self", "version"])
+        .arg("version")
         .output()
         .unwrap();
 
@@ -52,7 +56,7 @@ fn symlinked_launcher_still_prints_version() {
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         format!(
-            "codex-session {}\ncodex unavailable\n",
+            "codex-session {}\ncodex (unresolved)\n",
             env!("CARGO_PKG_VERSION")
         )
     );

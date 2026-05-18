@@ -29,7 +29,10 @@ pub(crate) enum ProcessError {
 /// Process operations used by the application.
 pub(crate) trait Process {
     /// Resolve the real `codex` binary on `PATH`.
-    fn resolve_codex(&self) -> Result<std::path::PathBuf, ProcessError>;
+    fn resolve_codex(
+        &self,
+        child_override: Option<&camino::Utf8Path>,
+    ) -> Result<std::path::PathBuf, ProcessError>;
 
     /// Best-effort first line of `<program> --version`.
     fn child_version_line(&self, program: &std::path::Path) -> Option<String>;
@@ -43,9 +46,12 @@ pub(crate) trait Process {
 pub(crate) struct StdProcess;
 
 impl Process for StdProcess {
-    fn resolve_codex(&self) -> Result<std::path::PathBuf, ProcessError> {
-        if let Some(path) = std::env::var_os("CODEX_SESSION_CHILD_BIN").filter(|v| !v.is_empty()) {
-            let path = std::path::PathBuf::from(path);
+    fn resolve_codex(
+        &self,
+        child_override: Option<&camino::Utf8Path>,
+    ) -> Result<std::path::PathBuf, ProcessError> {
+        if let Some(path) = child_override {
+            let path = path.as_std_path().to_path_buf();
             let metadata = std::fs::metadata(&path).map_err(|_| ProcessError::NotFound {
                 tried: path.clone(),
                 path_searched: None,

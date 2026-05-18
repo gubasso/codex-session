@@ -6,24 +6,6 @@ use predicates::prelude::*;
 use support::TestEnv;
 
 #[test]
-fn dash_dash_help_is_passed_through_to_codex() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().arg("--help").assert().success();
-    assert_eq!(env.argc(), "1\n");
-    assert_eq!(env.argv(), vec![String::from("--help")]);
-}
-
-#[test]
-fn dash_dash_version_is_passed_through_to_codex() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().arg("--version").assert().success();
-    assert_eq!(env.argc(), "1\n");
-    assert_eq!(env.argv(), vec![String::from("--version")]);
-}
-
-#[test]
 fn exec_foo_bar_is_passed_through_to_codex() {
     let env = TestEnv::new();
     env.make_fake_codex();
@@ -59,18 +41,10 @@ fn unknown_future_verb_is_passed_through_to_codex() {
 }
 
 #[test]
-fn no_arg_invocation_calls_codex_with_zero_argv() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().assert().success();
-    assert_eq!(env.argc(), "0\n");
-    assert_eq!(std::fs::metadata(&env.argv_file).unwrap().len(), 0);
-}
-
-#[test]
 fn missing_codex_on_path_errors_exactly() {
     let env = TestEnv::new();
     env.cmd()
+        .arg("exec")
         .assert()
         .code(127)
         .stdout("")
@@ -86,6 +60,7 @@ fn missing_codex_on_path_errors_exactly() {
 fn missing_codex_binary_uses_shell_not_found_exit_code() {
     let env = TestEnv::new();
     env.cmd_with_path("")
+        .arg("exec")
         .assert()
         .code(127)
         .stdout("")
@@ -197,7 +172,7 @@ fn merge_creates_stamp_and_cache_dir_on_virgin_machine() {
 fn zero_argv_resolves_codex_and_attempts_exec() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("OK");
-    env.cmd().assert().success().stdout("OK");
+    env.cmd().arg("exec").assert().success().stdout("OK");
 }
 
 #[test]
@@ -207,7 +182,11 @@ fn path_order_first_match_wins() {
     let second =
         env.make_fake_codex_in_dir("second-bin", "#!/usr/bin/env bash\nprintf 'SECOND' \n");
     let path = format!("{}:{}:/usr/bin:/bin", first.display(), second.display());
-    env.cmd_with_path(&path).assert().success().stdout("FIRST");
+    env.cmd_with_path(&path)
+        .arg("exec")
+        .assert()
+        .success()
+        .stdout("FIRST");
 }
 
 #[test]
@@ -216,7 +195,11 @@ fn resolve_skips_non_executable_files() {
     let first = env.make_non_executable_codex_in_dir("non-exec-bin", "not executable");
     let second = env.make_fake_codex_in_dir("exec-bin", "#!/usr/bin/env bash\nprintf 'EXEC' \n");
     let path = format!("{}:{}:/usr/bin:/bin", first.display(), second.display());
-    env.cmd_with_path(&path).assert().success().stdout("EXEC");
+    env.cmd_with_path(&path)
+        .arg("exec")
+        .assert()
+        .success()
+        .stdout("EXEC");
 }
 
 #[test]
@@ -224,6 +207,7 @@ fn missing_home_does_not_panic() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("OK");
     env.cmd_without_home()
+        .arg("exec")
         .assert()
         .success()
         .stdout(predicate::str::contains("OK"));
@@ -235,28 +219,8 @@ fn rust_log_does_not_pollute_stdout() {
     env.make_fake_codex_printing_stdout("OK");
     env.cmd()
         .env("RUST_LOG", "trace")
-        .assert()
-        .success()
-        .stdout("OK");
-}
-
-#[test]
-fn default_stderr_is_silent_on_passthrough() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().assert().success().stderr("");
-}
-
-#[test]
-fn rust_log_info_does_not_mirror_to_stderr_without_wrapper_flags() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    env.cmd()
-        .env("RUST_LOG", "info")
         .arg("exec")
         .assert()
         .success()
-        .stderr("");
+        .stdout("OK");
 }

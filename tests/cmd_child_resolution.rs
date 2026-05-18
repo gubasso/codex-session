@@ -14,6 +14,7 @@ fn child_bin_override_wins_over_path() {
 
     env.cmd()
         .env("CODEX_SESSION_CHILD_BIN", &override_bin)
+        .arg("exec")
         .assert()
         .success()
         .stdout("OVERRIDE");
@@ -27,6 +28,7 @@ fn child_bin_override_not_executable_exits_126() {
 
     env.cmd()
         .env("CODEX_SESSION_CHILD_BIN", &override_bin)
+        .arg("exec")
         .assert()
         .code(126)
         .stdout("")
@@ -46,6 +48,7 @@ fn child_bin_override_pointing_at_directory_exits_126() {
 
     env.cmd()
         .env("CODEX_SESSION_CHILD_BIN", &dir)
+        .arg("exec")
         .assert()
         .code(126)
         .stdout("")
@@ -61,6 +64,7 @@ fn missing_child_bin_override_exits_127() {
 
     env.cmd()
         .env("CODEX_SESSION_CHILD_BIN", &missing)
+        .arg("exec")
         .assert()
         .code(127)
         .stdout("")

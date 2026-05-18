@@ -1,4 +1,4 @@
-//! `self show-local` command.
+//! `config show-local` command.
 #![allow(clippy::missing_errors_doc)]
 
 use crate::adapters::fs::Fs as _;
@@ -13,37 +13,40 @@ struct ShowLocalReport {
 /// Print local-only sections that would be preserved by a merge.
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
-    args: crate::cli::self_show_local::SelfShowLocalArgs,
+    args: crate::cli::config::ShowLocalArgs,
 ) -> Result<(), crate::error::AppError> {
-    tracing::info!(op = "self.show-local", status = "start");
-    if !ctx.fs.exists(&ctx.paths.target) {
+    tracing::info!(op = "config.show-local", status = "start");
+    if !ctx.fs.exists(ctx.paths().target_config.as_std_path()) {
         if args.format == crate::cli::OutputFormat::Json {
             let report = ShowLocalReport {
-                source_path: ctx.paths.target.display().to_string(),
+                source_path: ctx.paths().target_config.to_string(),
                 local_sections: String::new(),
             };
             ctx.ui.print_json(&report)?;
         }
-        tracing::info!(op = "self.show-local", status = "ok");
+        tracing::info!(op = "config.show-local", status = "ok");
         return Ok(());
     }
-    let base = if ctx.fs.exists(&ctx.paths.base) {
-        ctx.fs.read_to_string(&ctx.paths.base)?
+    let base = if ctx.fs.exists(ctx.paths().base_config.as_std_path()) {
+        ctx.fs
+            .read_to_string(ctx.paths().base_config.as_std_path())?
     } else {
         String::new()
     };
-    let target = ctx.fs.read_to_string(&ctx.paths.target)?;
+    let target = ctx
+        .fs
+        .read_to_string(ctx.paths().target_config.as_std_path())?;
     let local = crate::domain::config_merge::extract_local_sections(&base, &target);
     match args.format {
         crate::cli::OutputFormat::Text => ctx.ui.print_local_sections(&local)?,
         crate::cli::OutputFormat::Json => {
             let report = ShowLocalReport {
-                source_path: ctx.paths.target.display().to_string(),
+                source_path: ctx.paths().target_config.to_string(),
                 local_sections: local,
             };
             ctx.ui.print_json(&report)?;
         }
     }
-    tracing::info!(op = "self.show-local", status = "ok");
+    tracing::info!(op = "config.show-local", status = "ok");
     Ok(())
 }

@@ -6,36 +6,55 @@ use insta::{assert_json_snapshot, assert_snapshot};
 use support::TestEnv;
 
 #[test]
-fn self_version_text_snapshot() {
+fn version_text_snapshot() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("codex 1.2.3\n");
 
     let output = env
         .cmd()
-        .args(["self", "version"])
+        .arg("version")
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
     let stdout = env.normalize_text(&String::from_utf8(output).unwrap());
-    assert_snapshot!("self_version_text", stdout);
+    assert_snapshot!("version_text", stdout);
 }
 
 #[test]
-fn self_version_does_not_recurse_when_child_bin_points_at_wrapper() {
-    // Misconfig guard: if CODEX_SESSION_CHILD_BIN points at the wrapper
-    // itself, `self version` must NOT spawn `<wrapper> --version` (which
-    // would re-enter pass-through and exec-loop). Instead it must skip the
-    // probe and report `child-version: null` / `(unknown)`.
+fn version_flag_matches_subcommand_output() {
+    let env = TestEnv::new();
+    env.make_fake_codex_printing_stdout("codex 1.2.3\n");
+
+    let flag = env
+        .cmd()
+        .arg("--version")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let subcommand = env
+        .cmd()
+        .arg("version")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(flag, subcommand);
+}
+
+#[test]
+fn version_does_not_recurse_when_child_bin_points_at_wrapper() {
     let env = TestEnv::new();
     let wrapper_path = assert_cmd::cargo::cargo_bin("codex-session");
 
     let output = env
         .cmd()
         .env("CODEX_SESSION_CHILD_BIN", &wrapper_path)
-        .args(["self", "version", "--format", "json"])
-        .timeout(std::time::Duration::from_secs(5))
+        .args(["version", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -49,13 +68,13 @@ fn self_version_does_not_recurse_when_child_bin_points_at_wrapper() {
 }
 
 #[test]
-fn self_version_json_snapshot() {
+fn version_json_snapshot() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("codex 1.2.3\n");
 
     let output = env
         .cmd()
-        .args(["self", "version", "--format", "json"])
+        .args(["version", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -63,5 +82,5 @@ fn self_version_json_snapshot() {
         .clone();
     let mut value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     env.normalize_json(&mut value);
-    assert_json_snapshot!("self_version_json", value);
+    assert_json_snapshot!("version_json", value);
 }

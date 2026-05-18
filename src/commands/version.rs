@@ -1,4 +1,4 @@
-//! `self version` command.
+//! `version` command.
 #![allow(clippy::missing_errors_doc)]
 
 use crate::adapters::process::Process as _;
@@ -14,10 +14,13 @@ pub(crate) struct VersionReport {
 /// Print the wrapper version.
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
-    args: crate::cli::self_version::SelfVersionArgs,
+    args: crate::cli::version::VersionArgs,
 ) -> Result<(), crate::error::AppError> {
-    tracing::info!(op = "self.version", status = "start");
-    let child_path = ctx.process.resolve_codex().ok();
+    tracing::info!(op = "version", status = "start");
+    let child_path = ctx
+        .process
+        .resolve_codex(ctx.config.child.bin.as_deref())
+        .ok();
     let report = VersionReport {
         wrapper_version: crate::domain::version::current().to_owned(),
         child_version: child_path
@@ -29,6 +32,6 @@ pub(crate) fn run(
         crate::cli::OutputFormat::Text => ctx.ui.print_version_details(&report)?,
         crate::cli::OutputFormat::Json => ctx.ui.print_json(&report)?,
     }
-    tracing::info!(op = "self.version", status = "ok");
+    tracing::info!(op = "version", status = "ok");
     Ok(())
 }

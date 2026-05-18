@@ -1,5 +1,5 @@
 ---
-source: tests/cmd_self_version.rs
+source: tests/cmd_version.rs
 expression: value
 ---
 {

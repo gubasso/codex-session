@@ -11,6 +11,7 @@ fn error_path_writes_structured_json_log_file() {
 
     env.cmd()
         .env("XDG_STATE_HOME", &state_home)
+        .arg("exec")
         .assert()
         .code(127);
 
@@ -24,15 +25,15 @@ fn error_path_writes_structured_json_log_file() {
 }
 
 #[test]
-fn self_parse_error_still_writes_structured_log() {
+fn version_parse_error_still_writes_structured_log() {
     let env = TestEnv::new();
     let state_home = env.tmp.path().join("state");
 
-    // `self version junk` fails clap parsing; the log file must still be
+    // `version junk` fails clap parsing; the log file must still be
     // created and must record the structured error event.
     env.cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["self", "version", "junk"])
+        .args(["version", "junk"])
         .assert()
         .code(64);
 
@@ -49,8 +50,8 @@ fn self_parse_error_still_writes_structured_log() {
 }
 
 #[test]
-fn self_parse_error_still_honors_verbose_and_log_stderr() {
-    // Even on a parse failure, `-v` and `--log-stderr` placed under `self`
+fn version_parse_error_still_honors_verbose_and_log_stderr() {
+    // Even on a parse failure, `-v` and `--log-stderr`
     // must apply to the error report so users get the requested observability.
     let env = TestEnv::new();
     let state_home = env.tmp.path().join("state");
@@ -58,7 +59,7 @@ fn self_parse_error_still_honors_verbose_and_log_stderr() {
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["self", "-v", "--log-stderr", "version", "junk"])
+        .args(["-v", "--log-stderr", "version", "junk"])
         .assert()
         .code(64)
         .get_output()
@@ -79,10 +80,10 @@ fn self_parse_error_still_honors_verbose_and_log_stderr() {
 }
 
 #[test]
-fn self_parse_error_honors_global_flags_after_verb() {
-    // `SelfGlobalArgs` are clap `global = true`, so `-v` / `--log-stderr`
+fn version_parse_error_honors_global_flags_after_verb() {
+    // `GlobalArgs` are clap `global = true`, so `-v` / `--log-stderr`
     // are valid before AND after the verb. The relaxed pre-scan must honor
-    // post-verb placements too, otherwise `self version -v junk` (a
+    // post-verb placements too, otherwise `version -v junk` (a
     // perfectly legal flag position that still fails parse on the trailing
     // `junk`) silently drops the requested verbosity.
     let env = TestEnv::new();
@@ -91,7 +92,7 @@ fn self_parse_error_honors_global_flags_after_verb() {
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["self", "version", "--log-stderr", "-v", "junk"])
+        .args(["version", "--log-stderr", "-v", "junk"])
         .assert()
         .code(64)
         .get_output()
@@ -104,17 +105,17 @@ fn self_parse_error_honors_global_flags_after_verb() {
 }
 
 #[test]
-fn self_parse_error_honors_stacked_short_verbose_cluster() {
+fn version_parse_error_honors_stacked_short_verbose_cluster() {
     // clap's `ArgAction::Count` accepts arbitrary short-cluster lengths
     // like `-vvvv`. The fallback scanner must mirror that, otherwise
-    // `self version -vvvv junk` silently falls back to `verbose = 0`.
+    // `version -vvvv junk` silently falls back to `verbose = 0`.
     let env = TestEnv::new();
     let state_home = env.tmp.path().join("state");
 
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["self", "version", "-vvvv", "junk"])
+        .args(["version", "-vvvv", "junk"])
         .assert()
         .code(64)
         .get_output()
@@ -136,22 +137,22 @@ fn self_parse_error_honors_stacked_short_verbose_cluster() {
 }
 
 #[test]
-fn self_verbose_mirrors_logs_to_stderr_and_file() {
+fn top_level_verbose_mirrors_logs_to_stderr_and_file() {
     let env = TestEnv::new();
     let state_home = env.tmp.path().join("state");
 
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["self", "-v", "help"])
+        .args(["-v", "help"])
         .assert()
         .success()
         .get_output()
         .clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("self.help"));
+    assert!(stderr.contains("help"));
 
     let log_file = state_home.join("codex-session/codex-session.log");
     let contents = std::fs::read_to_string(&log_file).unwrap();
-    assert!(contents.contains("\"op\":\"self.help\""));
+    assert!(contents.contains("\"op\":\"help\""));
 }

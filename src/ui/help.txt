@@ -3,24 +3,30 @@ with the stow-managed ~/.codex/config.base.toml while preserving machine-local
 sections (e.g. [projects."..."]).
 
 Usage:
-  codex-session [<codex args>...]            # pass-through to real `codex`
-  codex-session self <verb> [options]        # wrapper-only commands
+  codex-session
+  codex-session help
+  codex-session version [--format <fmt>]
+  codex-session config status [--format <fmt>]
+  codex-session config merge
+  codex-session config show-local [--format <fmt>]
+  codex-session [<codex verb> ...]
+  codex-session -- [<codex args> ...]
 
 Wrapper verbs:
-  self help            Show this message.
-  self version         Print codex-session wrapper + resolved child version.
-  self config-status   Print base/target/stamp paths and whether a merge is needed.
-  self config-merge    Force re-merge regardless of stamp freshness.
-  self show-local      Print machine-local TOML sections that would be preserved.
+  help                 Show this message.
+  version              Print codex-session wrapper + resolved child version.
+  config status        Print base/target/stamp paths and whether a merge is needed.
+  config merge         Force re-merge regardless of stamp freshness.
+  config show-local    Print machine-local TOML sections that would be preserved.
 
-Wrapper options (only valid under `self`):
+Wrapper options:
   -v, -vv, -vvv        Raise wrapper log verbosity (info / debug / trace).
                        Overridden by RUST_LOG when that env var is set.
       --log-stderr     Mirror the wrapper log to stderr in addition to the
                        structured JSON log file.
+      --version        Print wrapper + child version and exit.
       --format <fmt>   Output format: `text` (default) or `json`.
-                       Honored by: self version, self config-status,
-                       self show-local.
+                       Honored by: version, config status, config show-local.
 
 Environment:
   CODEX_SESSION_CHILD_BIN   Explicit path to the inner `codex` binary.
@@ -31,5 +37,5 @@ Environment:
   RUST_LOG                  Standard `tracing` filter; overrides -v.
   NO_COLOR                  Disable ANSI colors on the stderr mirror.
 
-Anything not under `self` is forwarded verbatim to the real `codex` binary,
-including `--help`, `--version`, `exec`, `resume`, `login`, and any future verbs.
+Any subcommand not recognized by the wrapper is forwarded verbatim to the real
+`codex`. Use `--` to force pass-through of `-`-prefixed arguments.

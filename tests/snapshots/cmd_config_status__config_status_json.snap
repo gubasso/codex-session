@@ -1,0 +1,26 @@
+---
+source: tests/cmd_config_status.rs
+assertion_line: 42
+expression: value
+---
+{
+  "base-exists": true,
+  "base-path": "<TMP>/home/.codex/config.base.toml",
+  "child-bin": "<TMP>/bin/codex",
+  "log-file": "<TMP>/state/codex-session/codex-session.log",
+  "log-format": "json",
+  "log-mirror-stderr": false,
+  "log-verbose": 0,
+  "needs-merge": true,
+  "sources": {
+    "cli": "CliValueOverrides { log: None, child: None }",
+    "defaults": true,
+    "env": "CODEX_SESSION_*",
+    "project": null,
+    "user": null
+  },
+  "stamp-exists": false,
+  "stamp-path": "<TMP>/cache/codex-session/last-merge",
+  "target-exists": false,
+  "target-path": "<TMP>/home/.codex/config.toml"
+}

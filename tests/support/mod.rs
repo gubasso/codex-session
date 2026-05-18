@@ -12,6 +12,8 @@ pub struct TestEnv {
     pub tmp: tempfile::TempDir,
     pub home: PathBuf,
     pub cache: PathBuf,
+    pub config_home: PathBuf,
+    pub state_home: PathBuf,
     pub fake_bin: PathBuf,
     pub argc_file: PathBuf,
     pub argv_file: PathBuf,
@@ -22,15 +24,21 @@ impl TestEnv {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
         let cache = tmp.path().join("cache");
+        let config_home = tmp.path().join("config");
+        let state_home = tmp.path().join("state");
         let fake_bin = tmp.path().join("bin");
         std::fs::create_dir_all(home.join(".codex")).unwrap();
         std::fs::create_dir_all(&cache).unwrap();
+        std::fs::create_dir_all(&config_home).unwrap();
+        std::fs::create_dir_all(&state_home).unwrap();
         Self {
             argc_file: tmp.path().join("codex.argc"),
             argv_file: tmp.path().join("codex.argv"),
             tmp,
             home,
             cache,
+            config_home,
+            state_home,
             fake_bin,
         }
     }
@@ -41,6 +49,8 @@ impl TestEnv {
         cmd.env_clear()
             .env("HOME", &self.home)
             .env("XDG_CACHE_HOME", &self.cache)
+            .env("XDG_CONFIG_HOME", &self.config_home)
+            .env("XDG_STATE_HOME", &self.state_home)
             .env("PATH", path);
         cmd
     }
@@ -92,6 +102,8 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         cmd.env_clear()
             .env("HOME", &self.home)
             .env("XDG_CACHE_HOME", &self.cache)
+            .env("XDG_CONFIG_HOME", &self.config_home)
+            .env("XDG_STATE_HOME", &self.state_home)
             .env("PATH", path);
         cmd
     }
@@ -99,8 +111,13 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
     pub fn cmd_without_home(&self) -> assert_cmd::Command {
         let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
         let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
+        let alt_home = self.tmp.path().join("alt-home");
+        std::fs::create_dir_all(&alt_home).unwrap();
         cmd.env_clear()
+            .env("HOME", alt_home)
             .env("XDG_CACHE_HOME", &self.cache)
+            .env("XDG_CONFIG_HOME", &self.config_home)
+            .env("XDG_STATE_HOME", &self.state_home)
             .env("PATH", path);
         cmd
     }
@@ -138,6 +155,10 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
 
     pub fn base_path(&self) -> PathBuf {
         self.home.join(".codex/config.base.toml")
+    }
+
+    pub fn wrapper_user_config_path(&self) -> PathBuf {
+        self.config_home.join("codex-session/config.toml")
     }
 
     pub fn normalize_text(&self, text: &str) -> String {

@@ -1,0 +1,20 @@
+---
+source: tests/cmd_config_status.rs
+assertion_line: 23
+expression: stdout
+---
+base:        <TMP>/home/.codex/config.base.toml (exists=true)
+target:      <TMP>/home/.codex/config.toml (exists=false)
+stamp:       <TMP>/cache/codex-session/last-merge (exists=false)
+child-bin:   <TMP>/bin/codex
+log-file:    <TMP>/state/codex-session/codex-session.log
+log-verbose: 0
+log-mirror:  false
+log-format:  json
+needs_merge: yes
+sources:
+  defaults
+  user:    none
+  project: none
+  env:     CODEX_SESSION_*
+  cli:     CliValueOverrides { log: None, child: None }

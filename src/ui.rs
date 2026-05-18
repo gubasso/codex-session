@@ -27,14 +27,14 @@ impl Ui {
     #[allow(clippy::unused_self)]
     pub(crate) fn print_version_details(
         &self,
-        report: &crate::commands::self_version::VersionReport,
+        report: &crate::commands::version::VersionReport,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         writeln!(stdout, "codex-session {}", report.wrapper_version)?;
         match (&report.child_path, &report.child_version) {
-            (Some(path), Some(version)) => writeln!(stdout, "codex {path} ({version})"),
+            (Some(path), Some(version)) => writeln!(stdout, "codex {path} {version}"),
             (Some(path), None) => writeln!(stdout, "codex {path} (unknown)"),
-            (None, _) => writeln!(stdout, "codex unavailable"),
+            (None, _) => writeln!(stdout, "codex (unresolved)"),
         }
     }
 
@@ -42,7 +42,7 @@ impl Ui {
     #[allow(clippy::unused_self)]
     pub(crate) fn print_config_status(
         &self,
-        report: &crate::commands::self_config_status::ConfigStatusReport,
+        report: &crate::commands::config_status::ConfigStatusReport,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         writeln!(
@@ -66,11 +66,35 @@ impl Ui {
             report.child_bin.as_deref().unwrap_or("(unavailable)")
         )?;
         writeln!(stdout, "log-file:    {}", report.log_file)?;
+        writeln!(stdout, "log-verbose: {}", report.log_verbose)?;
+        writeln!(stdout, "log-mirror:  {}", report.log_mirror_stderr)?;
+        writeln!(
+            stdout,
+            "log-format:  {}",
+            match report.log_format {
+                crate::config::LogFormat::Json => "json",
+                crate::config::LogFormat::Pretty => "pretty",
+            }
+        )?;
         writeln!(
             stdout,
             "needs_merge: {}",
             if report.needs_merge { "yes" } else { "no" }
-        )
+        )?;
+        writeln!(stdout, "sources:")?;
+        writeln!(stdout, "  defaults")?;
+        writeln!(
+            stdout,
+            "  user:    {}",
+            report.sources.user.as_deref().unwrap_or("none")
+        )?;
+        writeln!(
+            stdout,
+            "  project: {}",
+            report.sources.project.as_deref().unwrap_or("none")
+        )?;
+        writeln!(stdout, "  env:     {}", report.sources.env)?;
+        writeln!(stdout, "  cli:     {}", report.sources.cli)
     }
 
     /// Print local sections verbatim.

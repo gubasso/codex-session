@@ -1,5 +1,5 @@
 ---
-source: tests/cmd_self_show_local.rs
+source: tests/cmd_config_show_local.rs
 expression: value
 ---
 {

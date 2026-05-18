@@ -1,0 +1,17 @@
+#![allow(clippy::unwrap_used)]
+
+pub mod support;
+
+#[test]
+fn self_subcommand_is_unknown() {
+    let out = assert_cmd::Command::cargo_bin("codex-session")
+        .unwrap()
+        .arg("self")
+        .arg("version")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(64), "EX_USAGE expected");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("unrecognized subcommand") || stderr.contains("error"));
+}

@@ -1,5 +1,4 @@
 //! Application context.
-#![allow(clippy::missing_errors_doc)]
 
 /// Shared application state.
 pub(crate) struct AppContext {
@@ -15,13 +14,12 @@ pub(crate) struct AppContext {
 
 impl AppContext {
     /// Construct the application context.
-    #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn new() -> Result<Self, crate::error::AppError> {
-        Ok(Self {
+    pub(crate) const fn new(paths: crate::domain::paths::CodexPaths) -> Self {
+        Self {
             fs: crate::adapters::fs::StdFs,
             process: crate::adapters::process::StdProcess,
-            paths: crate::domain::paths::CodexPaths::from_env(),
+            paths,
             ui: crate::ui::Ui::new(),
-        })
+        }
     }
 }

@@ -1,7 +1,10 @@
 # ADR-0007 — No global verbosity flag
 
-**Status:** Accepted
+**Status:** Superseded by ADR-0012
 **Date:** 2026-05-17
+
+> Superseded on 2026-05-18 by [ADR-0012](0012-two-layer-logging-and-json-output.md).
+> Kept for history only.
 
 ## Context
 

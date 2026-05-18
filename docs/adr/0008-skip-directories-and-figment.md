@@ -9,8 +9,9 @@ The Rust CLI spec recommends `directories` for XDG path resolution and `figment`
 for layered config loading. `codex-session` does not have a layered user config
 model: its core contract is a bash-compatible merge between
 `~/.codex/config.base.toml` and `~/.codex/config.toml`, with explicit
-`${XDG_CACHE_HOME:-$HOME/.cache}` cache resolution and the documented unset-HOME
-fallback from ADR-0006.
+`${XDG_CACHE_HOME:-$HOME/.cache}` cache resolution, hand-rolled XDG state
+resolution for the wrapper log file, and the documented unset-HOME fallback
+from ADR-0006.
 
 ## Decision
 
@@ -19,9 +20,9 @@ The wrapper keeps its hand-rolled path resolution and does not adopt
 
 ## Consequences
 
-The code stays aligned with the legacy bash contract, especially for XDG cache
-resolution and the unset-HOME edge case. This is an intentional exception to the
-spec's default config/path guidance.
+The code stays aligned with the legacy bash contract for codex-managed paths and
+keeps the wrapper-owned state/log path rules explicit in one place. This is an
+intentional exception to the spec's default config/path guidance.
 
 ## Alternatives considered
 

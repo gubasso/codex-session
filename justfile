@@ -26,6 +26,12 @@ fix:
 lint:
     cargo fmt --check
     cargo clippy --all-targets --all-features -- -D warnings
+    just lint-print
+
+# Enforce the stdout/stderr ownership rule.
+lint-print:
+    @! rg -n '(println!|print!|eprint(ln)?!)' \
+        --glob '!src/ui/**' --glob '!src/main.rs' --glob '!tests/**' src
 
 # Preferred test runner (cargo-nextest).
 test:

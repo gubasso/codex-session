@@ -9,15 +9,16 @@ pub(crate) fn run(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
 ) -> Result<(), crate::error::AppError> {
-    tracing::debug!(?argv, "passing through to real codex");
-    let real_codex = match ctx.process.resolve_codex() {
-        Ok(path) => path,
-        Err(crate::adapters::process::ProcessError::CodexNotFound) => {
-            return Err(crate::error::AppError::CodexNotFound);
-        }
-        Err(err) => return Err(crate::error::AppError::Process(err)),
-    };
-    tracing::debug!(real_codex = %real_codex.display(), "resolved real codex");
+    tracing::info!(op = "pass-through", status = "start", argc = argv.len());
+    let real_codex = ctx
+        .process
+        .resolve_codex()
+        .map_err(crate::error::AppError::from_process_error)?;
+    tracing::info!(
+        op = "child.resolve",
+        status = "ok",
+        bin.resolved = %real_codex.display()
+    );
 
     if ctx.fs.exists(&ctx.paths.base)
         && crate::services::merge::needs_merge_raw(&ctx.fs, &ctx.paths)?

@@ -140,6 +140,30 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.home.join(".codex/config.base.toml")
     }
 
+    pub fn normalize_text(&self, text: &str) -> String {
+        text.replace(self.tmp.path().to_string_lossy().as_ref(), "<TMP>")
+    }
+
+    pub fn normalize_json(&self, value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::String(text) => {
+                *text = self.normalize_text(text);
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    self.normalize_json(item);
+                }
+            }
+            serde_json::Value::Object(entries) => {
+                for value in entries.values_mut() {
+                    self.normalize_json(value);
+                }
+            }
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            }
+        }
+    }
+
     #[allow(clippy::unused_self)]
     pub fn touch_older(&self, path: &Path) {
         Self::set_mtime(path, 1_577_836_800);

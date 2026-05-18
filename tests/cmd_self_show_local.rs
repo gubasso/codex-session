@@ -2,6 +2,7 @@
 
 pub mod support;
 
+use insta::assert_json_snapshot;
 use predicates::prelude::*;
 use support::TestEnv;
 
@@ -38,4 +39,23 @@ fn show_local_with_neither_base_nor_target_prints_nothing() {
         .assert()
         .success()
         .stdout("");
+}
+
+#[test]
+fn self_show_local_json_snapshot() {
+    let env = TestEnv::new();
+    env.install_base();
+    env.install_target_with_local();
+
+    let output = env
+        .cmd()
+        .args(["self", "show-local", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let mut value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    env.normalize_json(&mut value);
+    assert_json_snapshot!("self_show_local_json", value);
 }

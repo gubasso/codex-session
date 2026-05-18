@@ -3,12 +3,28 @@
 
 use crate::adapters::fs::Fs as _;
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+struct ShowLocalReport {
+    source_path: String,
+    local_sections: String,
+}
+
 /// Print local-only sections that would be preserved by a merge.
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
-    _args: crate::cli::self_show_local::SelfShowLocalArgs,
+    args: crate::cli::self_show_local::SelfShowLocalArgs,
 ) -> Result<(), crate::error::AppError> {
+    tracing::info!(op = "self.show-local", status = "start");
     if !ctx.fs.exists(&ctx.paths.target) {
+        if args.format == crate::cli::OutputFormat::Json {
+            let report = ShowLocalReport {
+                source_path: ctx.paths.target.display().to_string(),
+                local_sections: String::new(),
+            };
+            ctx.ui.print_json(&report)?;
+        }
+        tracing::info!(op = "self.show-local", status = "ok");
         return Ok(());
     }
     let base = if ctx.fs.exists(&ctx.paths.base) {
@@ -18,6 +34,16 @@ pub(crate) fn run(
     };
     let target = ctx.fs.read_to_string(&ctx.paths.target)?;
     let local = crate::domain::config_merge::extract_local_sections(&base, &target);
-    ctx.ui.print_local_sections(&local)?;
+    match args.format {
+        crate::cli::OutputFormat::Text => ctx.ui.print_local_sections(&local)?,
+        crate::cli::OutputFormat::Json => {
+            let report = ShowLocalReport {
+                source_path: ctx.paths.target.display().to_string(),
+                local_sections: local,
+            };
+            ctx.ui.print_json(&report)?;
+        }
+    }
+    tracing::info!(op = "self.show-local", status = "ok");
     Ok(())
 }

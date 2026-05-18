@@ -1,20 +1,35 @@
 //! Crate-level error type and exit-code mapping.
 #![allow(clippy::must_use_candidate)]
 
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
 /// Application-wide error type.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AppError {
-    /// Missing `codex` on `PATH`.
-    #[error("ERROR: codex binary not found in PATH")]
-    CodexNotFound,
+    /// Usage or clap parsing failure.
+    #[error("{0}")]
+    Usage(String),
+
+    /// Missing `codex` on `PATH` or via override.
+    #[error("failed to resolve wrapped codex binary")]
+    ChildNotFound {
+        /// Attempted path or program name.
+        tried: PathBuf,
+        /// PATH value consulted for lookup.
+        path_searched: Option<OsString>,
+    },
+
+    /// The resolved child path is not executable.
+    #[error("wrapped codex binary is not executable")]
+    ChildNotExecutable {
+        /// Non-executable child path.
+        path: PathBuf,
+    },
 
     /// Missing base config for forced merge.
-    #[error("ERROR: base config not found at {0}")]
+    #[error("failed to load base config")]
     BaseMissing(std::path::PathBuf),
-
-    /// Unknown `self` subcommand.
-    #[error("unknown self verb: {0}\nrun: codex-session self help")]
-    UnknownSelfVerb(String),
 
     /// Process-layer failure after dispatch.
     #[error(transparent)]
@@ -38,11 +53,32 @@ pub(crate) enum AppError {
 }
 
 impl AppError {
+    /// Stable machine-readable error kind.
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Self::Usage(_) => "usage",
+            Self::ChildNotFound { .. } => "child-not-found",
+            Self::ChildNotExecutable { .. } => "child-not-executable",
+            Self::BaseMissing(_) => "base-missing",
+            Self::Process(_) => "process-exec",
+            Self::Fs(err) => fs_error_kind(err),
+            Self::Merge(_) => "merge-failed",
+            Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => "io-not-found",
+            Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                "io-permission-denied"
+            }
+            Self::Io(_) => "io-other",
+            Self::Other(_) => "internal",
+        }
+    }
+
     /// Convert to the process exit code.
     pub(crate) fn exit_code(&self) -> u8 {
         match self {
-            Self::CodexNotFound | Self::BaseMissing(_) => 1,
-            Self::UnknownSelfVerb(_) => 2,
+            Self::Usage(_) => 64,
+            Self::ChildNotFound { .. } => 127,
+            Self::ChildNotExecutable { .. } => 126,
+            Self::BaseMissing(_) => 66,
             Self::Fs(err) | Self::Merge(crate::services::merge::MergeError::Fs(err)) => {
                 fs_error_exit_code(err)
             }
@@ -51,6 +87,124 @@ impl AppError {
             Self::Process(_) | Self::Io(_) => 74,
             Self::Other(_) => 70,
         }
+    }
+}
+
+/// Render an application error to a user-facing writer.
+pub(crate) fn render(mut out: impl std::io::Write, err: &AppError) -> std::io::Result<()> {
+    if let AppError::Usage(message) = err {
+        return out.write_all(message.as_bytes());
+    }
+
+    let detail = detail(err);
+    writeln!(out, "codex-session: {}", detail.what)?;
+    if let Some(where_line) = detail.where_line {
+        writeln!(out, "  where: {where_line}")?;
+    }
+    writeln!(out, "  why:   {}", detail.why_line)?;
+    if let Some(hint) = detail.hint_line {
+        writeln!(out, "  hint:  {hint}")?;
+    }
+
+    // Walk the `source()` chain. Per `cli-design/02-error-messages.md`:
+    // "Dedupe — if a wrapper's message is `caused by: <inner.message>`,
+    // don't print the inner twice." Several `AppError` variants set
+    // `why_line = source.to_string()` (`Process`, `Merge`, `Io`, `Other`),
+    // which would make the very first `caused by:` line a verbatim repeat
+    // of `why:`. Suppress those exact duplicates.
+    let mut prev = detail.why_line.clone();
+    let mut source = std::error::Error::source(err);
+    while let Some(cause) = source {
+        let msg = cause.to_string();
+        if msg != prev {
+            writeln!(out, "  caused by: {msg}")?;
+            prev = msg;
+        }
+        source = cause.source();
+    }
+    Ok(())
+}
+
+/// Emit the structured log record for an application error.
+pub(crate) fn log_error(err: &AppError) {
+    let detail = detail(err);
+    tracing::error!(
+        op = "command.error",
+        status = "error",
+        err.kind = err.kind(),
+        err.msg = detail.why_line,
+        error.what = detail.what,
+        error.where = detail.where_line.unwrap_or_default(),
+        error.hint = detail.hint_line.unwrap_or_default(),
+    );
+}
+
+struct ErrorDetail {
+    what: &'static str,
+    where_line: Option<String>,
+    why_line: String,
+    hint_line: Option<&'static str>,
+}
+
+fn detail(err: &AppError) -> ErrorDetail {
+    match err {
+        AppError::Usage(message) => ErrorDetail {
+            what: "invalid command usage",
+            where_line: None,
+            why_line: message.trim().to_owned(),
+            hint_line: None,
+        },
+        AppError::ChildNotFound {
+            tried,
+            path_searched,
+        } => ErrorDetail {
+            what: "failed to resolve wrapped codex binary",
+            where_line: Some(path_searched.as_ref().map_or_else(
+                || tried.display().to_string(),
+                |path| format!("{} (PATH={})", tried.display(), Path::new(path).display()),
+            )),
+            why_line: "the configured child binary could not be found".to_owned(),
+            hint_line: Some("set CODEX_SESSION_CHILD_BIN or add codex to PATH and retry"),
+        },
+        AppError::ChildNotExecutable { path } => ErrorDetail {
+            what: "failed to execute wrapped codex binary",
+            where_line: Some(path.display().to_string()),
+            why_line: "the configured child binary exists but is not executable".to_owned(),
+            hint_line: Some(
+                "chmod +x the child binary or point CODEX_SESSION_CHILD_BIN at an executable file",
+            ),
+        },
+        AppError::BaseMissing(path) => ErrorDetail {
+            what: "failed to load base config",
+            where_line: Some(path.display().to_string()),
+            why_line: "the base config file does not exist".to_owned(),
+            hint_line: Some("create ~/.codex/config.base.toml or skip the forced merge command"),
+        },
+        AppError::Process(source) => ErrorDetail {
+            what: "failed to hand control to the wrapped codex process",
+            where_line: None,
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        AppError::Fs(source) => fs_error_detail(source),
+        AppError::Merge(source) => ErrorDetail {
+            what: "failed to merge codex config files",
+            where_line: None,
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        AppError::Io(source) => ErrorDetail {
+            what: "unexpected I/O failure",
+            where_line: None,
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        AppError::Other(source) => ErrorDetail {
+            what: "internal wrapper failure",
+            where_line: None,
+            why_line: source.to_string(),
+            hint_line: None,
+        },
     }
 }
 
@@ -76,28 +230,90 @@ fn fs_error_exit_code(err: &crate::adapters::fs::FsError) -> u8 {
     }
 }
 
+const fn fs_error_kind(err: &crate::adapters::fs::FsError) -> &'static str {
+    use crate::adapters::fs::FsError;
+    match err {
+        FsError::Read { .. } => "fs-read",
+        FsError::Write { .. } => "fs-write",
+        FsError::Mkdir { .. } => "fs-mkdir",
+        FsError::Stat { .. } => "fs-stat",
+        FsError::Touch { .. } => "fs-touch",
+    }
+}
+
+fn fs_error_detail(err: &crate::adapters::fs::FsError) -> ErrorDetail {
+    use crate::adapters::fs::FsError;
+    match err {
+        FsError::Read { path, source } => ErrorDetail {
+            what: "failed to read a file",
+            where_line: Some(path.display().to_string()),
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        FsError::Write { path, source } => ErrorDetail {
+            what: "failed to write a file",
+            where_line: Some(path.display().to_string()),
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        FsError::Mkdir { path, source } => ErrorDetail {
+            what: "failed to create a directory",
+            where_line: Some(path.display().to_string()),
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        FsError::Stat { path, source } => ErrorDetail {
+            what: "failed to inspect a filesystem path",
+            where_line: Some(path.display().to_string()),
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+        FsError::Touch { path, source } => ErrorDetail {
+            what: "failed to update the merge stamp",
+            where_line: Some(path.display().to_string()),
+            why_line: source.to_string(),
+            hint_line: None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::AppError;
 
     #[test]
-    fn codex_not_found_is_one() {
-        assert_eq!(AppError::CodexNotFound.exit_code(), 1);
+    fn usage_is_sixty_four() {
+        assert_eq!(AppError::Usage(String::from("bad")).exit_code(), 64);
     }
 
     #[test]
-    fn base_missing_is_one() {
+    fn child_not_found_is_one_twenty_seven() {
         assert_eq!(
-            AppError::BaseMissing(std::path::PathBuf::from("/tmp/base")).exit_code(),
-            1
+            AppError::ChildNotFound {
+                tried: std::path::PathBuf::from("codex"),
+                path_searched: Some(std::ffi::OsString::from("/usr/bin:/bin")),
+            }
+            .exit_code(),
+            127
         );
     }
 
     #[test]
-    fn unknown_self_verb_is_two() {
+    fn child_not_executable_is_one_twenty_six() {
         assert_eq!(
-            AppError::UnknownSelfVerb(String::from("nope")).exit_code(),
-            2
+            AppError::ChildNotExecutable {
+                path: std::path::PathBuf::from("/tmp/codex"),
+            }
+            .exit_code(),
+            126
+        );
+    }
+
+    #[test]
+    fn base_missing_is_sixty_six() {
+        assert_eq!(
+            AppError::BaseMissing(std::path::PathBuf::from("/tmp/base")).exit_code(),
+            66
         );
     }
 
@@ -217,5 +433,47 @@ mod tests {
     #[test]
     fn other_is_seventy() {
         assert_eq!(AppError::Other(anyhow::anyhow!("boom")).exit_code(), 70);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn render_dedupes_caused_by_when_why_matches_first_source() {
+        // Wrapped variants like `Process` set `why_line = source.to_string()`.
+        // The first `caused by:` line would repeat the same message; the
+        // renderer must suppress that duplicate.
+        let err = AppError::Process(crate::adapters::process::ProcessError::Exec(
+            std::io::Error::other("exec boom"),
+        ));
+        let mut buf = Vec::new();
+        super::render(&mut buf, &err).unwrap();
+        let rendered = String::from_utf8(buf).unwrap();
+        assert!(
+            rendered.contains("why:"),
+            "render must include a why line: {rendered}"
+        );
+        let caused_by_count = rendered.matches("caused by:").count();
+        // `exec failed: exec boom` from the thiserror display and the inner
+        // `io::Error` display ("exec boom") differ, so exactly one caused-by
+        // is expected here (the inner io::Error). The duplicate "exec failed:
+        // exec boom" line is suppressed by the dedupe.
+        assert_eq!(
+            caused_by_count, 1,
+            "expected one caused-by line after dedupe, got {caused_by_count} in:\n{rendered}"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn render_dedupes_when_other_message_equals_source_message() {
+        // `AppError::Other` is an `anyhow::Error`; its source chain echoes
+        // the same string used in `why_line`. Verify no duplicate caused-by.
+        let err = AppError::Other(anyhow::anyhow!("boom"));
+        let mut buf = Vec::new();
+        super::render(&mut buf, &err).unwrap();
+        let rendered = String::from_utf8(buf).unwrap();
+        assert!(
+            !rendered.contains("caused by: boom\n  caused by: boom"),
+            "must not emit consecutive duplicate caused-by lines: {rendered}"
+        );
     }
 }

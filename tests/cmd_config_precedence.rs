@@ -57,6 +57,7 @@ fn env_layer_wins_over_project_and_user_layers() {
     let child_dir =
         env.make_fake_codex_in_dir("env-child", "#!/usr/bin/env bash\nprintf 'child-from-env'");
     let child_bin = child_dir.join("codex");
+    let env_log_dir = env.tmp.path().join("env-log-dir");
 
     write_file(
         &env.wrapper_user_config_path(),
@@ -71,7 +72,7 @@ fn env_layer_wins_over_project_and_user_layers() {
         .cmd()
         .current_dir(&project_dir)
         .env("CODEX_SESSION_CHILD_BIN", &child_bin)
-        .env("CODEX_SESSION_LOG_FILE", "/tmp/env.log")
+        .env("CODEX_SESSION_LOG_FILE", &env_log_dir)
         .args(["config", "status", "--format", "json"])
         .assert()
         .success()
@@ -80,7 +81,7 @@ fn env_layer_wins_over_project_and_user_layers() {
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(value["child-bin"], child_bin.to_string_lossy().as_ref());
-    assert_eq!(value["log-file"], "/tmp/env.log");
+    assert_eq!(value["log-file"], env_log_dir.to_string_lossy().as_ref());
 }
 
 #[test]
@@ -107,5 +108,90 @@ fn user_config_verbose_enables_logging_without_cli_flags() {
     assert!(
         stderr.contains("help"),
         "expected info log on stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn log_stderr_format_precedence_file_env_cli() {
+    // The user config sets `stderr_format = "pretty"`. The env var should
+    // override the file. The CLI `--log-format json` should override both.
+    // `config status --format json` reports the resolved `log-stderr-format`,
+    // which lets us assert each layer wins in turn without having to parse
+    // the actual stderr mirror output.
+    let env = TestEnv::new();
+    write_file(
+        &env.wrapper_user_config_path(),
+        "[log]\nstderr_format = \"pretty\"\n",
+    );
+
+    // File layer only.
+    let file_only = env
+        .cmd()
+        .args(["config", "status", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&file_only).unwrap();
+    assert_eq!(value["log-stderr-format"], "pretty");
+
+    // Env overrides file.
+    let env_wins = env
+        .cmd()
+        .env("CODEX_SESSION_LOG_STDERR_FORMAT", "json")
+        .args(["config", "status", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&env_wins).unwrap();
+    assert_eq!(value["log-stderr-format"], "json");
+
+    // CLI `--log-format` overrides env and file.
+    let cli_wins = env
+        .cmd()
+        .env("CODEX_SESSION_LOG_STDERR_FORMAT", "json")
+        .args([
+            "--log-format",
+            "pretty",
+            "config",
+            "status",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&cli_wins).unwrap();
+    assert_eq!(value["log-stderr-format"], "pretty");
+}
+
+#[test]
+fn paths_state_dir_override_moves_default_log_directory() {
+    // Regression guard for F1: `Config::defaults` must not freeze the log
+    // destination at the XDG state dir. When `paths.state_dir` is overridden
+    // (here via env) and `log.file` is unset, the resolved `log-file` should
+    // follow the new state dir, not the XDG default.
+    let env = TestEnv::new();
+    let overridden_state = env.tmp.path().join("overridden-state");
+    std::fs::create_dir_all(&overridden_state).unwrap();
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_PATHS_STATE_DIR", &overridden_state)
+        .args(["config", "status", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(
+        value["log-file"],
+        overridden_state.to_string_lossy().as_ref()
     );
 }

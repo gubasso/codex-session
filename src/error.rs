@@ -151,14 +151,25 @@ pub(crate) fn render(mut out: impl std::io::Write, err: &AppError) -> std::io::R
         return out.write_all(message.as_bytes());
     }
 
+    let use_color = crate::ui::color::stderr_color();
     let detail = detail(err);
-    writeln!(out, "codex-session: {}", detail.what)?;
+    writeln!(
+        out,
+        "{} {}",
+        style_label("codex-session:", use_color),
+        detail.what
+    )?;
     if let Some(where_line) = detail.where_line {
-        writeln!(out, "  where: {where_line}")?;
+        writeln!(out, "  {} {where_line}", style_label("where:", use_color))?;
     }
-    writeln!(out, "  why:   {}", detail.why_line)?;
+    writeln!(
+        out,
+        "  {} {}",
+        style_label("why:  ", use_color),
+        detail.why_line
+    )?;
     if let Some(hint) = detail.hint_line {
-        writeln!(out, "  hint:  {hint}")?;
+        writeln!(out, "  {} {hint}", style_label("hint: ", use_color))?;
     }
 
     // Walk the `source()` chain. Per `cli-design/02-error-messages.md`:
@@ -172,12 +183,17 @@ pub(crate) fn render(mut out: impl std::io::Write, err: &AppError) -> std::io::R
     while let Some(cause) = source {
         let msg = cause.to_string();
         if msg != prev {
-            writeln!(out, "  caused by: {msg}")?;
+            writeln!(out, "  {} {msg}", style_label("caused by:", use_color))?;
             prev = msg;
         }
         source = cause.source();
     }
     Ok(())
+}
+
+pub(crate) fn render_error(err: &AppError) -> std::io::Result<()> {
+    let mut stderr = std::io::stderr().lock();
+    render(&mut stderr, err)
 }
 
 /// Emit the structured log record for an application error.
@@ -268,6 +284,14 @@ fn detail(err: &AppError) -> ErrorDetail {
             why_line: source.to_string(),
             hint_line: None,
         },
+    }
+}
+
+fn style_label(label: &str, use_color: bool) -> String {
+    if use_color {
+        format!("\u{1b}[1m{label}\u{1b}[0m")
+    } else {
+        label.to_owned()
     }
 }
 

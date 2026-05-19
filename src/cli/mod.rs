@@ -36,6 +36,7 @@ pub(crate) struct Cli {
 }
 
 /// Top-level wrapper flags.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default, Clone, clap::Args)]
 pub(crate) struct GlobalArgs {
     /// Increase wrapper log verbosity (-v info, -vv debug, -vvv trace).
@@ -46,9 +47,25 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true)]
     pub(crate) log_stderr: bool,
 
+    /// Suppress non-error stderr output. The log file is unaffected.
+    #[arg(short = 'q', long, global = true, conflicts_with = "silent")]
+    pub(crate) quiet: bool,
+
+    /// Suppress all stderr output including errors. The log file is unaffected.
+    #[arg(long, global = true, conflicts_with = "quiet")]
+    pub(crate) silent: bool,
+
+    /// Format for the stderr log mirror.
+    #[arg(long = "log-format", value_name = "FMT", value_enum, global = true)]
+    pub(crate) log_format: Option<crate::config::LogFormat>,
+
     /// Print wrapper + child version and exit.
-    #[arg(long, global = true)]
+    #[arg(short = 'V', long, global = true)]
     pub(crate) version: bool,
+
+    /// Output format for wrapper-owned read commands.
+    #[arg(long, value_name = "FMT", value_enum, global = true)]
+    pub(crate) format: Option<OutputFormat>,
 
     /// Override the user/project config file with an explicit path.
     #[arg(long, value_name = "PATH", global = true)]

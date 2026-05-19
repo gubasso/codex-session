@@ -1,3 +1,7 @@
+---
+source: tests/cmd_root_help.rs
+expression: normalized
+---
 codex-session — wrapper around `codex` that keeps ~/.codex/config.toml in sync
 with the stow-managed ~/.codex/config.base.toml while preserving machine-local
 sections (e.g. [projects."..."]).

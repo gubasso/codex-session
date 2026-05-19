@@ -43,11 +43,13 @@ fn reentry_env_exits_70_on_exec_path() {
 fn private_env_is_scrubbed_before_exec() {
     let env = TestEnv::new();
     let stub = support::fixture_path("echo-env.sh");
+    let log_file_hint = env.tmp.path().join("x-log-dir");
+    let log_dir_hint = env.tmp.path().join("xdir");
     let output = env
         .cmd()
         .env("CODEX_SESSION_CHILD_BIN", &stub)
-        .env("CODEX_SESSION_LOG_FILE", "/tmp/x.log")
-        .env("CODEX_SESSION_LOG_DIR", "/tmp/xdir")
+        .env("CODEX_SESSION_LOG_FILE", &log_file_hint)
+        .env("CODEX_SESSION_LOG_DIR", &log_dir_hint)
         .args(["exec"])
         .assert()
         .success()

@@ -10,6 +10,8 @@ use std::ffi::OsString;
 
 use camino::Utf8PathBuf;
 
+use crate::{cli::OutputFormat, config::LogFormat};
+
 use super::GlobalArgs;
 
 /// Strip a stray empty argument that follows the legacy `self` token.
@@ -35,15 +37,18 @@ pub(crate) fn legacy_self_invocation(argv: &[OsString]) -> bool {
         };
         match s {
             "--" => return false,
-            "--verbose" | "--log-stderr" | "--version" | "--dry-run" => {}
-            "--config" => {
+            "--verbose" | "--log-stderr" | "--quiet" | "-q" | "--silent" | "--version" | "-V"
+            | "--dry-run" => {}
+            "--config" | "--log-format" | "--format" => {
                 let _ = iter.next();
             }
             _ if s.starts_with("--config=") => {}
+            _ if s.starts_with("--log-format=") => {}
+            _ if s.starts_with("--format=") => {}
             "self" => return true,
-            _ if s
-                .strip_prefix('-')
-                .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|ch| ch == 'v')) => {}
+            _ if s.strip_prefix('-').is_some_and(|rest| {
+                !rest.is_empty() && rest.chars().all(|ch| ch == 'v' || ch == 'q')
+            }) => {}
             _ => return false,
         }
     }
@@ -68,8 +73,24 @@ pub(crate) fn scan_global_args(argv: &[OsString]) -> GlobalArgs {
             global.log_stderr = true;
             continue;
         }
-        if s == "--version" {
+        if s == "--quiet" || s == "-q" {
+            global.quiet = true;
+            continue;
+        }
+        if s == "--silent" {
+            global.silent = true;
+            continue;
+        }
+        if s == "--log-format" {
+            global.log_format = iter.next().and_then(parse_log_format_arg);
+            continue;
+        }
+        if s == "--version" || s == "-V" {
             global.version = true;
+            continue;
+        }
+        if s == "--format" {
+            global.format = iter.next().and_then(parse_output_format_arg);
             continue;
         }
         if s == "--dry-run" {
@@ -86,13 +107,95 @@ pub(crate) fn scan_global_args(argv: &[OsString]) -> GlobalArgs {
             global.config = Some(Utf8PathBuf::from(path));
             continue;
         }
+        if let Some(value) = s.strip_prefix("--log-format=") {
+            global.log_format = parse_log_format_str(value);
+            continue;
+        }
+        if let Some(value) = s.strip_prefix("--format=") {
+            global.format = parse_output_format_str(value);
+            continue;
+        }
         if let Some(rest) = s.strip_prefix('-') {
-            if !rest.is_empty() && rest.chars().all(|ch| ch == 'v') {
-                global.verbose = global
-                    .verbose
-                    .saturating_add(u8::try_from(rest.len()).unwrap_or(u8::MAX));
+            if !rest.is_empty() && rest.chars().all(|ch| ch == 'v' || ch == 'q') {
+                for ch in rest.chars() {
+                    match ch {
+                        'v' => global.verbose = global.verbose.saturating_add(1),
+                        'q' => global.quiet = true,
+                        _ => {}
+                    }
+                }
             }
         }
     }
     global
+}
+
+fn parse_log_format_arg(value: &OsString) -> Option<LogFormat> {
+    value.to_str().and_then(parse_log_format_str)
+}
+
+fn parse_log_format_str(value: &str) -> Option<LogFormat> {
+    match value {
+        "json" => Some(LogFormat::Json),
+        "pretty" => Some(LogFormat::Pretty),
+        _ => None,
+    }
+}
+
+fn parse_output_format_arg(value: &OsString) -> Option<OutputFormat> {
+    value.to_str().and_then(parse_output_format_str)
+}
+
+fn parse_output_format_str(value: &str) -> Option<OutputFormat> {
+    match value {
+        "text" => Some(OutputFormat::Text),
+        "json" => Some(OutputFormat::Json),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{legacy_self_invocation, scan_global_args};
+    use crate::config::LogFormat;
+    use std::ffi::OsString;
+
+    #[test]
+    fn scan_global_args_reads_new_logging_flags() {
+        let argv = vec![
+            OsString::from("--silent"),
+            OsString::from("-q"),
+            OsString::from("--log-format=json"),
+            OsString::from("--format=text"),
+        ];
+        let global = scan_global_args(&argv);
+        assert!(global.silent);
+        assert!(global.quiet);
+        assert_eq!(global.log_format, Some(LogFormat::Json));
+        assert_eq!(global.format, Some(crate::cli::OutputFormat::Text));
+    }
+
+    #[test]
+    fn scan_global_args_reads_space_separated_log_format() {
+        let argv = vec![
+            OsString::from("--log-format"),
+            OsString::from("pretty"),
+            OsString::from("-vv"),
+        ];
+        let global = scan_global_args(&argv);
+        assert_eq!(global.log_format, Some(LogFormat::Pretty));
+        assert_eq!(global.verbose, 2);
+    }
+
+    #[test]
+    fn legacy_self_invocation_survives_new_flags() {
+        let argv = vec![
+            OsString::from("--silent"),
+            OsString::from("--log-format"),
+            OsString::from("json"),
+            OsString::from("self"),
+            OsString::from("version"),
+        ];
+        assert!(legacy_self_invocation(&argv));
+    }
 }

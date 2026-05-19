@@ -9,7 +9,12 @@ use crate::{cli, commands, context, error};
 /// Route a parsed root `Cli` to its handler.
 pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<(), error::AppError> {
     if cli.global.version {
-        return commands::version::run(ctx, cli::version::VersionArgs::default());
+        return commands::version::run(
+            ctx,
+            cli::version::VersionArgs {
+                format: cli.global.format.unwrap_or_default(),
+            },
+        );
     }
     match cli.command {
         Some(cli::Commands::Version(args)) => commands::version::run(ctx, args),

@@ -2,7 +2,26 @@
 
 pub mod support;
 
+use std::path::{Path, PathBuf};
 use support::TestEnv;
+
+fn latest_log_file(dir: &Path) -> PathBuf {
+    let mut entries = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("codex-session.log"))
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    assert!(!entries.is_empty(), "expected a rotated log file");
+    entries
+        .pop()
+        .unwrap_or_else(|| unreachable!("entries was checked to be non-empty"))
+}
 
 #[test]
 fn error_path_writes_structured_json_log_file() {
@@ -15,7 +34,7 @@ fn error_path_writes_structured_json_log_file() {
         .assert()
         .code(127);
 
-    let log_file = state_home.join("codex-session/codex-session.log");
+    let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
     assert!(!contents.trim().is_empty(), "log file must not be empty");
     let last_line = contents.lines().last().unwrap();
@@ -37,7 +56,7 @@ fn version_parse_error_still_writes_structured_log() {
         .assert()
         .code(64);
 
-    let log_file = state_home.join("codex-session/codex-session.log");
+    let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
     assert!(
         !contents.trim().is_empty(),
@@ -72,7 +91,7 @@ fn version_parse_error_still_honors_verbose_and_log_stderr() {
     );
 
     // And the file sink should be present and contain the same record.
-    let log_file = state_home.join("codex-session/codex-session.log");
+    let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
     let last_line = contents.lines().last().unwrap();
     let json: serde_json::Value = serde_json::from_str(last_line).unwrap();
@@ -129,7 +148,7 @@ fn version_parse_error_honors_stacked_short_verbose_cluster() {
     );
 
     // And the file sink must contain the error record.
-    let log_file = state_home.join("codex-session/codex-session.log");
+    let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
     let last_line = contents.lines().last().unwrap();
     let json: serde_json::Value = serde_json::from_str(last_line).unwrap();
@@ -152,7 +171,106 @@ fn top_level_verbose_mirrors_logs_to_stderr_and_file() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("help"));
 
-    let log_file = state_home.join("codex-session/codex-session.log");
+    let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
     assert!(contents.contains("\"op\":\"help\""));
+}
+
+#[test]
+fn quiet_suppresses_stderr_but_keeps_file_sink() {
+    let env = TestEnv::new();
+    let state_home = env.tmp.path().join("state");
+
+    let output = env
+        .cmd()
+        .env("XDG_STATE_HOME", &state_home)
+        .args(["-q", "-vv", "help"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    assert!(
+        output.stderr.is_empty(),
+        "quiet must suppress the stderr mirror"
+    );
+
+    let log_file = latest_log_file(&state_home.join("codex-session"));
+    let contents = std::fs::read_to_string(&log_file).unwrap();
+    assert!(contents.contains("\"op\":\"help\""));
+}
+
+#[test]
+fn silent_suppresses_stderr_on_error_but_preserves_exit_code() {
+    let env = TestEnv::new();
+    let state_home = env.tmp.path().join("state");
+
+    let output = env
+        .cmd()
+        .env("XDG_STATE_HOME", &state_home)
+        .args(["--silent", "exec"])
+        .assert()
+        .code(127)
+        .get_output()
+        .clone();
+    assert!(output.stderr.is_empty(), "silent must suppress stderr");
+
+    let log_file = latest_log_file(&state_home.join("codex-session"));
+    let contents = std::fs::read_to_string(&log_file).unwrap();
+    assert!(contents.contains("\"err.kind\":\"child-not-found\""));
+}
+
+#[test]
+fn log_format_json_writes_json_to_stderr() {
+    let env = TestEnv::new();
+    let state_home = env.tmp.path().join("state");
+
+    let output = env
+        .cmd()
+        .env("XDG_STATE_HOME", &state_home)
+        .args(["-v", "--log-format", "json", "help"])
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let last_line = stderr.lines().last().unwrap();
+    let json: serde_json::Value = serde_json::from_str(last_line).unwrap();
+    assert_eq!(json["fields"]["op"], "help");
+}
+
+#[test]
+fn log_stderr_alone_mirrors_warnings() {
+    let env = TestEnv::new();
+    let state_home = env.tmp.path().join("state");
+
+    let output = env
+        .cmd()
+        .env("XDG_STATE_HOME", &state_home)
+        .args(["--log-stderr", "exec"])
+        .assert()
+        .code(127)
+        .get_output()
+        .clone();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("command.error"));
+}
+
+#[test]
+fn parse_failure_with_silent_writes_nothing_to_stderr() {
+    let env = TestEnv::new();
+    let state_home = env.tmp.path().join("state");
+
+    let output = env
+        .cmd()
+        .env("XDG_STATE_HOME", &state_home)
+        .args(["--silent", "version", "junk"])
+        .assert()
+        .code(64)
+        .get_output()
+        .clone();
+    assert!(output.stderr.is_empty());
+
+    let log_file = latest_log_file(&state_home.join("codex-session"));
+    let contents = std::fs::read_to_string(&log_file).unwrap();
+    assert!(contents.contains("\"err.kind\":\"usage\""));
 }

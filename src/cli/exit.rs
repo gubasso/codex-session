@@ -8,9 +8,7 @@
 //!
 //! What this is not: dispatch (that lives in `commands::dispatch`).
 
-use std::ffi::OsString;
-use std::io::Write as _;
-use std::process::ExitCode;
+use std::{ffi::OsString, process::ExitCode};
 
 use crate::{config, error, logging};
 
@@ -29,17 +27,10 @@ pub(crate) fn handle_clap_error(err: &clap::Error, argv: &[OsString]) -> ExitCod
 
     match err.kind() {
         DisplayHelp => {
-            let mut stdout = std::io::stdout().lock();
-            let _ = stdout.write_all(HELP_TEXT.as_bytes());
-            if !HELP_TEXT.ends_with('\n') {
-                let _ = stdout.write_all(b"\n");
-            }
+            let _ = crate::ui::Ui::new().write_help(HELP_TEXT);
             ExitCode::SUCCESS
         }
-        DisplayVersion => {
-            let _ = err.print();
-            ExitCode::SUCCESS
-        }
+        DisplayVersion => unreachable!("clap version flag is disabled on the root parser"),
         _ => map_parse_failure(err, argv),
     }
 }
@@ -49,23 +40,24 @@ fn map_parse_failure(err: &clap::Error, argv: &[OsString]) -> ExitCode {
     let overrides = config::CliOverrides::from_global(&global);
     match config::Config::load(&overrides) {
         Ok(config) => {
-            let mirror_stderr = config.log.mirror_stderr || config.log.verbose > 0;
-            let log_file = config
-                .log
-                .file
-                .clone()
-                .unwrap_or_else(|| config.paths.state_dir.join("codex-session.log"));
-            if logging::init(config.log.verbose, log_file.as_std_path(), mirror_stderr).is_ok() {
-                return crate::print_and_exit(&error::AppError::Usage(err.render().to_string()));
+            let log_options = logging::options_from_config(&config, &global);
+            if let Ok(_log) = logging::init(&log_options) {
+                return crate::print_and_exit(
+                    &error::AppError::Usage(err.render().to_string()),
+                    global.silent,
+                );
             }
-            let _ = std::io::stderr()
-                .lock()
-                .write_all(err.render().to_string().as_bytes());
+            if !global.silent {
+                let _ = error::render_error(&error::AppError::Usage(err.render().to_string()));
+            }
             ExitCode::from(error::AppError::Usage(String::new()).exit_code())
         }
         // A broken config is more severe than a clap usage error. Surface
         // the config error (exit 78) instead of hiding it behind the clap
         // fallback (exit 64).
-        Err(config_err) => crate::print_and_exit(&error::AppError::from_config_error(config_err)),
+        Err(config_err) => crate::print_and_exit(
+            &error::AppError::from_config_error(config_err),
+            global.silent,
+        ),
     }
 }

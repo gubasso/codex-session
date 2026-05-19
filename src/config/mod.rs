@@ -5,6 +5,7 @@ pub(crate) mod error;
 pub(crate) use error::ConfigError;
 
 use camino::Utf8PathBuf;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -23,6 +24,8 @@ pub(crate) struct LogConfig {
     pub(crate) verbose: u8,
     pub(crate) mirror_stderr: bool,
     pub(crate) format: LogFormat,
+    pub(crate) stderr_format: Option<LogFormat>,
+    /// Directory hint for the rotating log files.
     pub(crate) file: Option<Utf8PathBuf>,
 }
 
@@ -41,7 +44,7 @@ pub(crate) struct ChildConfig {
     pub(crate) bin: Option<Utf8PathBuf>,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum LogFormat {
     #[default]
@@ -77,6 +80,8 @@ pub(crate) struct LogOverrides {
     pub(crate) verbose: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) mirror_stderr: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) stderr_format: Option<LogFormat>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -99,6 +104,7 @@ struct FileLogConfig {
     verbose: Option<u8>,
     mirror_stderr: Option<bool>,
     format: Option<LogFormat>,
+    stderr_format: Option<LogFormat>,
     file: Option<Utf8PathBuf>,
 }
 
@@ -122,9 +128,13 @@ impl CliOverrides {
         let log = LogOverrides {
             verbose: (global.verbose > 0).then_some(global.verbose),
             mirror_stderr: global.log_stderr.then_some(true),
+            stderr_format: global.log_format,
         };
         let values = CliValueOverrides {
-            log: (log.verbose.is_some() || log.mirror_stderr.is_some()).then_some(log),
+            log: (log.verbose.is_some()
+                || log.mirror_stderr.is_some()
+                || log.stderr_format.is_some())
+            .then_some(log),
             child: None,
         };
 
@@ -141,6 +151,7 @@ impl Default for LogConfig {
             verbose: 0,
             mirror_stderr: false,
             format: LogFormat::Json,
+            stderr_format: None,
             file: None,
         }
     }
@@ -185,14 +196,16 @@ impl Config {
             base_config: home_dir.join(".codex/config.base.toml"),
             target_config: home_dir.join(".codex/config.toml"),
             cache_dir,
-            state_dir: state_dir.clone(),
+            state_dir,
         };
 
+        // Intentionally leave `log.file` unset: it is a directory *hint* that
+        // overrides `paths.state_dir`. When unset, `log_dir_from_config` and
+        // `config status` resolve the effective log directory from the
+        // current `paths.state_dir`, so later overrides to `paths.state_dir`
+        // (file / env / CLI) actually move the log destination too.
         Ok(Self {
-            log: LogConfig {
-                file: Some(state_dir.join("codex-session.log")),
-                ..LogConfig::default()
-            },
+            log: LogConfig::default(),
             paths,
             child: ChildConfig::default(),
             sources: ConfigSources::default(),
@@ -269,6 +282,9 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) {
         if let Some(format) = log.format {
             config.log.format = format;
         }
+        if let Some(stderr_format) = log.stderr_format {
+            config.log.stderr_format = Some(stderr_format);
+        }
         if let Some(file) = log.file {
             config.log.file = Some(file);
         }
@@ -318,11 +334,10 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             "LOG_FILE" => {
                 config.log.file = Some(Utf8PathBuf::from(value));
             }
-            // `LOG_DIR` is back-compat with the bash wrapper. It picks the
-            // directory and appends `codex-session.log`. `LOG_FILE` always
-            // wins when both are set.
+            // `LOG_DIR` is back-compat with the bash wrapper. Both vars now
+            // behave as directory hints because the appender owns the basename.
             "LOG_DIR" if std::env::var_os("CODEX_SESSION_LOG_FILE").is_none() => {
-                config.log.file = Some(Utf8PathBuf::from(value).join("codex-session.log"));
+                config.log.file = Some(Utf8PathBuf::from(value));
             }
             "LOG_VERBOSE" => {
                 config.log.verbose =
@@ -334,6 +349,9 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             }
             "LOG_FORMAT" => {
                 config.log.format = parse_log_format(key, value)?;
+            }
+            "LOG_STDERR_FORMAT" => {
+                config.log.stderr_format = Some(parse_log_format(key, value)?);
             }
             "PATHS_BASE_CONFIG" => {
                 config.paths.base_config = Utf8PathBuf::from(value);
@@ -360,6 +378,9 @@ fn apply_cli_overrides(config: &mut Config, cli: &CliValueOverrides) {
         }
         if let Some(mirror_stderr) = log.mirror_stderr {
             config.log.mirror_stderr = mirror_stderr;
+        }
+        if let Some(stderr_format) = log.stderr_format {
+            config.log.stderr_format = Some(stderr_format);
         }
     }
 

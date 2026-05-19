@@ -45,32 +45,31 @@ fn main() -> ExitCode {
     let overrides = config::CliOverrides::from_global(&cli.global);
     let config = match config::Config::load(&overrides) {
         Ok(config) => Arc::new(config),
-        Err(err) => return print_and_exit(&error::AppError::from_config_error(err)),
+        Err(err) => {
+            return print_and_exit(&error::AppError::from_config_error(err), cli.global.silent);
+        }
     };
-    let mirror_stderr = config.log.mirror_stderr || config.log.verbose > 0;
-    let log_file = config
-        .log
-        .file
-        .clone()
-        .unwrap_or_else(|| config.paths.state_dir.join("codex-session.log"));
-    let _log = match logging::init(config.log.verbose, log_file.as_std_path(), mirror_stderr) {
+    let log_options = logging::options_from_config(&config, &cli.global);
+    let _log = match logging::init(&log_options) {
         Ok(handle) => handle,
         Err(err) => {
-            return print_and_exit(&error::AppError::Other(anyhow::anyhow!(
-                "failed to install tracing: {err}"
-            )));
+            return print_and_exit(
+                &error::AppError::Other(anyhow::anyhow!("failed to install tracing: {err}")),
+                cli.global.silent,
+            );
         }
     };
     let ctx = context::AppContext::new(Arc::clone(&config), cli.global.clone());
     match commands::dispatch::run(&ctx, cli) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => print_and_exit(&err),
+        Err(err) => print_and_exit(&err, ctx.global.silent),
     }
 }
 
-pub(crate) fn print_and_exit(err: &error::AppError) -> ExitCode {
+pub(crate) fn print_and_exit(err: &error::AppError, silent: bool) -> ExitCode {
     error::log_error(err);
-    let mut stderr = std::io::stderr().lock();
-    let _ = error::render(&mut stderr, err);
+    if !silent {
+        let _ = error::render_error(err);
+    }
     ExitCode::from(err.exit_code())
 }

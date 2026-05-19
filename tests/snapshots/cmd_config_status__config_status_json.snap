@@ -1,15 +1,15 @@
 ---
 source: tests/cmd_config_status.rs
-assertion_line: 42
 expression: value
 ---
 {
   "base-exists": true,
   "base-path": "<TMP>/home/.codex/config.base.toml",
   "child-bin": "<TMP>/bin/codex",
-  "log-file": "<TMP>/state/codex-session/codex-session.log",
+  "log-file": "<TMP>/state/codex-session",
   "log-format": "json",
   "log-mirror-stderr": false,
+  "log-stderr-format": null,
   "log-verbose": 0,
   "needs-merge": true,
   "sources": {

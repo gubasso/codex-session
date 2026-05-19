@@ -9,6 +9,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod color;
+
 pub fn fixture_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
@@ -53,12 +55,14 @@ impl TestEnv {
     pub fn cmd(&self) -> assert_cmd::Command {
         let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
         let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
-        cmd.env_clear()
-            .env("HOME", &self.home)
-            .env("XDG_CACHE_HOME", &self.cache)
-            .env("XDG_CONFIG_HOME", &self.config_home)
-            .env("XDG_STATE_HOME", &self.state_home)
-            .env("PATH", path);
+        color::clear_color_env(
+            cmd.env_clear()
+                .env("HOME", &self.home)
+                .env("XDG_CACHE_HOME", &self.cache)
+                .env("XDG_CONFIG_HOME", &self.config_home)
+                .env("XDG_STATE_HOME", &self.state_home)
+                .env("PATH", path),
+        );
         cmd
     }
 
@@ -106,12 +110,14 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
 
     pub fn cmd_with_path(&self, path: &str) -> assert_cmd::Command {
         let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
-        cmd.env_clear()
-            .env("HOME", &self.home)
-            .env("XDG_CACHE_HOME", &self.cache)
-            .env("XDG_CONFIG_HOME", &self.config_home)
-            .env("XDG_STATE_HOME", &self.state_home)
-            .env("PATH", path);
+        color::clear_color_env(
+            cmd.env_clear()
+                .env("HOME", &self.home)
+                .env("XDG_CACHE_HOME", &self.cache)
+                .env("XDG_CONFIG_HOME", &self.config_home)
+                .env("XDG_STATE_HOME", &self.state_home)
+                .env("PATH", path),
+        );
         cmd
     }
 
@@ -120,12 +126,14 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
         let alt_home = self.tmp.path().join("alt-home");
         std::fs::create_dir_all(&alt_home).unwrap();
-        cmd.env_clear()
-            .env("HOME", alt_home)
-            .env("XDG_CACHE_HOME", &self.cache)
-            .env("XDG_CONFIG_HOME", &self.config_home)
-            .env("XDG_STATE_HOME", &self.state_home)
-            .env("PATH", path);
+        color::clear_color_env(
+            cmd.env_clear()
+                .env("HOME", alt_home)
+                .env("XDG_CACHE_HOME", &self.cache)
+                .env("XDG_CONFIG_HOME", &self.config_home)
+                .env("XDG_STATE_HOME", &self.state_home)
+                .env("PATH", path),
+        );
         cmd
     }
 

@@ -31,7 +31,11 @@ lint:
 # Enforce the stdout/stderr ownership rule.
 lint-print:
     @! rg -n '(println!|print!|eprint(ln)?!)' \
-        --glob '!src/ui/**' --glob '!src/main.rs' --glob '!tests/**' src
+        --glob '!src/ui/**' --glob '!src/error.rs' --glob '!src/logging.rs' \
+        --glob '!tests/**' src
+    @! rg -n '(stdout|stderr)\(\)' \
+        --glob '!src/ui/**' --glob '!src/error.rs' --glob '!src/logging.rs' \
+        --glob '!tests/**' src
 
 # Preferred test runner (cargo-nextest).
 test:

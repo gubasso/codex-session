@@ -63,6 +63,21 @@ impl TestEnv {
         std::fs::create_dir_all(config_home.join("codex-session")).unwrap();
         std::fs::create_dir_all(&state_home).unwrap();
         std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::create_dir_all(&fake_bin).unwrap();
+        // Hermetic PATH excludes the host's `/usr/bin`, which on developer
+        // machines may already contain a real `codex` and shadow the
+        // wrapper's "no codex on PATH" assertions. We still need a handful
+        // of coreutils for test fake-codex scripts (`#!/usr/bin/env bash`
+        // bodies that call `cat`, `chmod`, etc.), so symlink the minimum
+        // set into `fake_bin`.
+        for tool in [
+            "bash", "cat", "chmod", "ln", "ls", "mkdir", "mv", "cp", "printf", "rm", "sleep",
+            "touch", "test", "head", "tail",
+        ] {
+            if let Ok(src) = which::which(tool) {
+                std::os::unix::fs::symlink(src, fake_bin.join(tool)).unwrap();
+            }
+        }
         Self {
             argc_file: tmp.path().join("codex.argc"),
             argv_file: tmp.path().join("codex.argv"),
@@ -78,7 +93,7 @@ impl TestEnv {
 
     pub fn cmd(&self) -> assert_cmd::Command {
         let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
-        let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
+        let path = self.fake_bin.display().to_string();
         color::clear_color_env(
             cmd.env_clear()
                 .env("HOME", &self.home)
@@ -107,7 +122,7 @@ impl TestEnv {
 
     pub fn cmd_without_home(&self) -> assert_cmd::Command {
         let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
-        let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
+        let path = self.fake_bin.display().to_string();
         let alt_home = self.tmp.path().join("alt-home");
         std::fs::create_dir_all(&alt_home).unwrap();
         color::clear_color_env(

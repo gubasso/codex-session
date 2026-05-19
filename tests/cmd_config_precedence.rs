@@ -101,7 +101,10 @@ fn unknown_key_in_user_config_exits_seventy_eight() {
     let env = TestEnv::new();
     write_file(&env.wrapper_user_config_path(), "surprise = true\n");
 
-    env.cmd().arg("help").assert().code(78);
+    // `version` is the canonical benign wrapper verb that exercises the
+    // config-loading path (`help` is clap-owned and short-circuits before
+    // config loads).
+    env.cmd().arg("version").assert().code(78);
 }
 
 #[test]
@@ -111,14 +114,14 @@ fn user_config_verbose_enables_logging_without_cli_flags() {
 
     let output = env
         .cmd()
-        .arg("help")
+        .arg("version")
         .assert()
         .success()
         .get_output()
         .clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
-        stderr.contains("help"),
+        stderr.contains("version"),
         "expected info log on stderr, got: {stderr}"
     );
 }

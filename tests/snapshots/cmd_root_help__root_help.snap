@@ -1,68 +1,77 @@
 ---
 source: tests/cmd_root_help.rs
-assertion_line: 35
+assertion_line: 42
 expression: normalized
 ---
-codex-session — wrapper around `codex` that keeps ~/.codex/config.toml in sync
-with the stow-managed ~/.codex/config.base.toml while preserving machine-local
-sections (e.g. [projects."..."]).
+Wrapper around `codex` with config-merge and machine-local preservation.
 
-Usage:
-  codex-session
-  codex-session help
-  codex-session version [--format <fmt>]
-  codex-session completion <shell>
-  codex-session config status [--format <fmt>]
-  codex-session config merge
-  codex-session config show-local [--format <fmt>]
-  codex-session [<codex verb> ...]
-  codex-session -- [<codex args> ...]
+Usage: codex-session [OPTIONS]
+       codex-session [OPTIONS] <COMMAND>
 
-Wrapper verbs:
-  help                 Show this message.
-  version              Print codex-session wrapper + resolved child version.
-  completion           Print a shell completion script to stdout.
-  config status        Print base/target/stamp paths and whether a merge is needed.
-  config merge         Force re-merge regardless of stamp freshness.
-  config show-local    Print machine-local TOML sections that would be preserved.
+Commands:
+  version     Print wrapper and child version details
+  completion  Generate a shell-completion script
+  config      Operate on config state managed by the wrapper
+  help        Print this message or the help of the given subcommand(s)
 
-Wrapper options:
-  -v, -vv, -vvv        Raise wrapper log verbosity (info / debug / trace).
-                       Overridden by RUST_LOG when that env var is set.
-  -q, --quiet          Suppress non-error stderr. The log file is unaffected.
-      --silent         Suppress ALL stderr, including errors. Exit code is
-                       preserved and the log file is unaffected.
-      --log-stderr     Mirror the wrapper log to stderr in addition to the
-                       structured JSON log file.
+Options:
+  -v, --verbose...
+          Increase wrapper log verbosity (-v info, -vv debug, -vvv trace)
+
+      --log-stderr
+          Mirror wrapper logs to stderr in addition to the log file
+
+  -q, --quiet
+          Suppress non-error stderr output. The log file is unaffected
+
+      --silent
+          Suppress all stderr output including errors. The log file is unaffected
+
       --log-format <FMT>
-                       Stderr mirror format: `pretty` or `json`.
-                       Default: auto-detect (`pretty` on TTY, `json` otherwise).
-  -V, --version        Print wrapper + child version and exit.
-      --format <fmt>   Output format: `text` (default) or `json`.
-                       Honored by: version, config status, config show-local,
-                       and `--version`.
-      --dry-run        Print the resolved child invocation (binary,
-                       argv, scrubbed env diff) and exit 0 without
-                       running the child.
+          Format for the stderr log mirror (controls only the mirrored stderr log; the file sink is
+          always JSON)
+
+          [possible values: json, pretty]
+
+  -V, --version
+          Print wrapper + child version and exit
+
+      --format <FMT>
+          Output format for `version`, `config status`, `config show-local`, and `--version`
+
+          Possible values:
+          - text: Human-readable text output
+          - json: Machine-readable JSON output
+
+      --config <PATH>
+          Load wrapper config from this explicit path instead of the default user/project locations
+
+      --dry-run
+          Print the resolved child invocation and exit without running it
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Pass-through:
+  Any subcommand not recognized by the wrapper is forwarded verbatim to the
+  real `codex`. Use `--` to force pass-through of `-`-prefixed arguments.
 
 Environment:
   CODEX_SESSION_CHILD_BIN   Explicit path to the inner `codex` binary.
                             Tried before PATH lookup.
-  CODEX_SESSION_LOG_FILE    Directory hint for the wrapper's structured log
-                            file rotation. The basename is always
-                            `codex-session.log`.
-  CODEX_SESSION_LOG_DIR     Directory hint holding `codex-session.log`.
-                            Used only when CODEX_SESSION_LOG_FILE is unset.
+  CODEX_SESSION_LOG_FILE    Explicit log file path. Overrides LOG_DIR.
+  CODEX_SESSION_LOG_DIR     Directory holding `codex-session.log`.
                             Rotated daily as `codex-session.log.<YYYY-MM-DD>`.
-  CODEX_SESSION_REENTRY     Re-entry marker set on the child env to
-                            detect chained-wrapper loops. Refuses to
-                            start the wrapper when set to `1` in the
-                            parent env.
+  CODEX_SESSION_REENTRY     Re-entry marker set on the child env to detect
+                            chained-wrapper loops. Refuses to start when set
+                            to `1` in the parent env.
   RUST_LOG                  Standard `tracing` filter; overrides -v.
   NO_COLOR                  Disable ANSI colors absolutely.
   FORCE_COLOR               Force ANSI colors even when output is piped.
   CLICOLOR=0                Disable ANSI colors on TTY output.
   CLICOLOR_FORCE            Force ANSI colors even when output is piped.
 
-Any subcommand not recognized by the wrapper is forwarded verbatim to the real
-`codex`. Use `--` to force pass-through of `-`-prefixed arguments.
+Examples:
+  codex-session version --format json
+  codex-session config status
+  codex-session --dry-run -- foo bar

@@ -22,7 +22,10 @@ fn malformed_toml_in_user_config_exits_seventy_eight() {
     let config_path = env.wrapper_user_config_path();
     write_file(&config_path, "[log]\nverbose = [\n");
 
-    let assert = env.cmd().arg("help").assert().code(78);
+    // `version` is the canonical "benign wrapper verb" that goes through
+    // the dispatch path and forces config loading. `help` is owned by
+    // clap (Tier 1) and short-circuits before the config layer.
+    let assert = env.cmd().arg("version").assert().code(78);
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
     let path = config_path.to_string_lossy();
     assert!(
@@ -47,7 +50,7 @@ fn unknown_key_in_user_config_mentions_the_key() {
     write_file(&env.wrapper_user_config_path(), "surprise = true\n");
 
     env.cmd()
-        .arg("help")
+        .arg("version")
         .assert()
         .code(78)
         .stderr(predicate::str::contains("surprise"));
@@ -59,7 +62,7 @@ fn explicit_missing_config_exits_seventy_eight() {
     let missing = env.tmp.path().join("missing.toml");
 
     env.cmd()
-        .args(["--config", missing.to_str().unwrap(), "help"])
+        .args(["--config", missing.to_str().unwrap(), "version"])
         .assert()
         .code(78)
         .stderr(predicate::str::contains(

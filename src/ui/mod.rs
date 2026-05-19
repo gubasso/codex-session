@@ -21,31 +21,6 @@ impl Ui {
         Self
     }
 
-    /// Print raw help text to stdout.
-    #[allow(clippy::unused_self)]
-    pub(crate) fn write_help(&self, text: &str) -> std::io::Result<()> {
-        let mut stdout = std::io::stdout().lock();
-        if color::stdout_color() {
-            for line in text.lines() {
-                if is_help_heading(line) {
-                    writeln!(stdout, "\u{1b}[1m{line}\u{1b}[0m")?;
-                } else {
-                    writeln!(stdout, "{line}")?;
-                }
-            }
-            if !text.ends_with('\n') {
-                stdout.flush()?;
-            }
-            return Ok(());
-        }
-
-        stdout.write_all(text.as_bytes())?;
-        if !text.ends_with('\n') {
-            writeln!(stdout)?;
-        }
-        stdout.flush()
-    }
-
     /// Print the `--dry-run` report verbatim to stdout.
     #[allow(clippy::unused_self)]
     pub(crate) fn write_dry_run(&self, body: &str) -> std::io::Result<()> {
@@ -162,13 +137,6 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         writeln!(stdout, "merged: {} -> {}", base.display(), target.display())
     }
-}
-
-fn is_help_heading(line: &str) -> bool {
-    matches!(
-        line,
-        "Usage:" | "Wrapper verbs:" | "Wrapper options:" | "Environment:"
-    )
 }
 
 const fn format_log(format: crate::config::LogFormat) -> &'static str {

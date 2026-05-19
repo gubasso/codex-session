@@ -336,10 +336,10 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) {
         }
     }
 
-    if let Some(child) = layer.child {
-        if let Some(bin) = child.bin {
-            config.child.bin = Some(bin);
-        }
+    if let Some(child) = layer.child
+        && let Some(bin) = child.bin
+    {
+        config.child.bin = Some(bin);
     }
 
     if let Some(profile) = layer.profile {
@@ -445,10 +445,10 @@ fn apply_cli_overrides(config: &mut Config, cli: &CliValueOverrides) {
         }
     }
 
-    if let Some(child) = cli.child.as_ref() {
-        if let Some(bin) = child.bin.as_ref() {
-            config.child.bin = Some(bin.clone());
-        }
+    if let Some(child) = cli.child.as_ref()
+        && let Some(bin) = child.bin.as_ref()
+    {
+        config.child.bin = Some(bin.clone());
     }
 
     if let Some(profile) = cli.profile.as_ref() {

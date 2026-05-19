@@ -27,13 +27,13 @@ pub(crate) fn resolve_session_root(
     let runtime_candidate = runtime_dir.map(Utf8Path::to_path_buf);
     let state_candidate = state_dir.to_path_buf();
 
-    if let Some(candidate) = runtime_candidate.as_ref() {
-        if validate_root(candidate).is_ok() {
-            return Ok(SessionRoot {
-                path: candidate.clone(),
-                source: SessionRootSource::Runtime,
-            });
-        }
+    if let Some(candidate) = runtime_candidate.as_ref()
+        && validate_root(candidate).is_ok()
+    {
+        return Ok(SessionRoot {
+            path: candidate.clone(),
+            source: SessionRootSource::Runtime,
+        });
     }
 
     if validate_root(&state_candidate).is_ok() {

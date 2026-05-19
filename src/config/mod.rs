@@ -212,14 +212,9 @@ impl Default for ProfileConfig {
 
 impl Config {
     fn defaults() -> Result<Self, ConfigError> {
-        let Some(base_dirs) = directories::BaseDirs::new() else {
-            return Err(ConfigError::NoXdg);
-        };
         let Some(project_dirs) = directories::ProjectDirs::from("", "", "codex-session") else {
             return Err(ConfigError::NoXdg);
         };
-
-        let _home_dir = Utf8PathBuf::try_from(base_dirs.home_dir().to_path_buf())?;
         let cache_dir = Utf8PathBuf::try_from(project_dirs.cache_dir().to_path_buf())?;
         let config_dir = Utf8PathBuf::try_from(project_dirs.config_dir().to_path_buf())?;
         let state_dir = Utf8PathBuf::try_from(
@@ -295,6 +290,13 @@ impl Config {
         };
         Ok(config)
     }
+}
+
+pub(crate) fn resolve_home_dir() -> Result<Utf8PathBuf, ConfigError> {
+    let Some(base_dirs) = directories::BaseDirs::new() else {
+        return Err(ConfigError::NoHomeDir);
+    };
+    Utf8PathBuf::try_from(base_dirs.home_dir().to_path_buf()).map_err(ConfigError::from)
 }
 
 fn apply_file_layer(config: &mut Config, path: &Utf8PathBuf) -> Result<(), ConfigError> {

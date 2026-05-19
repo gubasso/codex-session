@@ -32,7 +32,31 @@ pub(crate) enum SpawnerError {
 pub(crate) trait Spawner {
     fn resolve_child(&self, cfg: &ChildConfig) -> Result<Utf8PathBuf, SpawnerError>;
     fn child_version_line(&self, child: &Utf8Path) -> Option<String>;
+    /// Spawn the child, publish its PID via `pid_sink`, then wait.
+    ///
+    /// The `pid_sink` parameter looks like a leaky abstraction but is
+    /// load-bearing: the signal-forwarding thread installed by
+    /// `services::auth::signal::install` runs in parallel with this call
+    /// and needs the child's PID to forward signals to. Two designs were
+    /// considered (see the reviewed plan, Phase 5):
+    ///
+    /// (a) thread an `&AtomicI32` through `spawn_and_wait` so the spawner
+    ///     publishes the PID after `Command::spawn` returns. *Chosen.*
+    /// (b) inline `Command::spawn` + `wait` in `pass_through::run`,
+    ///     bypassing the trait for the one caller that needs signal
+    ///     forwarding. Rejected because it breaks the hexagonal port
+    ///     boundary for every other spawner-using path.
+    ///
+    /// Mock spawners must also accept the sink (and write a non-zero
+    /// value when they "spawn" so the signal thread treats their fake
+    /// child as live). The coupling is intentional.
+    fn spawn_and_wait(
+        &self,
+        inv: ChildInvocation,
+        pid_sink: &std::sync::atomic::AtomicI32,
+    ) -> Result<std::process::ExitStatus, SpawnerError>;
     /// Replace the current process. Returns only on failure.
+    #[allow(dead_code)]
     fn exec(&self, inv: ChildInvocation) -> SpawnerError;
 }
 
@@ -123,6 +147,23 @@ impl Spawner for StdSpawner {
         line.lines()
             .find(|candidate| !candidate.trim().is_empty())
             .map(ToOwned::to_owned)
+    }
+
+    fn spawn_and_wait(
+        &self,
+        inv: ChildInvocation,
+        pid_sink: &std::sync::atomic::AtomicI32,
+    ) -> Result<std::process::ExitStatus, SpawnerError> {
+        use std::sync::atomic::Ordering;
+
+        let mut cmd = inv.into_command();
+        let mut child = cmd.spawn().map_err(SpawnerError::Exec)?;
+        pid_sink.store(
+            i32::try_from(child.id()).unwrap_or(i32::MAX),
+            Ordering::SeqCst,
+        );
+        let status = child.wait().map_err(SpawnerError::Exec)?;
+        Ok(status)
     }
 
     fn exec(&self, inv: ChildInvocation) -> SpawnerError {

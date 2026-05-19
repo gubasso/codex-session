@@ -230,17 +230,5 @@ fn secure_dir(path: &Utf8Path) -> Result<(), crate::config::ConfigError> {
 }
 
 fn current_uid() -> u32 {
-    std::process::Command::new("id")
-        .arg("-u")
-        .output()
-        .ok()
-        .and_then(|output| {
-            output
-                .status
-                .success()
-                .then(|| String::from_utf8(output.stdout).ok())
-                .flatten()
-        })
-        .and_then(|value| value.trim().parse::<u32>().ok())
-        .unwrap_or(u32::MAX)
+    rustix::process::getuid().as_raw()
 }

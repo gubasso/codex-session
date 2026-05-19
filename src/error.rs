@@ -7,6 +7,7 @@
 #![allow(clippy::must_use_candidate)]
 
 use std::ffi::OsString;
+use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -41,12 +42,24 @@ pub(crate) enum AppError {
     #[error("exec failed: {0}")]
     ChildExec(#[source] std::io::Error),
 
+    /// Child exited with a non-zero status.
+    #[error("child exited with status {0}")]
+    ChildExitNonZero(i32),
+
+    /// Child was terminated by a signal.
+    #[error("child terminated by signal")]
+    ChildSignaled(std::process::ExitStatus),
+
     /// Resolved child path equals the wrapper binary itself.
     #[error("child binary resolves to the wrapper itself")]
     ChildRecursion {
         /// Offending path that resolved to the wrapper.
         path: camino::Utf8PathBuf,
     },
+
+    /// Auth-bridging validation or lock failure.
+    #[error(transparent)]
+    Auth(crate::services::auth::AuthError),
 
     /// Unexpected I/O failure.
     #[error("io: {0}")]
@@ -79,6 +92,12 @@ impl From<crate::adapters::spawner::SpawnerError> for AppError {
     }
 }
 
+impl From<crate::services::auth::AuthError> for AppError {
+    fn from(err: crate::services::auth::AuthError) -> Self {
+        Self::Auth(err)
+    }
+}
+
 impl AppError {
     /// Return the stable machine-readable error kind.
     pub(crate) fn kind(&self) -> &'static str {
@@ -88,7 +107,10 @@ impl AppError {
             Self::ChildNotFound { .. } => "child-not-found",
             Self::ChildNotExecutable { .. } => "child-not-executable",
             Self::ChildExec(_) => "child-exec",
+            Self::ChildExitNonZero(_) => "child-exit-nonzero",
+            Self::ChildSignaled(_) => "child-signaled",
             Self::ChildRecursion { .. } => "child-recursion",
+            Self::Auth(err) => err.kind(),
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => "io-not-found",
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
                 "io-permission-denied"
@@ -105,7 +127,13 @@ impl AppError {
             Self::Config(_) => 78,
             Self::ChildNotFound { .. } => 127,
             Self::ChildNotExecutable { .. } => 126,
+            Self::ChildExitNonZero(code) => u8::try_from(*code).unwrap_or(u8::MAX),
+            Self::ChildSignaled(status) => status
+                .signal()
+                .and_then(|signal| u8::try_from(128 + signal).ok())
+                .unwrap_or(70),
             Self::ChildRecursion { .. } | Self::Other(_) => 70,
+            Self::Auth(_) => 75,
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => 66,
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => 77,
             Self::ChildExec(_) | Self::Io(_) => 74,
@@ -227,11 +255,23 @@ fn detail(err: &AppError) -> ErrorDetail {
             what: "failed to hand control to the wrapped codex process".to_owned(),
             why_line: source.to_string(),
         },
+        AppError::ChildExitNonZero(code) => ErrorDetail {
+            what: "wrapped codex exited with a non-zero status".to_owned(),
+            why_line: format!("child exited with status {code}"),
+        },
+        AppError::ChildSignaled(status) => ErrorDetail {
+            what: "wrapped codex terminated due to a signal".to_owned(),
+            why_line: status.signal().map_or_else(
+                || "signal number unavailable".to_owned(),
+                |signal| format!("child terminated by signal {signal}"),
+            ),
+        },
         AppError::ChildRecursion { .. } => ErrorDetail {
             what: "child binary resolves to the wrapper itself".to_owned(),
             why_line: "the resolved child path is the wrapper binary; this would loop forever"
                 .to_owned(),
         },
+        AppError::Auth(auth_err) => auth_error_detail(auth_err),
         AppError::Io(source) => ErrorDetail {
             what: "unexpected I/O failure".to_owned(),
             why_line: source.to_string(),
@@ -250,6 +290,10 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
         ConfigError::NoXdg => ErrorDetail {
             what: "config: missing XDG directories".to_owned(),
             why_line: "could not resolve HOME/XDG base directories".to_owned(),
+        },
+        ConfigError::NoHomeDir => ErrorDetail {
+            what: "config: home directory could not be resolved".to_owned(),
+            why_line: "BaseDirs::new() returned None or the home path was not UTF-8".to_owned(),
         },
         ConfigError::CurrentDir(source) => ErrorDetail {
             what: "config: failed to read current working directory".to_owned(),
@@ -319,6 +363,37 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
     }
 }
 
+fn auth_error_detail(err: &crate::services::auth::AuthError) -> ErrorDetail {
+    use crate::services::auth::AuthError;
+
+    match err {
+        AuthError::Io { source, .. } => ErrorDetail {
+            what: "auth: io error bridging auth.json".to_owned(),
+            why_line: source.to_string(),
+        },
+        AuthError::SymlinkRefused { .. } => ErrorDetail {
+            what: "auth: refused symlinked auth.json".to_owned(),
+            why_line: "the file is a symbolic link; refusing to follow".to_owned(),
+        },
+        AuthError::HardlinkRefused { .. } => ErrorDetail {
+            what: "auth: refused hardlinked auth.json".to_owned(),
+            why_line: "the file has more than one hard link; refusing to use".to_owned(),
+        },
+        AuthError::BadOwnership { .. } => ErrorDetail {
+            what: "auth: bad ownership or permissions on auth.json".to_owned(),
+            why_line: "the file must be owned by you and mode 0600".to_owned(),
+        },
+        AuthError::LockFailed { source, .. } => ErrorDetail {
+            what: "auth: failed to acquire auth.json lock".to_owned(),
+            why_line: source.to_string(),
+        },
+        AuthError::JsonParse { source, .. } => ErrorDetail {
+            what: "auth: malformed auth.json".to_owned(),
+            why_line: source.to_string(),
+        },
+    }
+}
+
 fn format_where_line(err: &AppError) -> Option<String> {
     let path = error_path(err)?;
     match error_line(err) {
@@ -344,12 +419,16 @@ fn error_path(err: &AppError) -> Option<String> {
         | AppError::ChildRecursion { path } => Some(path.to_string()),
         AppError::ChildNotFound { tried, .. } => Some(tried.display().to_string()),
         AppError::ChildNotExecutable { path } => Some(path.display().to_string()),
+        AppError::Auth(auth_err) => Some(auth_err.path().to_string()),
         AppError::Usage(_)
         | AppError::ChildExec(_)
+        | AppError::ChildExitNonZero(_)
+        | AppError::ChildSignaled(_)
         | AppError::Io(_)
         | AppError::Other(_)
         | AppError::Config(
             ConfigError::NoXdg
+            | ConfigError::NoHomeDir
             | ConfigError::CurrentDir(_)
             | ConfigError::NonUtf8Path(_)
             | ConfigError::Io(_)
@@ -381,6 +460,7 @@ fn error_line(err: &AppError) -> Option<u32> {
 
 const fn error_hint(err: &AppError) -> Option<&'static str> {
     use crate::config::ConfigError;
+    use crate::services::auth::AuthError;
 
     match err {
         AppError::ChildNotFound { .. } => {
@@ -401,8 +481,18 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Config(ConfigError::ProfileNotFound { .. }) => {
             Some("run `codex-session profile list` to inspect available profiles")
         }
+        AppError::Auth(AuthError::SymlinkRefused { .. }) => {
+            Some("replace ~/.codex/auth.json with a regular file owned by you (mode 0600)")
+        }
+        AppError::Auth(AuthError::HardlinkRefused { .. }) => {
+            Some("remove the extra hard link so ~/.codex/auth.json has nlink == 1")
+        }
+        AppError::Auth(AuthError::BadOwnership { .. }) => {
+            Some("chown the file to your user and `chmod 0600 ~/.codex/auth.json`")
+        }
         AppError::Config(
             ConfigError::NoXdg
+            | ConfigError::NoHomeDir
             | ConfigError::CurrentDir(_)
             | ConfigError::Parse { .. }
             | ConfigError::NonUtf8Path(_)
@@ -416,8 +506,13 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             | ConfigError::SessionDirUnresolvable { .. }
             | ConfigError::EnvKeyInvalid { .. },
         )
+        | AppError::Auth(
+            AuthError::Io { .. } | AuthError::LockFailed { .. } | AuthError::JsonParse { .. },
+        )
         | AppError::Usage(_)
         | AppError::ChildExec(_)
+        | AppError::ChildExitNonZero(_)
+        | AppError::ChildSignaled(_)
         | AppError::Io(_)
         | AppError::Other(_) => None,
     }
@@ -563,6 +658,33 @@ mod tests {
         let err = AppError::Other(anyhow::anyhow!("boom"));
         assert_eq!(err.exit_code(), 70);
         assert_eq!(err.kind(), "internal");
+    }
+
+    #[test]
+    fn auth_symlink_refused_is_seventy_five() {
+        let err = AppError::Auth(crate::services::auth::AuthError::SymlinkRefused {
+            path: camino::Utf8PathBuf::from("/home/u/.codex/auth.json"),
+        });
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "auth-symlink-refused");
+    }
+
+    #[test]
+    fn auth_hardlink_refused_is_seventy_five() {
+        let err = AppError::Auth(crate::services::auth::AuthError::HardlinkRefused {
+            path: camino::Utf8PathBuf::from("/home/u/.codex/auth.json"),
+        });
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "auth-hardlink-refused");
+    }
+
+    #[test]
+    fn auth_bad_ownership_is_seventy_five() {
+        let err = AppError::Auth(crate::services::auth::AuthError::BadOwnership {
+            path: camino::Utf8PathBuf::from("/home/u/.codex/auth.json"),
+        });
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "auth-bad-ownership");
     }
 
     #[test]

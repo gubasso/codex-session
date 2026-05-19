@@ -2,7 +2,7 @@
 name = "codex-session"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "Wrapper around `codex` that composes profile layers into per-terminal session directories."
 repository = "https://github.com/gubasso/codex-session"

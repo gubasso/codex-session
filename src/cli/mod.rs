@@ -53,6 +53,10 @@ pub(crate) struct GlobalArgs {
     /// Override the user/project config file with an explicit path.
     #[arg(long, value_name = "PATH", global = true)]
     pub(crate) config: Option<camino::Utf8PathBuf>,
+
+    /// Print the resolved child invocation and exit without running it.
+    #[arg(long, global = true)]
+    pub(crate) dry_run: bool,
 }
 
 /// Root subcommand set.

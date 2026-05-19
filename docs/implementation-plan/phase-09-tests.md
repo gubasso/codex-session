@@ -134,6 +134,16 @@ This phase also **tightens** existing tests:
   test does `assert_eq!(stdout, expected_str)` on long output.
 - Add the missing precedence matrix rows.
 - Audit every test for env-leakage (must use the support helper).
+- **Fix the known parallel-flake in `tests/cmd_passthrough.rs`.**
+  Under default `cargo test` parallelism, a non-deterministic
+  subset of that file's tests fails (observed: `missing_home_does_not_panic`,
+  `missing_base_falls_through_to_codex_without_creating_target_or_stamp`
+  — different test fails on different runs). The file passes when
+  run in isolation (`cargo test --test cmd_passthrough`), so the
+  cause is shared mutable state between tests (likely `HOME`/`XDG_*`
+  env or shared tempdir paths). Route every test through
+  `support::hermetic(&td)` per task 6 and re-verify with
+  `cargo nextest run` (parallel by default).
 
 ## Target state
 
@@ -295,6 +305,14 @@ INSTA_FORCE_PASS=1   // not in CI
 
 Commit `*.snap` files to the repo. `cargo insta review` is the
 maintainer workflow.
+
+**Offline / sandboxed environments.** `cargo insta review` and
+`cargo insta accept` may fetch crate metadata over the network on
+first run (e.g. devcontainers without internet). When that fails,
+the safe fallback is to inspect each `tests/snapshots/<name>.snap.new`
+manually and rename it to `<name>.snap` (a plain file move — no
+crate-side state involved). The `.snap` format is line-oriented
+YAML frontmatter + body and can be reviewed by eye.
 
 ## Tasks
 

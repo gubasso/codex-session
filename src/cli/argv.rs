@@ -35,7 +35,7 @@ pub(crate) fn legacy_self_invocation(argv: &[OsString]) -> bool {
         };
         match s {
             "--" => return false,
-            "--verbose" | "--log-stderr" | "--version" => {}
+            "--verbose" | "--log-stderr" | "--version" | "--dry-run" => {}
             "--config" => {
                 let _ = iter.next();
             }
@@ -70,6 +70,10 @@ pub(crate) fn scan_global_args(argv: &[OsString]) -> GlobalArgs {
         }
         if s == "--version" {
             global.version = true;
+            continue;
+        }
+        if s == "--dry-run" {
+            global.dry_run = true;
             continue;
         }
         if s == "--config" {

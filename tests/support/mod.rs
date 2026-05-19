@@ -3,10 +3,17 @@
     clippy::unwrap_used,
     clippy::missing_panics_doc,
     clippy::must_use_candidate,
-    clippy::new_without_default
+    clippy::new_without_default,
+    unreachable_pub
 )] // Shared helper methods are used selectively by each integration test file.
 
 use std::path::{Path, PathBuf};
+
+pub fn fixture_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
 
 pub struct TestEnv {
     pub tmp: tempfile::TempDir,

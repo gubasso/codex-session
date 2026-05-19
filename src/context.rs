@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::adapters::spawner::{Spawner as _, SpawnerError, StdSpawner};
 
@@ -89,6 +89,8 @@ pub(crate) struct SessionContext {
 pub(crate) struct AppContext {
     /// Immutable resolved configuration.
     pub(crate) config: Arc<crate::config::Config>,
+    /// Resolved home directory.
+    pub(crate) home_dir: Utf8PathBuf,
     /// Process spawner adapter.
     pub(crate) spawner: StdSpawner,
     /// Human-facing output adapter.
@@ -106,9 +108,11 @@ impl AppContext {
     pub(crate) const fn new(
         config: Arc<crate::config::Config>,
         global: crate::cli::GlobalArgs,
+        home_dir: Utf8PathBuf,
     ) -> Self {
         Self {
             config,
+            home_dir,
             spawner: StdSpawner,
             ui: crate::ui::Ui::new(),
             global,
@@ -120,6 +124,11 @@ impl AppContext {
     /// Convenience access to the resolved path set.
     pub(crate) fn paths(&self) -> &crate::config::PathsConfig {
         &self.config.paths
+    }
+
+    /// Borrow the resolved home directory.
+    pub(crate) fn home_dir(&self) -> &Utf8Path {
+        &self.home_dir
     }
 
     /// Borrow the resolved child path, resolving on first access.

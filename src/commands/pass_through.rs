@@ -6,9 +6,23 @@
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use camino::Utf8PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicI32;
 
 use crate::adapters::spawner::Spawner as _;
 use crate::domain::child_invocation::{ChildEnv, ChildInvocation};
+
+struct PersistGuard<'a> {
+    bridge: &'a crate::services::auth::AuthBridge,
+}
+
+impl Drop for PersistGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(err) = self.bridge.persist_to_native() {
+            tracing::warn!(op = "auth.persist", status = "error", err = %err);
+        }
+    }
+}
 
 /// Run the non-`self` path.
 pub(crate) fn run(
@@ -72,7 +86,7 @@ pub(crate) fn run(
     let mut child_env = ChildEnv::scrubbed_default();
     child_env
         .set
-        .push(("CODEX_HOME".to_owned(), session_dir.into()));
+        .push(("CODEX_HOME".to_owned(), session_dir.clone().into()));
     for (key, value) in env {
         if key.starts_with("CODEX_SESSION_") {
             return Err(crate::config::ConfigError::EnvKeyInvalid {
@@ -97,8 +111,25 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    let err = ctx.spawner.exec(inv);
-    Err(crate::error::AppError::from(err))
+    let child_pid = Arc::new(AtomicI32::new(0));
+    let _sig_guard = crate::services::auth::signal::install(Arc::clone(&child_pid))
+        .map_err(crate::error::AppError::Io)?;
+    let home = ctx.home_dir().to_path_buf();
+    let mut bridge = crate::services::auth::AuthBridge::new(&home, &session_dir)?;
+    bridge.seed_into_session()?;
+
+    let _persist = PersistGuard { bridge: &bridge };
+    let spawn_result = ctx.spawner.spawn_and_wait(inv, &child_pid);
+    // Clear the child PID immediately so that any signal arriving between
+    // here and process exit cannot be forwarded to a PID the kernel may
+    // have already recycled for an unrelated process.
+    child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
+    let status = spawn_result?;
+    match status.code() {
+        Some(0) => Ok(()),
+        Some(code) => Err(crate::error::AppError::ChildExitNonZero(code)),
+        None => Err(crate::error::AppError::ChildSignaled(status)),
+    }
 }
 
 fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {

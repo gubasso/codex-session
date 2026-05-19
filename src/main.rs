@@ -53,6 +53,12 @@ fn main() -> ExitCode {
             return error::print_and_exit(&error::AppError::Config(err), &cli.global);
         }
     };
+    let home_dir = match config::resolve_home_dir() {
+        Ok(home_dir) => home_dir,
+        Err(err) => {
+            return error::print_and_exit(&error::AppError::Config(err), &cli.global);
+        }
+    };
     let log_options = logging::options_from_config(&config, &cli.global);
     let _log = match logging::init(&log_options) {
         Ok(handle) => handle,
@@ -63,7 +69,18 @@ fn main() -> ExitCode {
             );
         }
     };
-    let ctx = context::AppContext::new(Arc::clone(&config), cli.global.clone());
+    let ctx = context::AppContext::new(Arc::clone(&config), cli.global.clone(), home_dir);
+    let sessions_root = ctx
+        .config
+        .paths
+        .runtime_dir
+        .as_deref()
+        .unwrap_or(&ctx.config.paths.state_dir)
+        .join("sessions");
+    crate::services::session::cleanup::prune_stale_sessions(
+        &sessions_root,
+        std::time::Duration::from_secs(7 * 24 * 3600),
+    );
     match commands::dispatch::run(&ctx, cli) {
         Ok(code) => ExitCode::from(code),
         Err(err) => error::print_and_exit(&err, &ctx.global),

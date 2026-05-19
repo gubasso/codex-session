@@ -12,6 +12,7 @@ impl ConfigError {
     pub(crate) const fn kind(&self) -> &'static str {
         match self {
             Self::NoXdg => "config-no-xdg",
+            Self::NoHomeDir => "config-no-home-dir",
             Self::CurrentDir(_) => "config-current-dir",
             Self::Parse { .. } => "config-parse",
             Self::UnknownKey { .. } => "config-unknown-key",
@@ -37,6 +38,10 @@ pub(crate) enum ConfigError {
     /// No usable XDG directories could be resolved.
     #[error("config: missing XDG directories (no HOME?)")]
     NoXdg,
+
+    /// The home directory could not be resolved.
+    #[error("config: home directory could not be resolved")]
+    NoHomeDir,
 
     /// The current working directory could not be read while searching for a project config.
     #[error("config: failed to read current working directory")]

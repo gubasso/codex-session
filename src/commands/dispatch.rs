@@ -20,10 +20,16 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<(), error:
     }
     match cli.command {
         Some(cli::Commands::Version(args)) => commands::version::run(ctx, args),
-        Some(cli::Commands::Help) | None => commands::help::run(ctx),
         Some(cli::Commands::Completion(args)) => commands::completion::run(ctx, args),
         Some(cli::Commands::Config(args)) => run_config(ctx, args),
         Some(cli::Commands::External(argv)) => commands::pass_through::run(ctx, &argv),
+        // The bare-invocation help path (no subcommand, no `--version`)
+        // is handled in `main` before config/logging init so it stays
+        // functionally equivalent to `--help` / `help` even when the
+        // log directory is unwritable. Reaching `None` here would mean
+        // `main` failed to short-circuit, which is a wrapper invariant
+        // violation.
+        None => unreachable!("bare invocation must be short-circuited in `main` before dispatch"),
     }
 }
 

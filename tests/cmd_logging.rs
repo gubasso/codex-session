@@ -137,20 +137,24 @@ fn top_level_verbose_mirrors_logs_to_stderr_and_file() {
     let env = TestEnv::new();
     let state_home = env.tmp.path().join("state");
 
+    // Use `version` (a wrapper-owned verb that goes through dispatch and
+    // logs `op=version`). `help` is now clap-owned (Tier 1) and
+    // short-circuits before tracing is initialized, so it intentionally
+    // never produces a log entry.
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["-v", "help"])
+        .args(["-v", "version"])
         .assert()
         .success()
         .get_output()
         .clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("help"));
+    assert!(stderr.contains("version"));
 
     let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
-    assert!(contents.contains("\"op\":\"help\""));
+    assert!(contents.contains("\"op\":\"version\""));
 }
 
 #[test]
@@ -161,7 +165,7 @@ fn quiet_suppresses_stderr_but_keeps_file_sink() {
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["-q", "-vv", "help"])
+        .args(["-q", "-vv", "version"])
         .assert()
         .success()
         .get_output()
@@ -173,7 +177,7 @@ fn quiet_suppresses_stderr_but_keeps_file_sink() {
 
     let log_file = latest_log_file(&state_home.join("codex-session"));
     let contents = std::fs::read_to_string(&log_file).unwrap();
-    assert!(contents.contains("\"op\":\"help\""));
+    assert!(contents.contains("\"op\":\"version\""));
 }
 
 #[test]
@@ -204,7 +208,7 @@ fn log_format_json_writes_json_to_stderr() {
     let output = env
         .cmd()
         .env("XDG_STATE_HOME", &state_home)
-        .args(["-v", "--log-format", "json", "help"])
+        .args(["-v", "--log-format", "json", "version"])
         .assert()
         .success()
         .get_output()
@@ -212,7 +216,7 @@ fn log_format_json_writes_json_to_stderr() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     let last_line = stderr.lines().last().unwrap();
     let json: serde_json::Value = serde_json::from_str(last_line).unwrap();
-    assert_eq!(json["fields"]["op"], "help");
+    assert_eq!(json["fields"]["op"], "version");
 }
 
 #[test]

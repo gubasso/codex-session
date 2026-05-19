@@ -15,6 +15,7 @@ pub(crate) fn normalize_argv(mut argv: Vec<OsString>) -> Vec<OsString> {
     {
         argv.remove(1);
     }
+
     argv
 }
 
@@ -51,7 +52,7 @@ pub(crate) fn legacy_self_invocation(argv: &[OsString]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::legacy_self_invocation;
+    use super::{legacy_self_invocation, normalize_argv};
     use std::ffi::OsString;
 
     #[test]
@@ -64,5 +65,29 @@ mod tests {
             OsString::from("version"),
         ];
         assert!(legacy_self_invocation(&argv));
+    }
+
+    #[test]
+    fn help_token_is_preserved_for_clap() {
+        // Bare `help` must reach clap unchanged so clap's auto-generated
+        // `help` subcommand emits a `DisplayHelp` early-exit (matching
+        // `--help`). The wrapper must not strip it pre-parse — doing so
+        // would route help rendering through the dispatch path and force
+        // config/logging init, breaking the byte-equal contract with
+        // `--help` on systems where the log dir is unwritable.
+        let argv = vec![OsString::from("-v"), OsString::from("help")];
+        assert_eq!(
+            normalize_argv(argv),
+            vec![OsString::from("-v"), OsString::from("help")]
+        );
+    }
+
+    #[test]
+    fn help_with_trailing_args_is_preserved() {
+        let argv = vec![OsString::from("help"), OsString::from("config")];
+        assert_eq!(
+            normalize_argv(argv),
+            vec![OsString::from("help"), OsString::from("config")]
+        );
     }
 }

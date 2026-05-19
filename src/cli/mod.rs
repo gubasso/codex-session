@@ -21,7 +21,7 @@ use clap::ValueEnum;
     bin_name = "codex-session",
     about = "Wrapper around `codex` with config-merge and machine-local preservation.",
     long_about = None,
-    disable_help_subcommand = true,
+    after_long_help = include_str!("../ui/help_extras.txt"),
     disable_version_flag = true,
     allow_external_subcommands = true,
     subcommand_negates_reqs = true
@@ -56,7 +56,8 @@ pub(crate) struct GlobalArgs {
     #[arg(long, global = true, conflicts_with = "quiet")]
     pub(crate) silent: bool,
 
-    /// Format for the stderr log mirror.
+    /// Format for the stderr log mirror (controls only the mirrored
+    /// stderr log; the file sink is always JSON).
     #[arg(long = "log-format", value_name = "FMT", value_enum, global = true)]
     pub(crate) log_format: Option<crate::config::LogFormat>,
 
@@ -64,11 +65,11 @@ pub(crate) struct GlobalArgs {
     #[arg(short = 'V', long, global = true)]
     pub(crate) version: bool,
 
-    /// Output format for wrapper-owned read commands.
+    /// Output format for `version`, `config status`, `config show-local`, and `--version`.
     #[arg(long, value_name = "FMT", value_enum, global = true)]
     pub(crate) format: Option<OutputFormat>,
 
-    /// Override the user/project config file with an explicit path.
+    /// Load wrapper config from this explicit path instead of the default user/project locations.
     #[arg(long, value_name = "PATH", global = true)]
     pub(crate) config: Option<camino::Utf8PathBuf>,
 
@@ -83,11 +84,7 @@ pub(crate) enum Commands {
     /// Print wrapper and child version details.
     Version(version::VersionArgs),
 
-    /// Print wrapper help.
-    #[command(name = "help")]
-    Help,
-
-    /// Emit a shell-completion script.
+    /// Generate a shell-completion script.
     Completion(completion::CompletionArgs),
 
     /// Operate on config state managed by the wrapper.

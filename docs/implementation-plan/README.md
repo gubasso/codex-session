@@ -181,6 +181,7 @@ this plan. They are inputs to every phase, not negotiables.
 | 08 | [`phase-08-error-model.md`](phase-08-error-model.md) | `Usage(clap::Error)`; `ConfigError` rung; structured `err.path`/`err.line` from `figment` provenance. | `src/error.rs`, `src/config/error.rs` |
 | 09 | [`phase-09-tests.md`](phase-09-tests.md) | `insta` snapshots for `--help`/`--version`; signal/`128+N` matrix; golden argv via stub child; config-precedence matrix. | `tests/`, new `tests/fixtures/echo-argv.sh` |
 | 10 | [`phase-10-polish.md`](phase-10-polish.md) | `clap_complete` completion subcommand; flip `missing_docs = "warn"`; add module headers ("what it is / what it isn't"); ADR sweep. | `src/cli/completion.rs`, all `src/*.rs`, `Cargo.toml`, `docs/adr/` |
+| 11 | [`phase-11-help-tier1-migration.md`](phase-11-help-tier1-migration.md) | Migrate `--help` rendering from Tier 3 (hand-authored `help.txt` + custom subcommand) to Tier 1 (clap-derived + `after_long_help` addendum). Closes a spec divergence missed in Phase 02 / 10. | `src/cli/mod.rs`, `src/cli/exit.rs`, `src/commands/help.rs` (del), `src/commands/dispatch.rs`, `src/ui/help.txt` → `src/ui/help_extras.txt`, `tests/cmd_root_help.rs` |
 
 ## Phase ordering and dependencies
 
@@ -196,6 +197,8 @@ this plan. They are inputs to every phase, not negotiables.
     └────────────────────────── 09
                                 │
                                 10
+                                │
+                                11
 ```
 
 - Phase 01 unblocks every later phase (everything else assumes a real
@@ -209,6 +212,11 @@ this plan. They are inputs to every phase, not negotiables.
 - Phase 08 depends on 03 (`ConfigError` requires `Config`).
 - Phase 09 (tests) and Phase 10 (polish) come last and lock the
   contract.
+- Phase 11 is a corrective follow-up added after Phase 10: the
+  audit caught a spec divergence (Tier 3 hand-authored `help.txt`
+  where Tier 1 clap-derived help was required). It depends on the
+  whole tree being green — touch help rendering only after the rest
+  of the surface is stable.
 
 ## How to execute each phase
 

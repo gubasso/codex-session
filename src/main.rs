@@ -19,7 +19,6 @@ pub(crate) mod logging;
 pub(crate) mod services;
 pub(crate) mod ui;
 
-use clap::Parser as _;
 use std::ffi::OsString;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -36,12 +35,30 @@ fn main() -> ExitCode {
         );
         return cli::exit::handle_clap_error(err, &argv);
     }
-    let cli = match cli::Cli::try_parse_from(
-        std::iter::once(OsString::from("codex-session")).chain(argv.iter().cloned()),
-    ) {
+    let argv_iter = std::iter::once(OsString::from("codex-session")).chain(argv.iter().cloned());
+    let mut matches = match <cli::Cli as clap::CommandFactory>::command()
+        .color(ui::color::stdout_color_choice())
+        .try_get_matches_from(argv_iter)
+    {
+        Ok(matches) => matches,
+        Err(err) => return cli::exit::handle_clap_error(err, &argv),
+    };
+    let cli = match <cli::Cli as clap::FromArgMatches>::from_arg_matches_mut(&mut matches) {
         Ok(cli) => cli,
         Err(err) => return cli::exit::handle_clap_error(err, &argv),
     };
+    // Bare `codex-session` (no subcommand, no `--version`) renders the
+    // same long help as `codex-session --help` / `codex-session help`.
+    // Per the Phase 11 Tier 1 contract, all three entry points must be
+    // functionally equivalent — including not depending on config /
+    // logging init. Short-circuit here so an unwritable log dir cannot
+    // poison the bare help path.
+    if cli.command.is_none() && !cli.global.version {
+        use clap::CommandFactory;
+        let mut cmd = cli::Cli::command().color(ui::color::stdout_color_choice());
+        let _ = cmd.print_long_help();
+        return ExitCode::SUCCESS;
+    }
     let overrides = config::CliOverrides::from_global(&cli.global);
     let config = match config::Config::load(&overrides) {
         Ok(config) => Arc::new(config),

@@ -1,9 +1,10 @@
 //! Color policy.
 //!
 //! What this is: the single source of truth for whether ANSI color is enabled
-//! on stdout/stderr.
+//! on wrapper-rendered streams.
 //! What this is not: a styling library.
 
+use clap::ColorChoice;
 use std::ffi::OsString;
 use std::io::IsTerminal as _;
 
@@ -73,8 +74,12 @@ pub(crate) fn stderr_color() -> bool {
     should_color(Stream::Stderr)
 }
 
-pub(crate) fn stdout_color() -> bool {
-    should_color(Stream::Stdout)
+pub(crate) fn stdout_color_choice() -> ColorChoice {
+    if should_color(Stream::Stdout) {
+        ColorChoice::Always
+    } else {
+        ColorChoice::Never
+    }
 }
 
 #[cfg(test)]

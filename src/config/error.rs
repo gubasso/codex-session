@@ -19,6 +19,14 @@ impl ConfigError {
             Self::NonUtf8Path(_) => "config-non-utf8-path",
             Self::Io(_) => "config-io",
             Self::EnvParse { .. } => "config-env-parse",
+            Self::ProfileNotFound { .. } => "profile-not-found",
+            Self::ManifestParse { .. } => "manifest-parse",
+            Self::ManifestSchema { .. } => "manifest-schema",
+            Self::LayerNotFound { .. } => "layer-not-found",
+            Self::LayerParse { .. } => "layer-parse",
+            Self::MergeFailed { .. } => "merge-failed",
+            Self::SessionDirUnresolvable { .. } => "session-dir-unresolvable",
+            Self::EnvKeyInvalid { .. } => "env-key-invalid",
         }
     }
 }
@@ -72,6 +80,59 @@ pub(crate) enum ConfigError {
         value: String,
         expected: &'static str,
     },
+
+    /// A named profile manifest was not found.
+    #[error("config: profile `{name}` not found")]
+    ProfileNotFound {
+        name: String,
+        path: camino::Utf8PathBuf,
+    },
+
+    /// A profile manifest could not be parsed as YAML.
+    #[error("config: failed to parse profile manifest {path}")]
+    ManifestParse {
+        path: camino::Utf8PathBuf,
+        #[source]
+        source: serde_yaml_ng::Error,
+    },
+
+    /// A profile manifest was syntactically valid YAML but failed schema validation.
+    #[error("config: invalid profile manifest {path}")]
+    ManifestSchema {
+        path: camino::Utf8PathBuf,
+        reason: String,
+    },
+
+    /// A referenced layer file did not exist.
+    #[error("config: settings layer `{name}` not found at {path}")]
+    LayerNotFound {
+        name: String,
+        path: camino::Utf8PathBuf,
+    },
+
+    /// A referenced layer file failed TOML parsing.
+    #[error("config: failed to parse settings layer {path}")]
+    LayerParse {
+        path: camino::Utf8PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+
+    /// Reserved merge failure used by the new composition pipeline.
+    #[error("config: composition merge failed")]
+    MergeFailed { reason: String },
+
+    /// No secure session directory root could be resolved.
+    #[error("config: secure session directory could not be resolved")]
+    SessionDirUnresolvable {
+        runtime: Option<camino::Utf8PathBuf>,
+        state: Option<camino::Utf8PathBuf>,
+        reason: String,
+    },
+
+    /// An invalid key/value pair appeared in a profile `[env]` table.
+    #[error("config: invalid profile env key `{key}`")]
+    EnvKeyInvalid { key: String, reason: String },
 }
 
 #[derive(Debug)]

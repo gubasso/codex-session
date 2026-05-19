@@ -4,6 +4,9 @@ set -euo pipefail
 for key in CODEX_SESSION_CHILD_BIN CODEX_SESSION_LOG_FILE CODEX_SESSION_LOG_DIR CODEX_SESSION_REENTRY; do
   printf '%s=%s\n' "$key" "${!key-}"
 done
+for key in CODEX_HOME HELLO; do
+  printf '%s=%s\n' "$key" "${!key-}"
+done
 # Plus any other CODEX_SESSION_* keys actually present in the child env,
 # so tests can assert the whole namespace is scrubbed (not just the
 # baseline). One `name=value` line per env entry.

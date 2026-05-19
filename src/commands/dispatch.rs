@@ -21,7 +21,8 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<(), error:
     match cli.command {
         Some(cli::Commands::Version(args)) => commands::version::run(ctx, args),
         Some(cli::Commands::Completion(args)) => commands::completion::run(ctx, args),
-        Some(cli::Commands::Config(args)) => run_config(ctx, args),
+        Some(cli::Commands::Config(args)) => run_config(ctx, &args),
+        Some(cli::Commands::Profile(args)) => run_profile(ctx, args),
         Some(cli::Commands::External(argv)) => commands::pass_through::run(ctx, &argv),
         // The bare-invocation help path (no subcommand, no `--version`)
         // is handled in `main` before config/logging init so it stays
@@ -35,12 +36,22 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<(), error:
 
 fn run_config(
     ctx: &context::AppContext,
-    args: cli::config::ConfigArgs,
+    args: &cli::config::ConfigArgs,
 ) -> Result<(), error::AppError> {
     use cli::config::ConfigCommand;
     match args.command {
         ConfigCommand::Status(status) => commands::config_status::run(ctx, status),
-        ConfigCommand::Merge(merge) => commands::config_merge::run(ctx, merge),
-        ConfigCommand::ShowLocal(show_local) => commands::config_show_local::run(ctx, show_local),
+    }
+}
+
+fn run_profile(
+    ctx: &context::AppContext,
+    args: cli::profile::ProfileArgs,
+) -> Result<(), error::AppError> {
+    use cli::profile::ProfileCommand;
+    match args.command {
+        ProfileCommand::List(list) => commands::profile_list::run(ctx, list),
+        ProfileCommand::Show(show) => commands::profile_show::run(ctx, &show),
+        ProfileCommand::Compose(compose) => commands::profile_compose::run(ctx, compose),
     }
 }

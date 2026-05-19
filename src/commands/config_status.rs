@@ -1,102 +1,103 @@
 //! `config status` command.
 //!
-//! What this is: the read-only verb handler that reports merge and precedence
-//! state.
-//! What this is not: config loading itself; that happens before dispatch.
+//! What this is: read-only reporting for active profile and session-root state.
+//! What this is not: pass-through execution or profile composition writes.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
-use crate::adapters::fs::Fs as _;
+use camino::Utf8PathBuf;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ConfigStatusView {
-    /// Base config path.
-    pub(crate) base_path: String,
-    /// Whether the base config currently exists.
-    pub(crate) base_exists: bool,
-    /// Target config path.
-    pub(crate) target_path: String,
-    /// Whether the target config currently exists.
-    pub(crate) target_exists: bool,
-    /// Stamp file path.
-    pub(crate) stamp_path: String,
-    /// Whether the stamp file currently exists.
-    pub(crate) stamp_exists: bool,
-    /// Whether a merge would run if requested now.
-    pub(crate) needs_merge: bool,
-    /// Resolved child binary path when available.
-    pub(crate) child_bin: Option<String>,
-    /// Effective log file or log directory target.
-    pub(crate) log_file: String,
-    /// Effective config-derived log verbosity.
-    pub(crate) log_verbose: u8,
-    /// Effective config-derived stderr mirror toggle.
-    pub(crate) log_mirror_stderr: bool,
-    /// Preferred on-disk log format.
-    pub(crate) log_format: crate::config::LogFormat,
-    /// Optional stderr mirror format override.
-    pub(crate) log_stderr_format: Option<crate::config::LogFormat>,
-    /// Provenance information for each config layer.
-    pub(crate) sources: ConfigStatusSourcesView,
+    pub(crate) active_profile: Option<String>,
+    pub(crate) manifest_path: Option<Utf8PathBuf>,
+    pub(crate) layer_paths: Vec<LayerEntry>,
+    pub(crate) session_root: Utf8PathBuf,
+    pub(crate) session_root_source: String,
+    pub(crate) child_bin: Option<Utf8PathBuf>,
+    pub(crate) log: LogView,
+    pub(crate) sources: SourcesView,
 }
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) struct ConfigStatusSourcesView {
-    /// Built-in defaults were applied.
+pub(crate) struct LayerEntry {
+    pub(crate) name: String,
+    pub(crate) path: Utf8PathBuf,
+    pub(crate) exists: bool,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct LogView {
+    pub(crate) file: String,
+    pub(crate) verbose: u8,
+    pub(crate) mirror_stderr: bool,
+    pub(crate) format: crate::config::LogFormat,
+    pub(crate) stderr_format: Option<crate::config::LogFormat>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct SourcesView {
     pub(crate) defaults: bool,
-    /// User config file path when loaded.
     pub(crate) user: Option<String>,
-    /// Project config file path when loaded.
     pub(crate) project: Option<String>,
-    /// Environment prefix that contributed overrides.
     pub(crate) env: String,
-    /// CLI flags that contributed overrides.
     pub(crate) cli: String,
 }
 
-/// Print the config merge status.
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
     args: crate::cli::config::ConfigStatusArgs,
 ) -> Result<(), crate::error::AppError> {
-    tracing::info!(op = "config.status", status = "start");
     let view = build_view(ctx)?;
     ctx.ui.write_config_status(&view, args.format)?;
-    tracing::info!(op = "config.status", status = "ok");
     Ok(())
 }
 
 pub(crate) fn build_view(
     ctx: &crate::context::AppContext,
 ) -> Result<ConfigStatusView, crate::error::AppError> {
-    let stamp = ctx.paths().stamp_file();
-    let base_exists = ctx.fs.exists(ctx.paths().base_config.as_std_path());
-    let target_exists = ctx.fs.exists(ctx.paths().target_config.as_std_path());
-    let stamp_exists = ctx.fs.exists(stamp.as_std_path());
-    let needs_merge = crate::services::merge::needs_merge_observed(&ctx.fs, ctx.paths())?;
+    let root = crate::services::session::dir::resolve_session_root(
+        ctx.config.paths.runtime_dir.as_deref(),
+        &ctx.config.paths.state_dir,
+    )?;
+
+    // `config status` is an introspection command: even if the active profile
+    // is missing or its manifest is malformed, still report what we resolved
+    // and surface the error inline via a synthetic layer entry. The plan
+    // (Phase 12, Step D6) locks in this degraded-status behavior.
+    let (manifest_path, layer_paths) = ctx.config.profile.active.as_deref().map_or_else(
+        || (None, Vec::new()),
+        |active_profile| profile_layers_or_error(ctx, active_profile),
+    );
+
     Ok(ConfigStatusView {
-        base_path: ctx.paths().base_config.to_string(),
-        base_exists,
-        target_path: ctx.paths().target_config.to_string(),
-        target_exists,
-        stamp_path: stamp.to_string(),
-        stamp_exists,
-        needs_merge,
-        child_bin: ctx.resolved_child().ok().map(ToString::to_string),
-        log_file: ctx
-            .config
-            .log
-            .file
-            .clone()
-            .unwrap_or_else(|| ctx.paths().state_dir.clone())
-            .to_string(),
-        log_verbose: ctx.config.log.verbose,
-        log_mirror_stderr: ctx.config.log.mirror_stderr,
-        log_format: ctx.config.log.format,
-        log_stderr_format: ctx.config.log.stderr_format,
-        sources: ConfigStatusSourcesView {
+        active_profile: ctx.config.profile.active.clone(),
+        manifest_path,
+        layer_paths,
+        session_root: root.path,
+        session_root_source: match root.source {
+            crate::services::session::dir::SessionRootSource::Runtime => "runtime".to_owned(),
+            crate::services::session::dir::SessionRootSource::State => "state".to_owned(),
+        },
+        child_bin: ctx.resolved_child().ok().cloned(),
+        log: LogView {
+            file: ctx
+                .config
+                .log
+                .file
+                .clone()
+                .unwrap_or_else(|| ctx.paths().state_dir.clone())
+                .to_string(),
+            verbose: ctx.config.log.verbose,
+            mirror_stderr: ctx.config.log.mirror_stderr,
+            format: ctx.config.log.format,
+            stderr_format: ctx.config.log.stderr_format,
+        },
+        sources: SourcesView {
             defaults: true,
             user: ctx.config.sources.user.as_ref().map(ToString::to_string),
             project: ctx.config.sources.project.as_ref().map(ToString::to_string),
@@ -104,4 +105,55 @@ pub(crate) fn build_view(
             cli: ctx.config.sources.cli.clone(),
         },
     })
+}
+
+fn profile_layers_or_error(
+    ctx: &crate::context::AppContext,
+    active_profile: &str,
+) -> (Option<Utf8PathBuf>, Vec<LayerEntry>) {
+    let manifest_path = ctx
+        .config
+        .profile
+        .profiles_dir
+        .join(format!("{active_profile}.yaml"));
+
+    if !manifest_path.is_file() {
+        // Report missing manifest as a synthetic entry so JSON consumers still
+        // see the active profile + an error message instead of a hard failure.
+        let entry = LayerEntry {
+            name: active_profile.to_owned(),
+            path: manifest_path.clone(),
+            exists: false,
+            error: Some(format!("profile `{active_profile}` not found")),
+        };
+        return (Some(manifest_path), vec![entry]);
+    }
+
+    match crate::services::profile::Manifest::parse(manifest_path.clone()) {
+        Ok(manifest) => {
+            let entries = manifest
+                .settings_layers
+                .into_iter()
+                .map(|name| {
+                    let path = ctx.config.profile.settings_dir.join(format!("{name}.toml"));
+                    LayerEntry {
+                        name,
+                        exists: path.is_file(),
+                        path,
+                        error: None,
+                    }
+                })
+                .collect();
+            (Some(manifest_path), entries)
+        }
+        Err(err) => {
+            let entry = LayerEntry {
+                name: active_profile.to_owned(),
+                path: manifest_path.clone(),
+                exists: true,
+                error: Some(err.to_string()),
+            };
+            (Some(manifest_path), vec![entry])
+        }
+    }
 }

@@ -29,21 +29,10 @@ fn config_status_with_trailing_args_returns_ex_usage() {
 }
 
 #[test]
-fn config_merge_with_trailing_args_returns_ex_usage() {
+fn profile_show_with_trailing_args_returns_ex_usage() {
     TestEnv::new()
         .cmd()
-        .args(["config", "merge", "extra"])
-        .assert()
-        .code(64)
-        .stdout("")
-        .stderr(predicate::str::contains("unexpected argument 'extra'"));
-}
-
-#[test]
-fn config_show_local_with_trailing_args_returns_ex_usage() {
-    TestEnv::new()
-        .cmd()
-        .args(["config", "show-local", "extra"])
+        .args(["profile", "show", "one", "extra"])
         .assert()
         .code(64)
         .stdout("")

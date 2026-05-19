@@ -1,0 +1,17 @@
+---
+source: tests/cmd_profile_show.rs
+assertion_line: 42
+expression: value
+---
+{
+  "active-profile": "default",
+  "layer-paths": [
+    {
+      "exists": true,
+      "name": "base",
+      "path": "<TMP>/config/codex-session/settings/base.toml"
+    }
+  ],
+  "manifest-path": "<TMP>/config/codex-session/profiles/default.yaml",
+  "stock-mode": false
+}

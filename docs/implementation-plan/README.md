@@ -182,6 +182,7 @@ this plan. They are inputs to every phase, not negotiables.
 | 09 | [`phase-09-tests.md`](phase-09-tests.md) | `insta` snapshots for `--help`/`--version`; signal/`128+N` matrix; golden argv via stub child; config-precedence matrix. | `tests/`, new `tests/fixtures/echo-argv.sh` |
 | 10 | [`phase-10-polish.md`](phase-10-polish.md) | `clap_complete` completion subcommand; flip `missing_docs = "warn"`; add module headers ("what it is / what it isn't"); ADR sweep. | `src/cli/completion.rs`, all `src/*.rs`, `Cargo.toml`, `docs/adr/` |
 | 11 | [`phase-11-help-tier1-migration.md`](phase-11-help-tier1-migration.md) | Migrate `--help` rendering from Tier 3 (hand-authored `help.txt` + custom subcommand) to Tier 1 (clap-derived + `after_long_help` addendum). Closes a spec divergence missed in Phase 02 / 10. | `src/cli/mod.rs`, `src/cli/exit.rs`, `src/commands/help.rs` (del), `src/commands/dispatch.rs`, `src/ui/help.txt` → `src/ui/help_extras.txt`, `tests/cmd_root_help.rs` |
+| 12 | [`phase-12-profile-architecture.md`](phase-12-profile-architecture.md) | Port the claude-session-style profile/layer/session-dir model; replace merge-era `~/.codex` mutation with wrapper-owned profile composition and per-terminal `CODEX_HOME` sessions. | `src/services/profile/`, `src/services/session/`, `src/config/`, `src/commands/`, `tests/`, `README.md` |
 
 ## Phase ordering and dependencies
 

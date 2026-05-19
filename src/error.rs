@@ -37,10 +37,6 @@ pub(crate) enum AppError {
         path: PathBuf,
     },
 
-    /// Missing base config for forced merge.
-    #[error("failed to load base config")]
-    BaseMissing(PathBuf),
-
     /// Exec failure after the child binary was resolved.
     #[error("exec failed: {0}")]
     ChildExec(#[source] std::io::Error),
@@ -51,14 +47,6 @@ pub(crate) enum AppError {
         /// Offending path that resolved to the wrapper.
         path: camino::Utf8PathBuf,
     },
-
-    /// Filesystem adapter failure.
-    #[error(transparent)]
-    Fs(#[from] crate::adapters::fs::FsError),
-
-    /// Merge service failure.
-    #[error(transparent)]
-    Merge(#[from] crate::services::merge::MergeError),
 
     /// Unexpected I/O failure.
     #[error("io: {0}")]
@@ -99,11 +87,8 @@ impl AppError {
             Self::Config(err) => err.kind(),
             Self::ChildNotFound { .. } => "child-not-found",
             Self::ChildNotExecutable { .. } => "child-not-executable",
-            Self::BaseMissing(_) => "base-missing",
             Self::ChildExec(_) => "child-exec",
             Self::ChildRecursion { .. } => "child-recursion",
-            Self::Fs(err) => fs_error_kind(err),
-            Self::Merge(_) => "merge-failed",
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => "io-not-found",
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
                 "io-permission-denied"
@@ -120,11 +105,7 @@ impl AppError {
             Self::Config(_) => 78,
             Self::ChildNotFound { .. } => 127,
             Self::ChildNotExecutable { .. } => 126,
-            Self::BaseMissing(_) => 66,
             Self::ChildRecursion { .. } | Self::Other(_) => 70,
-            Self::Fs(err) | Self::Merge(crate::services::merge::MergeError::Fs(err)) => {
-                fs_error_exit_code(err)
-            }
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => 66,
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => 77,
             Self::ChildExec(_) | Self::Io(_) => 74,
@@ -242,10 +223,6 @@ fn detail(err: &AppError) -> ErrorDetail {
             what: "failed to execute wrapped codex binary".to_owned(),
             why_line: format!("`{}` exists but is not executable", path.display()),
         },
-        AppError::BaseMissing(_) => ErrorDetail {
-            what: "failed to load base config".to_owned(),
-            why_line: "the base config file does not exist".to_owned(),
-        },
         AppError::ChildExec(source) => ErrorDetail {
             what: "failed to hand control to the wrapped codex process".to_owned(),
             why_line: source.to_string(),
@@ -254,14 +231,6 @@ fn detail(err: &AppError) -> ErrorDetail {
             what: "child binary resolves to the wrapper itself".to_owned(),
             why_line: "the resolved child path is the wrapper binary; this would loop forever"
                 .to_owned(),
-        },
-        AppError::Fs(source) => ErrorDetail {
-            what: fs_error_what(source).to_owned(),
-            why_line: fs_error_why(source),
-        },
-        AppError::Merge(source) => ErrorDetail {
-            what: "failed to merge codex config files".to_owned(),
-            why_line: source.to_string(),
         },
         AppError::Io(source) => ErrorDetail {
             what: "unexpected I/O failure".to_owned(),
@@ -315,6 +284,38 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
             what: format!("config: invalid environment override {key}={value}"),
             why_line: format!("expected {expected}"),
         },
+        ConfigError::ProfileNotFound { name, .. } => ErrorDetail {
+            what: format!("config: profile `{name}` not found"),
+            why_line: "the requested profile manifest does not exist".to_owned(),
+        },
+        ConfigError::ManifestParse { .. } => ErrorDetail {
+            what: "config: profile manifest parse error".to_owned(),
+            why_line: "the YAML manifest could not be parsed".to_owned(),
+        },
+        ConfigError::ManifestSchema { reason, .. } => ErrorDetail {
+            what: "config: invalid profile manifest".to_owned(),
+            why_line: reason.clone(),
+        },
+        ConfigError::LayerNotFound { name, .. } => ErrorDetail {
+            what: format!("config: settings layer `{name}` not found"),
+            why_line: "the profile references a missing settings layer".to_owned(),
+        },
+        ConfigError::LayerParse { .. } => ErrorDetail {
+            what: "config: settings layer parse error".to_owned(),
+            why_line: "the TOML settings layer could not be parsed".to_owned(),
+        },
+        ConfigError::MergeFailed { reason } => ErrorDetail {
+            what: "config: profile composition failed".to_owned(),
+            why_line: reason.clone(),
+        },
+        ConfigError::SessionDirUnresolvable { reason, .. } => ErrorDetail {
+            what: "config: secure session directory could not be resolved".to_owned(),
+            why_line: reason.clone(),
+        },
+        ConfigError::EnvKeyInvalid { key, reason } => ErrorDetail {
+            what: format!("config: invalid profile env key `{key}`"),
+            why_line: reason.clone(),
+        },
     }
 }
 
@@ -327,33 +328,22 @@ fn format_where_line(err: &AppError) -> Option<String> {
 }
 
 fn error_path(err: &AppError) -> Option<String> {
-    use crate::adapters::fs::FsError;
     use crate::config::ConfigError;
 
     match err {
         AppError::Config(
             ConfigError::Parse { path, .. }
             | ConfigError::UnknownKey { path, .. }
-            | ConfigError::ExplicitConfigMissing(path),
+            | ConfigError::ExplicitConfigMissing(path)
+            | ConfigError::ProfileNotFound { path, .. }
+            | ConfigError::ManifestParse { path, .. }
+            | ConfigError::ManifestSchema { path, .. }
+            | ConfigError::LayerNotFound { path, .. }
+            | ConfigError::LayerParse { path, .. },
         )
         | AppError::ChildRecursion { path } => Some(path.to_string()),
         AppError::ChildNotFound { tried, .. } => Some(tried.display().to_string()),
-        AppError::ChildNotExecutable { path }
-        | AppError::BaseMissing(path)
-        | AppError::Fs(
-            FsError::Read { path, .. }
-            | FsError::Write { path, .. }
-            | FsError::Mkdir { path, .. }
-            | FsError::Stat { path, .. }
-            | FsError::Touch { path, .. },
-        )
-        | AppError::Merge(crate::services::merge::MergeError::Fs(
-            FsError::Read { path, .. }
-            | FsError::Write { path, .. }
-            | FsError::Mkdir { path, .. }
-            | FsError::Stat { path, .. }
-            | FsError::Touch { path, .. },
-        )) => Some(path.display().to_string()),
+        AppError::ChildNotExecutable { path } => Some(path.display().to_string()),
         AppError::Usage(_)
         | AppError::ChildExec(_)
         | AppError::Io(_)
@@ -363,7 +353,10 @@ fn error_path(err: &AppError) -> Option<String> {
             | ConfigError::CurrentDir(_)
             | ConfigError::NonUtf8Path(_)
             | ConfigError::Io(_)
-            | ConfigError::EnvParse { .. },
+            | ConfigError::EnvParse { .. }
+            | ConfigError::MergeFailed { .. }
+            | ConfigError::SessionDirUnresolvable { .. }
+            | ConfigError::EnvKeyInvalid { .. },
         ) => None,
     }
 }
@@ -396,9 +389,6 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::ChildNotExecutable { .. } => {
             Some("chmod +x the child binary or point CODEX_SESSION_CHILD_BIN at an executable file")
         }
-        AppError::BaseMissing(_) => {
-            Some("create ~/.codex/config.base.toml or skip the forced merge command")
-        }
         AppError::ChildRecursion { .. } => {
             Some("unset CODEX_SESSION_CHILD_BIN or point it at the real `codex`")
         }
@@ -408,18 +398,26 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Config(ConfigError::ExplicitConfigMissing(_)) => {
             Some("pass --config PATH to an existing file or remove the override")
         }
+        AppError::Config(ConfigError::ProfileNotFound { .. }) => {
+            Some("run `codex-session profile list` to inspect available profiles")
+        }
         AppError::Config(
             ConfigError::NoXdg
             | ConfigError::CurrentDir(_)
             | ConfigError::Parse { .. }
             | ConfigError::NonUtf8Path(_)
             | ConfigError::Io(_)
-            | ConfigError::EnvParse { .. },
+            | ConfigError::EnvParse { .. }
+            | ConfigError::ManifestParse { .. }
+            | ConfigError::ManifestSchema { .. }
+            | ConfigError::LayerNotFound { .. }
+            | ConfigError::LayerParse { .. }
+            | ConfigError::MergeFailed { .. }
+            | ConfigError::SessionDirUnresolvable { .. }
+            | ConfigError::EnvKeyInvalid { .. },
         )
         | AppError::Usage(_)
         | AppError::ChildExec(_)
-        | AppError::Fs(_)
-        | AppError::Merge(_)
         | AppError::Io(_)
         | AppError::Other(_) => None,
     }
@@ -439,65 +437,6 @@ fn clap_exit_code(err: &clap::Error) -> u8 {
     match err.kind() {
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => 0,
         _ => 64,
-    }
-}
-
-fn fs_error_exit_code(err: &crate::adapters::fs::FsError) -> u8 {
-    use crate::adapters::fs::FsError;
-
-    match err {
-        FsError::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound => 66,
-        FsError::Read { source, .. } if source.kind() == std::io::ErrorKind::PermissionDenied => 77,
-        FsError::Stat { source, .. } if source.kind() == std::io::ErrorKind::NotFound => 66,
-        FsError::Stat { source, .. } if source.kind() == std::io::ErrorKind::PermissionDenied => 77,
-        FsError::Write { source, .. }
-        | FsError::Mkdir { source, .. }
-        | FsError::Touch { source, .. }
-            if source.kind() == std::io::ErrorKind::PermissionDenied =>
-        {
-            77
-        }
-        FsError::Read { .. }
-        | FsError::Write { .. }
-        | FsError::Mkdir { .. }
-        | FsError::Stat { .. }
-        | FsError::Touch { .. } => 74,
-    }
-}
-
-const fn fs_error_kind(err: &crate::adapters::fs::FsError) -> &'static str {
-    use crate::adapters::fs::FsError;
-
-    match err {
-        FsError::Read { .. } => "fs-read",
-        FsError::Write { .. } => "fs-write",
-        FsError::Mkdir { .. } => "fs-mkdir",
-        FsError::Stat { .. } => "fs-stat",
-        FsError::Touch { .. } => "fs-touch",
-    }
-}
-
-const fn fs_error_what(err: &crate::adapters::fs::FsError) -> &'static str {
-    use crate::adapters::fs::FsError;
-
-    match err {
-        FsError::Read { .. } => "failed to read a file",
-        FsError::Write { .. } => "failed to write a file",
-        FsError::Mkdir { .. } => "failed to create a directory",
-        FsError::Stat { .. } => "failed to inspect a filesystem path",
-        FsError::Touch { .. } => "failed to update the merge stamp",
-    }
-}
-
-fn fs_error_why(err: &crate::adapters::fs::FsError) -> String {
-    use crate::adapters::fs::FsError;
-
-    match err {
-        FsError::Read { source, .. }
-        | FsError::Write { source, .. }
-        | FsError::Mkdir { source, .. }
-        | FsError::Stat { source, .. }
-        | FsError::Touch { source, .. } => source.to_string(),
     }
 }
 
@@ -583,13 +522,6 @@ mod tests {
     }
 
     #[test]
-    fn base_missing_is_sixty_six() {
-        let err = AppError::BaseMissing(std::path::PathBuf::from("/tmp/base"));
-        assert_eq!(err.exit_code(), 66);
-        assert_eq!(err.kind(), "base-missing");
-    }
-
-    #[test]
     fn child_exec_is_seventy_four() {
         let err = AppError::ChildExec(std::io::Error::from(std::io::ErrorKind::Other));
         assert_eq!(err.exit_code(), 74);
@@ -624,72 +556,6 @@ mod tests {
         let err = AppError::Io(std::io::Error::from(std::io::ErrorKind::Other));
         assert_eq!(err.exit_code(), 74);
         assert_eq!(err.kind(), "io-other");
-    }
-
-    #[test]
-    fn fs_read_not_found_is_sixty_six() {
-        let err = AppError::Fs(crate::adapters::fs::FsError::Read {
-            path: std::path::PathBuf::from("/tmp/missing"),
-            source: std::io::Error::from(std::io::ErrorKind::NotFound),
-        });
-        assert_eq!(err.exit_code(), 66);
-        assert_eq!(err.kind(), "fs-read");
-    }
-
-    #[test]
-    fn fs_read_permission_denied_is_seventy_seven() {
-        let err = AppError::Fs(crate::adapters::fs::FsError::Read {
-            path: std::path::PathBuf::from("/tmp/secret"),
-            source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
-        });
-        assert_eq!(err.exit_code(), 77);
-        assert_eq!(err.kind(), "fs-read");
-    }
-
-    #[test]
-    fn fs_write_is_seventy_four() {
-        let err = AppError::Fs(crate::adapters::fs::FsError::Write {
-            path: std::path::PathBuf::from("/tmp/out"),
-            source: std::io::Error::from(std::io::ErrorKind::Other),
-        });
-        assert_eq!(err.exit_code(), 74);
-        assert_eq!(err.kind(), "fs-write");
-    }
-
-    #[test]
-    fn merge_fs_write_other_is_seventy_four() {
-        let err = AppError::Merge(crate::services::merge::MergeError::Fs(
-            crate::adapters::fs::FsError::Write {
-                path: std::path::PathBuf::from("/tmp/out"),
-                source: std::io::Error::from(std::io::ErrorKind::Other),
-            },
-        ));
-        assert_eq!(err.exit_code(), 74);
-        assert_eq!(err.kind(), "merge-failed");
-    }
-
-    #[test]
-    fn merge_fs_read_not_found_is_sixty_six() {
-        let err = AppError::Merge(crate::services::merge::MergeError::Fs(
-            crate::adapters::fs::FsError::Read {
-                path: std::path::PathBuf::from("/tmp/missing"),
-                source: std::io::Error::from(std::io::ErrorKind::NotFound),
-            },
-        ));
-        assert_eq!(err.exit_code(), 66);
-        assert_eq!(err.kind(), "merge-failed");
-    }
-
-    #[test]
-    fn merge_fs_write_permission_denied_is_seventy_seven() {
-        let err = AppError::Merge(crate::services::merge::MergeError::Fs(
-            crate::adapters::fs::FsError::Write {
-                path: std::path::PathBuf::from("/tmp/out"),
-                source: std::io::Error::from(std::io::ErrorKind::PermissionDenied),
-            },
-        ));
-        assert_eq!(err.exit_code(), 77);
-        assert_eq!(err.kind(), "merge-failed");
     }
 
     #[test]

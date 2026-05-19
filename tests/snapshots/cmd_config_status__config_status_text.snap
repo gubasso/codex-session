@@ -1,20 +1,24 @@
 ---
 source: tests/cmd_config_status.rs
+assertion_line: 31
 expression: stdout
 ---
-base:        <TMP>/home/.codex/config.base.toml (exists=true)
-target:      <TMP>/home/.codex/config.toml (exists=false)
-stamp:       <TMP>/cache/codex-session/last-merge (exists=false)
-child-bin:   <TMP>/bin/codex
-log-file:    <TMP>/state/codex-session
-log-verbose: 0
-log-mirror:  false
-log-format:  json
-log-stderr-format: auto
-needs_merge: yes
+active-profile: default
+manifest-path:  <TMP>/config/codex-session/profiles/default.yaml
+session-root:   <TMP>/runtime/codex-session
+session-source: runtime
+child-bin:      <TMP>/bin/codex
+layers:
+  base => <TMP>/config/codex-session/settings/base.toml (exists=true)
+  work => <TMP>/config/codex-session/settings/work.toml (exists=true)
+log.file: <TMP>/state/codex-session
+log.verbose: 0
+log.mirror-stderr: false
+log.format: json
+log.stderr-format: auto
 sources:
   defaults
   user:    none
   project: none
   env:     CODEX_SESSION_*
-  cli:     CliValueOverrides { log: None, child: None }
+  cli:     CliValueOverrides { log: None, child: None, profile: None }

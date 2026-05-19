@@ -1,26 +1,34 @@
 ---
 source: tests/cmd_config_status.rs
+assertion_line: 54
 expression: value
 ---
 {
-  "base-exists": true,
-  "base-path": "<TMP>/home/.codex/config.base.toml",
+  "active-profile": "default",
   "child-bin": "<TMP>/bin/codex",
-  "log-file": "<TMP>/state/codex-session",
-  "log-format": "json",
-  "log-mirror-stderr": false,
-  "log-stderr-format": null,
-  "log-verbose": 0,
-  "needs-merge": true,
+  "layer-paths": [
+    {
+      "error": null,
+      "exists": true,
+      "name": "base",
+      "path": "<TMP>/config/codex-session/settings/base.toml"
+    }
+  ],
+  "log": {
+    "file": "<TMP>/state/codex-session",
+    "format": "json",
+    "mirror-stderr": false,
+    "stderr-format": null,
+    "verbose": 0
+  },
+  "manifest-path": "<TMP>/config/codex-session/profiles/default.yaml",
+  "session-root": "<TMP>/runtime/codex-session",
+  "session-root-source": "runtime",
   "sources": {
-    "cli": "CliValueOverrides { log: None, child: None }",
+    "cli": "CliValueOverrides { log: None, child: None, profile: None }",
     "defaults": true,
     "env": "CODEX_SESSION_*",
     "project": null,
     "user": null
-  },
-  "stamp-exists": false,
-  "stamp-path": "<TMP>/cache/codex-session/last-merge",
-  "target-exists": false,
-  "target-path": "<TMP>/home/.codex/config.toml"
+  }
 }

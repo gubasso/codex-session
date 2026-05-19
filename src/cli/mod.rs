@@ -10,6 +10,7 @@ pub(crate) mod argv;
 pub(crate) mod completion;
 pub(crate) mod config;
 pub(crate) mod exit;
+pub(crate) mod profile;
 pub(crate) mod version;
 
 use clap::ValueEnum;
@@ -19,7 +20,7 @@ use clap::ValueEnum;
 #[command(
     name = "codex-session",
     bin_name = "codex-session",
-    about = "Wrapper around `codex` with config-merge and machine-local preservation.",
+    about = "Wrapper around `codex` with profile-layered session composition.",
     long_about = None,
     after_long_help = include_str!("../ui/help_extras.txt"),
     disable_version_flag = true,
@@ -65,13 +66,17 @@ pub(crate) struct GlobalArgs {
     #[arg(short = 'V', long, global = true)]
     pub(crate) version: bool,
 
-    /// Output format for `version`, `config status`, `config show-local`, and `--version`.
+    /// Output format for `version`, `config status`, `profile list/show`, and `--version`.
     #[arg(long, value_name = "FMT", value_enum, global = true)]
     pub(crate) format: Option<OutputFormat>,
 
     /// Load wrapper config from this explicit path instead of the default user/project locations.
     #[arg(long, value_name = "PATH", global = true)]
     pub(crate) config: Option<camino::Utf8PathBuf>,
+
+    /// Select the wrapper profile before any passthrough child argv begins.
+    #[arg(long, value_name = "NAME", global = true)]
+    pub(crate) profile: Option<String>,
 
     /// Print the resolved child invocation and exit without running it.
     #[arg(long, global = true)]
@@ -89,6 +94,9 @@ pub(crate) enum Commands {
 
     /// Operate on config state managed by the wrapper.
     Config(config::ConfigArgs),
+
+    /// Inspect and compose wrapper-owned profiles.
+    Profile(profile::ProfileArgs),
 
     /// Forward any unknown top-level verb to the wrapped `codex` binary.
     #[command(external_subcommand)]

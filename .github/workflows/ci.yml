@@ -19,6 +19,10 @@ jobs:
       - name: clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: nextest
-        run: cargo nextest run
+        # `--profile ci` activates the retry-tolerant, quiet-output
+        # profile in .config/nextest.toml. Without it nextest falls
+        # back to `[profile.default]` and ignores the CI-specific
+        # retry/timeout/status-level tuning.
+        run: cargo nextest run --profile ci
       - name: print-lint
         run: just lint-print

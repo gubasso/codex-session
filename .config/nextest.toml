@@ -5,7 +5,9 @@
 #
 # Output is tuned for token-efficient runs (AI coding agents, CI logs):
 # passing tests do not dump stdout/stderr; only failures and the final
-# summary appear.
+# summary appear. Knob meanings (status-level, final-status-level,
+# success-output, failure-output) per the upstream config reference:
+#   https://nexte.st/docs/configuration/reference/
 
 [profile.default]
 status-level = "pass"
@@ -54,11 +56,26 @@ success-output = "never"
 failure-output = "immediate-final"
 
 # CI lane: everything, with retry tolerance for known-flaky tests.
+#
+# `status-level = "fail"` (not "pass"): in CI logs, per-test pass lines
+# are noise — they multiply output tokens without adding signal for
+# humans triaging a failure or for AI agents parsing the run. The final
+# roll-up still surfaces failures via `final-status-level = "fail"`.
+# Ref: https://nexte.st/docs/configuration/reference/ (status-level)
+#
+# Progress bars auto-disable on non-TTY runners (GitHub Actions). If a
+# future runner emulates a TTY, set `NEXTEST_HIDE_PROGRESS_BAR=1` in
+# the workflow env to suppress redraws — those redraws bloat captured
+# logs that agents later read.
+# Ref: https://nexte.st/docs/running/
+#
+# IMPORTANT: this profile is only active when nextest is invoked with
+# `--profile ci`. See `.github/workflows/ci.yml`.
 [profile.ci]
 fail-fast = false
 slow-timeout = { period = "180s", terminate-after = 2 }
 retries = { backoff = "exponential", count = 2, delay = "1s", max-delay = "10s", jitter = true }
-status-level = "pass"
+status-level = "fail"
 final-status-level = "fail"
 success-output = "never"
 failure-output = "immediate-final"

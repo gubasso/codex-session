@@ -35,16 +35,16 @@ pub(crate) fn compose(
     let mut merged = toml::Table::new();
     let mut layer_refs = Vec::new();
 
-    if let Some(cache_settings) = paths.cache_settings.as_ref() {
-        if cache_settings.is_file() {
-            let cache_layer = read_layer(cache_settings)?;
-            merged = deep_merge(merged, cache_layer);
-            layer_refs.push(LayerRef {
-                name: "settings".to_owned(),
-                path: cache_settings.clone(),
-                source: LayerSource::CacheBootstrap,
-            });
-        }
+    if let Some(cache_settings) = paths.cache_settings.as_ref()
+        && cache_settings.is_file()
+    {
+        let cache_layer = read_layer(cache_settings)?;
+        merged = deep_merge(merged, cache_layer);
+        layer_refs.push(LayerRef {
+            name: "settings".to_owned(),
+            path: cache_settings.clone(),
+            source: LayerSource::CacheBootstrap,
+        });
     }
 
     for layer_name in &manifest.settings_layers {

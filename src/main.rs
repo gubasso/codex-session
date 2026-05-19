@@ -1,6 +1,5 @@
 //! `codex-session` CLI binary.
 //!
-//! Architecture follows `/home/gu/Projects/docs-n-notes/tech/languages/rust/cli-spec/`.
 //! `main` does only: parse argv → load config → init logging → build
 //! `AppContext` → dispatch → exit code. Pre-parse argv helpers live in
 //! `cli::argv`; clap-error handling in `cli::exit`; verb dispatch in

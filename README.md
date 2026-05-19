@@ -7,15 +7,6 @@ Instead of mutating `~/.codex`, it composes wrapper-owned profile layers into a
 per-terminal session directory and exports `CODEX_HOME=<session-dir>` to the
 wrapped child process.
 
-## Specs
-
-Canonical source-of-truth documents live outside this repo:
-
-- `/home/gu/Projects/docs-n-notes/tech/programming/cli-design/`
-- `/home/gu/Projects/docs-n-notes/tech/languages/rust/cli-spec/`
-
-Repo-local docs should point to those trees rather than restating them.
-
 ## Install
 
 ```bash
@@ -34,6 +25,7 @@ Wrapper-owned verbs:
 - `codex-session profile list [--format text|json]`
 - `codex-session profile show [NAME] [--format text|json]`
 - `codex-session profile compose [NAME]`
+- `codex-session doctor [--all-profiles] [--show-env]`
 
 Wrapper-owned global flags:
 
@@ -90,8 +82,3 @@ environment. Profile `[env]` tables may not reintroduce them.
 | `78` | Configuration error |
 | `126` | Child resolved but is not executable |
 | `127` | Child not found |
-
-## Implementation Plan
-
-Implementation-phase tracking for this repo lives in
-[`docs/implementation-plan/README.md`](docs/implementation-plan/README.md).

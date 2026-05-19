@@ -13,7 +13,7 @@ pub(crate) use composition::{
     Composition, LayerRef, LayerSource, ProfilePaths, write_session_artifacts,
     write_stock_session_artifacts,
 };
-pub(crate) use layer::{deep_merge, extract_env, read_layer};
+pub(crate) use layer::{deep_merge, extract_env, is_valid_env_key, read_layer};
 pub(crate) use manifest::Manifest;
 
 use camino::Utf8PathBuf;

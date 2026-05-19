@@ -78,7 +78,7 @@ fn main() -> ExitCode {
     };
     let ctx = context::AppContext::new(Arc::clone(&config), cli.global.clone());
     match commands::dispatch::run(&ctx, cli) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => ExitCode::from(code),
         Err(err) => error::print_and_exit(&err, &ctx.global),
     }
 }

@@ -6,6 +6,7 @@
 pub(crate) mod completion;
 pub(crate) mod config_status;
 pub(crate) mod dispatch;
+pub(crate) mod doctor;
 pub(crate) mod pass_through;
 pub(crate) mod profile_compose;
 pub(crate) mod profile_list;

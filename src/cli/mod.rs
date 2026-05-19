@@ -9,6 +9,7 @@ use std::ffi::OsString;
 pub(crate) mod argv;
 pub(crate) mod completion;
 pub(crate) mod config;
+pub(crate) mod doctor;
 pub(crate) mod exit;
 pub(crate) mod profile;
 pub(crate) mod version;
@@ -97,6 +98,9 @@ pub(crate) enum Commands {
 
     /// Inspect and compose wrapper-owned profiles.
     Profile(profile::ProfileArgs),
+
+    /// Run full validation of the codex-session config setup.
+    Doctor(doctor::DoctorArgs),
 
     /// Forward any unknown top-level verb to the wrapped `codex` binary.
     #[command(external_subcommand)]

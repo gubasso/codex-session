@@ -198,6 +198,62 @@ impl Ui {
     }
 
     #[allow(clippy::unused_self)]
+    pub(crate) fn write_doctor(
+        &self,
+        report: &crate::commands::doctor::DoctorReport,
+        fmt: crate::cli::OutputFormat,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match fmt {
+            crate::cli::OutputFormat::Text => {
+                let name_width = report
+                    .checks
+                    .iter()
+                    .map(|c| c.name.len())
+                    .max()
+                    .unwrap_or(8)
+                    .max(8);
+                writeln!(
+                    stdout,
+                    "status   {:width$}  detail",
+                    "check",
+                    width = name_width
+                )?;
+                for check in &report.checks {
+                    writeln!(
+                        stdout,
+                        "{:7}  {:width$}  {}",
+                        format_status(check.status),
+                        check.name,
+                        check.detail,
+                        width = name_width
+                    )?;
+                }
+                if !report.next_steps.is_empty() {
+                    writeln!(stdout, "\nNext:")?;
+                    for step in &report.next_steps {
+                        writeln!(stdout, "  - {step}")?;
+                    }
+                }
+                if !report.env.is_empty() {
+                    for (profile, env) in &report.env {
+                        writeln!(stdout, "\nMerged env for {profile}:")?;
+                        for (key, value) in env {
+                            writeln!(stdout, "  {key}={value}")?;
+                        }
+                    }
+                }
+                writeln!(
+                    stdout,
+                    "\nsummary: {} OK, {} WARN, {} FAIL",
+                    report.summary.ok, report.summary.warn, report.summary.fail
+                )
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, report),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
     pub(crate) fn write_profile_compose(
         &self,
         view: &crate::commands::profile_compose::ProfileComposeView,
@@ -220,6 +276,14 @@ const fn format_log(format: crate::config::LogFormat) -> &'static str {
     match format {
         crate::config::LogFormat::Json => "json",
         crate::config::LogFormat::Pretty => "pretty",
+    }
+}
+
+const fn format_status(status: crate::commands::doctor::CheckStatus) -> &'static str {
+    match status {
+        crate::commands::doctor::CheckStatus::Ok => "OK",
+        crate::commands::doctor::CheckStatus::Warn => "WARN",
+        crate::commands::doctor::CheckStatus::Fail => "FAIL",
     }
 }
 

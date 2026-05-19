@@ -84,7 +84,7 @@ pub(crate) fn extract_env(
     Ok(env)
 }
 
-fn is_valid_env_key(key: &str) -> bool {
+pub(crate) fn is_valid_env_key(key: &str) -> bool {
     let mut chars = key.chars();
     matches!(chars.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_')
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')

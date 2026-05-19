@@ -68,6 +68,62 @@ repos:
         language: system
         types: [toml]
 
+  # --- Tests (layered per docs-n-notes cli-design/08-testing-strategy.md) ---
+  #
+  # SoT for what gets run. The justfile delegates to these hooks rather
+  # than calling cargo directly, so the entry lines below are the only
+  # place that defines test commands for this project.
+  #
+  # Classification follows the general testing pyramid:
+  #   - Unit:         src/ inline `#[cfg(test)] mod tests` (29 tests).
+  #                   Tests one function/module in isolation. kind=bin
+  #                   (this crate is binary-only — no [lib]). Fast (~20 ms).
+  #   - Integration:  tests/*.rs (127 tests, kind=test). Tests the
+  #                   *seam* between components — wrapper-to-child argv
+  #                   contract, config layering, error surfacing, --help
+  #                   parity. Every file plants a fake `codex` on a
+  #                   curated PATH via `support::TestEnv::make_fake_codex`
+  #                   or stubs `CODEX_SESSION_CHILD_BIN`; no test invokes
+  #                   the real `codex` binary or any real external system.
+  #                   Per the doc: "Integration ≠ touches real things;
+  #                   integration = tests the interaction between things."
+  #   - E2E:          NOT YET PRESENT. Would run the wrapper against a
+  #                   real `codex` binary (real subprocess, real auth,
+  #                   real network). Per the doc, E2E belongs in CI only
+  #                   — never pre-commit or pre-push. No hook here.
+  #
+  # Tier-to-hook mapping (matches 08-testing-strategy.md § CI essentials):
+  #   - pre-commit: unit only           (sub-second budget)
+  #   - pre-push:   unit + integration  (single-digit-seconds budget)
+  #   - CI:         everything + E2E    (see .github/workflows)
+  #
+  # Doctests are intentionally omitted: binary-only crate, `cargo test
+  # --doc` has nothing to run. Re-add the template's hook if a [lib]
+  # target is introduced.
+  #
+  # Profiles live in `.config/nextest.toml` and pin the filtersets:
+  #     [profile.pre-commit] default-filter = "kind(lib) + kind(bin)"
+  #     [profile.pre-push]   default-filter = "kind(test)"
+  #
+  # Requires `cargo nextest` on PATH (cargo install --locked cargo-nextest).
+  - repo: local
+    hooks:
+      - id: cargo-nextest-unit
+        name: cargo nextest (unit tests)
+        entry: cargo nextest run --profile pre-commit --all-features
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+
+      - id: cargo-nextest-integration
+        name: cargo nextest (integration tests)
+        entry: cargo nextest run --profile pre-push --all-features
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-push]
+
   # --- Commit message linting (Rust-ecosystem; commit-msg stage) ---
   - repo: https://github.com/crate-ci/committed
     rev: v1.1.11

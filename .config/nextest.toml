@@ -1,0 +1,64 @@
+# cargo-nextest configuration: profiles for layered testing.
+#
+# Mirrors the dotfiles template at:
+#   ~/.dotfiles/pre-commit/rust.nextest.toml
+#
+# Output is tuned for token-efficient runs (AI coding agents, CI logs):
+# passing tests do not dump stdout/stderr; only failures and the final
+# summary appear.
+
+[profile.default]
+status-level = "pass"
+final-status-level = "fail"
+success-output = "never"
+failure-output = "immediate-final"
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# Unit-test lane. Wired to BOTH `pre-commit` and `pre-push` git stages
+# (tier-to-hook mapping per docs-n-notes 08-testing-strategy.md: pre-push
+# runs unit + integration, not integration-only).
+#
+# This crate is binary-only (no [lib]) so unit tests live under
+# `kind(bin)`; `kind(lib)` is kept for forward-compatibility if a
+# library target is later added.
+[profile.pre-commit]
+default-filter = "kind(lib) + kind(bin)"
+fail-fast = true
+slow-timeout = { period = "30s", terminate-after = 2 }
+status-level = "fail"
+final-status-level = "fail"
+success-output = "never"
+failure-output = "immediate-final"
+
+# Integration-test lane: tests/*.rs. Wired to the `pre-push` stage.
+#
+# These are integration tests in the pyramid sense (testing the *seam*
+# between the wrapper binary, the config layer, and the child-process
+# argv contract). Every test plants a fake `codex` on a curated PATH or
+# stubs `CODEX_SESSION_CHILD_BIN`; none invoke a real `codex` binary.
+# Per docs-n-notes 08-testing-strategy.md: a wrapper spawning its own
+# binary against a stubbed child is integration, not E2E.
+#
+# True E2E (real `codex`, real network) is not yet present and per the
+# doc would belong in CI only — never as a git hook.
+#
+# `fail-fast` is off so a single failure does not hide other regressions.
+[profile.pre-push]
+default-filter = "kind(test)"
+fail-fast = false
+slow-timeout = { period = "120s", terminate-after = 2 }
+status-level = "fail"
+final-status-level = "fail"
+success-output = "never"
+failure-output = "immediate-final"
+
+# CI lane: everything, with retry tolerance for known-flaky tests.
+[profile.ci]
+fail-fast = false
+slow-timeout = { period = "180s", terminate-after = 2 }
+retries = { backoff = "exponential", count = 2, delay = "1s", max-delay = "10s", jitter = true }
+status-level = "pass"
+final-status-level = "fail"
+success-output = "never"
+failure-output = "immediate-final"

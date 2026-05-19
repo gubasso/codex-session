@@ -32,7 +32,10 @@ Wrapper-owned global flags:
 - `--profile <NAME>` selects the wrapper profile before pass-through begins.
 - `--dry-run` prints the resolved child invocation, including `CODEX_HOME`.
 
-Anything else is forwarded verbatim to the real `codex`.
+Anything else — including bare `codex-session` with no subcommand — is
+forwarded verbatim to the real `codex`. Bare invocation execs `codex`
+with no arguments (launching the Codex TUI). To see the real `codex`'s
+own help, run `codex-session -- --help`.
 
 ## Profile Layout
 

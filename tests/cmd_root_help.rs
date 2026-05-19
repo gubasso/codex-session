@@ -83,21 +83,56 @@ fn root_version_succeeds() {
 }
 
 #[test]
-fn no_arg_invocation_matches_long_help() {
+fn bare_invocation_forwards_to_codex_with_empty_argv() {
     let env = TestEnv::new();
-    let mut bare_cmd = env.cmd();
-    let bare_out = color::with_no_color(&mut bare_cmd).output().unwrap();
-    let mut help_cmd = env.cmd();
-    let help_out = color::with_no_color(&mut help_cmd)
-        .arg("--help")
-        .output()
-        .unwrap();
-    assert!(bare_out.status.success());
-    assert!(help_out.status.success());
+    env.make_fake_codex();
+
+    let assert = env.cmd().arg("--dry-run").assert().success();
+    let stdout =
+        env.normalize_text(&String::from_utf8(assert.get_output().stdout.clone()).unwrap());
+
+    assert!(
+        stdout.starts_with("binary: "),
+        "dry-run report must start with `binary: `: {stdout}"
+    );
+    assert!(
+        stdout.contains("argv:\n"),
+        "dry-run report must include an `argv:` section: {stdout}"
+    );
+    assert!(
+        !stdout.contains("  [0]"),
+        "bare invocation must forward an empty argv (no `  [0]` line): {stdout}"
+    );
+    assert!(
+        stdout.contains("CODEX_HOME="),
+        "dry-run report must inject `CODEX_HOME=` into the child env: {stdout}"
+    );
+    assert!(
+        !env.argc_file.exists() && !env.argv_file.exists(),
+        "child must not be exec'd during dry-run"
+    );
+}
+
+#[test]
+fn bare_invocation_execs_codex_with_argc_zero() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+
+    env.cmd().assert().success();
+
+    assert!(
+        env.argc_file.exists(),
+        "fake codex must have been exec'd (argc file should exist)"
+    );
     assert_eq!(
-        String::from_utf8(bare_out.stdout).unwrap(),
-        String::from_utf8(help_out.stdout).unwrap(),
-        "bare invocation must print the same long help as `--help`"
+        env.argc().trim(),
+        "0",
+        "bare invocation must exec the child with zero arguments"
+    );
+    assert!(
+        env.argv().is_empty(),
+        "bare invocation must record an empty argv list, got: {:?}",
+        env.argv()
     );
 }
 

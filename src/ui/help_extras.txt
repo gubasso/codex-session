@@ -1,6 +1,7 @@
 Pass-through:
-  Unrecognized subcommands are forwarded to the real `codex`.
-  Use `--` to force pass-through of `-`-prefixed arguments.
+  Bare invocation and unrecognized subcommands are forwarded to the
+  real `codex`. Use `--` to force pass-through of `-`-prefixed
+  arguments. Run `codex-session -- help` to see the real `codex` help.
 
 Environment:
   CODEX_SESSION_CHILD_BIN

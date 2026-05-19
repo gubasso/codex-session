@@ -27,13 +27,9 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error:
         Some(cli::Commands::Profile(args)) => run_profile(ctx, args).map(|()| 0),
         Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx, args),
         Some(cli::Commands::External(argv)) => commands::pass_through::run(ctx, &argv).map(|()| 0),
-        // The bare-invocation help path (no subcommand, no `--version`)
-        // is handled in `main` before config/logging init so it stays
-        // functionally equivalent to `--help` / `help` even when the
-        // log directory is unwritable. Reaching `None` here would mean
-        // `main` failed to short-circuit, which is a wrapper invariant
-        // violation.
-        None => unreachable!("bare invocation must be short-circuited in `main` before dispatch"),
+        // No subcommand: forward to `codex` with an empty child argv
+        // (launches the Codex TUI when `codex` is resolvable).
+        None => commands::pass_through::run(ctx, &[]).map(|()| 0),
     }
 }
 

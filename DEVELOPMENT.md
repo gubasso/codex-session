@@ -96,7 +96,9 @@ CI run is expected to meet before pushing.
 
 `codex-session` is not itself a REPL — it's a wrapper that either
 handles one of its own subcommands or passes through to the real
-`codex` binary (which provides the interactive session). To smoke-test
+`codex` binary (which provides the interactive session). Bare
+invocation (no subcommand) is a pass-through with empty child argv,
+so `codex-session` on its own launches the Codex TUI. To smoke-test
 the wrapper from a source checkout:
 
 ```bash
@@ -113,6 +115,9 @@ cargo run -- --dry-run -- --flag-starting-with-dash
 
 # Real interactive codex session via the wrapper (release build is snappier)
 cargo run --release -- <codex args>
+
+# Bare invocation: same as `codex` with no args (launches the TUI)
+cargo run --release --
 
 # Or after installing
 just install

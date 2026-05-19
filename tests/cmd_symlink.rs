@@ -19,7 +19,7 @@ fn symlinked_entrypoint_still_resolves_project_root_and_prints_version() {
         .env("XDG_CACHE_HOME", &env.cache)
         .env("XDG_CONFIG_HOME", &env.config_home)
         .env("XDG_STATE_HOME", &env.state_home)
-        .env("PATH", "/usr/bin:/bin")
+        .env("PATH", &env.fake_bin)
         .arg("version")
         .output()
         .unwrap();
@@ -48,7 +48,7 @@ fn symlinked_launcher_still_prints_version() {
         .env("XDG_CACHE_HOME", &env.cache)
         .env("XDG_CONFIG_HOME", &env.config_home)
         .env("XDG_STATE_HOME", &env.state_home)
-        .env("PATH", "/usr/bin:/bin")
+        .env("PATH", &env.fake_bin)
         .arg("version")
         .output()
         .unwrap();

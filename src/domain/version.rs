@@ -1,10 +1,9 @@
 //! Version helpers.
 //!
-//! Source of truth is the compile-time embedded `VERSION` file. The legacy
-//! bash launcher resolved `VERSION` at runtime relative to a symlink target;
-//! that mechanism existed to support a stage/relink install model. The Rust
-//! crate is distributed via `cargo install`, so the embedded constant is
-//! sufficient and the unit test below pins it to `CARGO_PKG_VERSION`.
+//! What this is: access to the wrapper version embedded at compile time from
+//! the checked-in `VERSION` file.
+//! What this is not: runtime install-path probing; the Rust binary is shipped
+//! via `cargo install`, so the embedded constant is sufficient.
 #![allow(clippy::must_use_candidate)]
 
 /// Return the wrapper version sourced from the checked-in `VERSION` file.

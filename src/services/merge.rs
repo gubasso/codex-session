@@ -1,4 +1,9 @@
 //! Merge orchestration.
+//!
+//! What this is: the service layer that decides when config merge work is
+//! needed and performs it.
+//! What this is not: low-level filesystem access or the pure line-based merge
+//! transform.
 #![allow(clippy::missing_errors_doc)]
 
 use crate::adapters::fs::Fs;

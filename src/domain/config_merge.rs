@@ -1,6 +1,8 @@
 //! Line-oriented config-merge helpers.
 //!
-//! Pure transforms for extracting and reattaching machine-local TOML sections.
+//! What this is: pure transforms for extracting and reattaching machine-local
+//! TOML sections.
+//! What this is not: filesystem I/O or merge orchestration.
 
 use std::collections::HashSet;
 

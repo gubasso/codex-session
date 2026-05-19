@@ -1,5 +1,9 @@
 //! `config status` command.
-#![allow(clippy::missing_errors_doc)]
+//!
+//! What this is: the read-only verb handler that reports merge and precedence
+//! state.
+//! What this is not: config loading itself; that happens before dispatch.
+#![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use crate::adapters::fs::Fs as _;
 
@@ -7,29 +11,48 @@ use crate::adapters::fs::Fs as _;
 #[serde(rename_all = "kebab-case")]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ConfigStatusView {
+    /// Base config path.
     pub(crate) base_path: String,
+    /// Whether the base config currently exists.
     pub(crate) base_exists: bool,
+    /// Target config path.
     pub(crate) target_path: String,
+    /// Whether the target config currently exists.
     pub(crate) target_exists: bool,
+    /// Stamp file path.
     pub(crate) stamp_path: String,
+    /// Whether the stamp file currently exists.
     pub(crate) stamp_exists: bool,
+    /// Whether a merge would run if requested now.
     pub(crate) needs_merge: bool,
+    /// Resolved child binary path when available.
     pub(crate) child_bin: Option<String>,
+    /// Effective log file or log directory target.
     pub(crate) log_file: String,
+    /// Effective config-derived log verbosity.
     pub(crate) log_verbose: u8,
+    /// Effective config-derived stderr mirror toggle.
     pub(crate) log_mirror_stderr: bool,
+    /// Preferred on-disk log format.
     pub(crate) log_format: crate::config::LogFormat,
+    /// Optional stderr mirror format override.
     pub(crate) log_stderr_format: Option<crate::config::LogFormat>,
+    /// Provenance information for each config layer.
     pub(crate) sources: ConfigStatusSourcesView,
 }
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct ConfigStatusSourcesView {
+    /// Built-in defaults were applied.
     pub(crate) defaults: bool,
+    /// User config file path when loaded.
     pub(crate) user: Option<String>,
+    /// Project config file path when loaded.
     pub(crate) project: Option<String>,
+    /// Environment prefix that contributed overrides.
     pub(crate) env: String,
+    /// CLI flags that contributed overrides.
     pub(crate) cli: String,
 }
 

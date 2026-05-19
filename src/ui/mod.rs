@@ -1,4 +1,7 @@
 //! Human-facing output.
+//!
+//! What this is: text and JSON rendering for wrapper-owned commands.
+//! What this is not: color-policy decisions or command dispatch.
 #![allow(
     clippy::missing_errors_doc,
     clippy::must_use_candidate,

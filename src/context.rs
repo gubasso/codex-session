@@ -1,4 +1,7 @@
 //! Application context.
+//!
+//! What this is: immutable process-wide state shared by command handlers.
+//! What this is not: business logic; commands and services consume this state.
 
 use std::sync::{Arc, OnceLock};
 
@@ -17,12 +20,14 @@ pub(crate) struct LazyChild {
 }
 
 impl LazyChild {
+    /// Construct an empty lazy child-path cache.
     pub(crate) const fn new() -> Self {
         Self {
             cell: OnceLock::new(),
         }
     }
 
+    /// Resolve and cache the child path on first access.
     pub(crate) fn get_or_resolve(
         &self,
         spawner: StdSpawner,

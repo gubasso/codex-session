@@ -44,9 +44,9 @@ test:
 # Default aggregate: what CI and contributors should run before pushing.
 check: lint test
 
-# Install codex-session into ~/.cargo/bin (overwrites any prior cargo install).
+# Install codex-session into ~/.cargo/bin.
 install:
-    cargo install --path . --force
+    cargo install --path .
 
 # Remove the cargo-installed codex-session binary.
 uninstall:

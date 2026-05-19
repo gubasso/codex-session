@@ -1,5 +1,6 @@
 //! Shared services.
 //!
-//! Holds orchestration reused across command paths. No direct terminal output or
-//! low-level outside-world access belongs here; use `ui/` and `adapters/`.
+//! What this is: orchestration reused across command paths.
+//! What this is not: terminal output or low-level outside-world access; use
+//! `ui/` and `adapters/`.
 pub(crate) mod merge;

@@ -1,4 +1,8 @@
-//! tracing-subscriber installation. Called once from `main`.
+//! Logging bootstrap.
+//!
+//! What this is: resolution of effective log options plus
+//! `tracing-subscriber` installation.
+//! What this is not: application error rendering or CLI parsing.
 
 use std::io::IsTerminal as _;
 
@@ -32,6 +36,7 @@ pub(crate) enum StderrMirror {
 }
 
 impl StderrMirror {
+    /// Resolve the stderr mirror mode from CLI flags and effective verbosity.
     pub(crate) fn from_cli(
         quiet: bool,
         silent: bool,

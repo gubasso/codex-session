@@ -34,42 +34,34 @@ fn main() -> ExitCode {
             clap::error::ErrorKind::InvalidSubcommand,
             "unrecognized subcommand 'self'",
         );
-        return cli::exit::handle_clap_error(&err, &argv);
+        return cli::exit::handle_clap_error(err, &argv);
     }
     let cli = match cli::Cli::try_parse_from(
         std::iter::once(OsString::from("codex-session")).chain(argv.iter().cloned()),
     ) {
         Ok(cli) => cli,
-        Err(err) => return cli::exit::handle_clap_error(&err, &argv),
+        Err(err) => return cli::exit::handle_clap_error(err, &argv),
     };
     let overrides = config::CliOverrides::from_global(&cli.global);
     let config = match config::Config::load(&overrides) {
         Ok(config) => Arc::new(config),
         Err(err) => {
-            return print_and_exit(&error::AppError::from_config_error(err), cli.global.silent);
+            return error::print_and_exit(&error::AppError::Config(err), &cli.global);
         }
     };
     let log_options = logging::options_from_config(&config, &cli.global);
     let _log = match logging::init(&log_options) {
         Ok(handle) => handle,
         Err(err) => {
-            return print_and_exit(
+            return error::print_and_exit(
                 &error::AppError::Other(anyhow::anyhow!("failed to install tracing: {err}")),
-                cli.global.silent,
+                &cli.global,
             );
         }
     };
     let ctx = context::AppContext::new(Arc::clone(&config), cli.global.clone());
     match commands::dispatch::run(&ctx, cli) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(err) => print_and_exit(&err, ctx.global.silent),
+        Err(err) => error::print_and_exit(&err, &ctx.global),
     }
-}
-
-pub(crate) fn print_and_exit(err: &error::AppError, silent: bool) -> ExitCode {
-    error::log_error(err);
-    if !silent {
-        let _ = error::render_error(err);
-    }
-    ExitCode::from(err.exit_code())
 }

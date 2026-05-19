@@ -1,5 +1,6 @@
 ---
 source: tests/cmd_root_help.rs
+assertion_line: 35
 expression: normalized
 ---
 codex-session — wrapper around `codex` that keeps ~/.codex/config.toml in sync
@@ -10,6 +11,7 @@ Usage:
   codex-session
   codex-session help
   codex-session version [--format <fmt>]
+  codex-session completion <shell>
   codex-session config status [--format <fmt>]
   codex-session config merge
   codex-session config show-local [--format <fmt>]
@@ -19,6 +21,7 @@ Usage:
 Wrapper verbs:
   help                 Show this message.
   version              Print codex-session wrapper + resolved child version.
+  completion           Print a shell completion script to stdout.
   config status        Print base/target/stamp paths and whether a merge is needed.
   config merge         Force re-merge regardless of stamp freshness.
   config show-local    Print machine-local TOML sections that would be preserved.

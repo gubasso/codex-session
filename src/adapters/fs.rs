@@ -1,4 +1,8 @@
 //! Filesystem adapter.
+//!
+//! What this is: the filesystem port used by config loading, merge, and UI
+//! support code.
+//! What this is not: domain merge logic or config precedence.
 #![allow(clippy::missing_errors_doc)]
 
 /// Filesystem-layer failures.

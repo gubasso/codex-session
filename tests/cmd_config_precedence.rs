@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+#![allow(missing_docs)]
 
 pub mod support;
 
@@ -9,6 +10,17 @@ fn write_file(path: &std::path::Path, contents: &str) {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(path, contents).unwrap();
+}
+
+fn status_json(cmd: &mut assert_cmd::Command) -> serde_json::Value {
+    let output = cmd
+        .args(["config", "status", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&output).unwrap()
 }
 
 #[test]
@@ -194,4 +206,136 @@ fn paths_state_dir_override_moves_default_log_directory() {
         value["log-file"],
         overridden_state.to_string_lossy().as_ref()
     );
+}
+
+#[test]
+fn log_verbose_precedence_defaults_user_project_env_cli() {
+    let env = TestEnv::new();
+    let project_dir = env.tmp.path().join("project");
+
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["log-verbose"], 0);
+
+    write_file(&env.wrapper_user_config_path(), "[log]\nverbose = 1\n");
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["log-verbose"], 1);
+
+    write_file(
+        &project_dir.join(".codex-session/config.toml"),
+        "[log]\nverbose = 2\n",
+    );
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-verbose"], 2);
+
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .env("CODEX_SESSION_LOG_VERBOSE", "3");
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-verbose"], 3);
+
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .env("CODEX_SESSION_LOG_VERBOSE", "3")
+        .args(["-v"]);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-verbose"], 1);
+
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .env("CODEX_SESSION_LOG_VERBOSE", "3")
+        .args(["-vvvv"]);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-verbose"], 4);
+}
+
+#[test]
+fn log_mirror_stderr_precedence_defaults_user_project_env_cli() {
+    let env = TestEnv::new();
+    let project_dir = env.tmp.path().join("project");
+
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["log-mirror-stderr"], false);
+
+    write_file(
+        &env.wrapper_user_config_path(),
+        "[log]\nmirror_stderr = true\n",
+    );
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["log-mirror-stderr"], true);
+
+    write_file(
+        &project_dir.join(".codex-session/config.toml"),
+        "[log]\nmirror_stderr = false\n",
+    );
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-mirror-stderr"], false);
+
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .env("CODEX_SESSION_LOG_MIRROR_STDERR", "true");
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-mirror-stderr"], true);
+
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .env("CODEX_SESSION_LOG_MIRROR_STDERR", "false")
+        .args(["--log-stderr"]);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["log-mirror-stderr"], true);
+}
+
+#[test]
+fn child_bin_precedence_defaults_user_project_env_and_explicit_config() {
+    let env = TestEnv::new();
+    let project_dir = env.tmp.path().join("project");
+    let explicit = env.tmp.path().join("explicit.toml");
+    let user_bin = env.make_fake_codex_in_dir("user-child", "#!/usr/bin/env bash\nprintf 'user'");
+    let project_bin =
+        env.make_fake_codex_in_dir("project-child", "#!/usr/bin/env bash\nprintf 'project'");
+    let env_bin = env.make_fake_codex_in_dir("env-child", "#!/usr/bin/env bash\nprintf 'env'");
+    let explicit_bin =
+        env.make_fake_codex_in_dir("explicit-child", "#!/usr/bin/env bash\nprintf 'explicit'");
+    let user_bin = user_bin.join("codex");
+    let project_bin = project_bin.join("codex");
+    let env_bin = env_bin.join("codex");
+    let explicit_bin = explicit_bin.join("codex");
+
+    let value = status_json(&mut env.cmd());
+    assert!(value["child-bin"].is_null());
+
+    write_file(
+        &env.wrapper_user_config_path(),
+        &format!("[child]\nbin = {:?}\n", user_bin.to_string_lossy()),
+    );
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["child-bin"], user_bin.to_string_lossy().as_ref());
+
+    write_file(
+        &project_dir.join(".codex-session/config.toml"),
+        &format!("[child]\nbin = {:?}\n", project_bin.to_string_lossy()),
+    );
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["child-bin"], project_bin.to_string_lossy().as_ref());
+
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .env("CODEX_SESSION_CHILD_BIN", &env_bin);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["child-bin"], env_bin.to_string_lossy().as_ref());
+
+    write_file(
+        &explicit,
+        &format!("[child]\nbin = {:?}\n", explicit_bin.to_string_lossy()),
+    );
+    let mut cmd = env.cmd();
+    cmd.current_dir(&project_dir)
+        .args(["--config", explicit.to_str().unwrap()]);
+    let value = status_json(&mut cmd);
+    assert_eq!(value["child-bin"], explicit_bin.to_string_lossy().as_ref());
 }

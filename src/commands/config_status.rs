@@ -2,7 +2,6 @@
 #![allow(clippy::missing_errors_doc)]
 
 use crate::adapters::fs::Fs as _;
-use crate::adapters::process::Process as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -52,11 +51,7 @@ pub(crate) fn run(
         stamp_path: stamp.to_string(),
         stamp_exists,
         needs_merge,
-        child_bin: ctx
-            .process
-            .resolve_codex(ctx.config.child.bin.as_deref())
-            .ok()
-            .map(|path| path.display().to_string()),
+        child_bin: ctx.resolved_child().ok().map(ToString::to_string),
         log_file: ctx
             .config
             .log

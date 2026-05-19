@@ -2,7 +2,8 @@
 #![allow(clippy::missing_errors_doc)]
 
 use crate::adapters::fs::Fs as _;
-use crate::adapters::process::Process as _;
+use crate::adapters::spawner::Spawner as _;
+use crate::domain::child_invocation::{ChildEnv, ChildInvocation};
 
 /// Run the non-`self` path.
 pub(crate) fn run(
@@ -10,15 +11,26 @@ pub(crate) fn run(
     argv: &[std::ffi::OsString],
 ) -> Result<(), crate::error::AppError> {
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
-    let real_codex = ctx
-        .process
-        .resolve_codex(ctx.config.child.bin.as_deref())
-        .map_err(crate::error::AppError::from_process_error)?;
+    let resolved = ctx
+        .resolved_child()
+        .map_err(crate::error::AppError::from_spawner_error_ref)?;
     tracing::info!(
         op = "child.resolve",
         status = "ok",
-        bin.resolved = %real_codex.display()
+        bin.resolved = %resolved
     );
+
+    let inv = ChildInvocation {
+        binary: resolved.clone(),
+        args: argv.to_vec(),
+        env: ChildEnv::scrubbed_default(),
+    };
+
+    if ctx.global.dry_run {
+        ctx.ui.write_dry_run(&inv.dry_run_report())?;
+        tracing::info!(op = "pass-through", status = "ok", outcome = "dry-run");
+        return Ok(());
+    }
 
     if ctx.fs.exists(ctx.paths().base_config.as_std_path())
         && crate::services::merge::needs_merge_raw(&ctx.fs, ctx.paths())?
@@ -26,6 +38,6 @@ pub(crate) fn run(
         crate::services::merge::perform_merge(&ctx.fs, ctx.paths())?;
     }
 
-    let err = ctx.process.exec_replace(&real_codex, argv);
-    Err(crate::error::AppError::Process(err))
+    let err = ctx.spawner.exec(inv);
+    Err(crate::error::AppError::from_spawner_error(err))
 }

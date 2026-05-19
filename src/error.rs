@@ -31,9 +31,16 @@ pub(crate) enum AppError {
     #[error("failed to load base config")]
     BaseMissing(std::path::PathBuf),
 
-    /// Process-layer failure after dispatch.
-    #[error(transparent)]
-    Process(#[from] crate::adapters::process::ProcessError),
+    /// Exec failure after the child binary was resolved.
+    #[error("exec failed: {0}")]
+    ChildExec(#[source] std::io::Error),
+
+    /// Resolved child path equals the wrapper binary itself.
+    #[error("child binary resolves to the wrapper itself")]
+    ChildRecursion {
+        /// Offending path that resolved to the wrapper.
+        path: camino::Utf8PathBuf,
+    },
 
     /// Filesystem adapter failure.
     #[error(transparent)]
@@ -60,7 +67,8 @@ impl AppError {
             Self::ChildNotFound { .. } => "child-not-found",
             Self::ChildNotExecutable { .. } => "child-not-executable",
             Self::BaseMissing(_) => "base-missing",
-            Self::Process(_) => "process-exec",
+            Self::ChildExec(_) => "child-exec",
+            Self::ChildRecursion { .. } => "child-recursion",
             Self::Fs(err) => fs_error_kind(err),
             Self::Merge(_) => "merge-failed",
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => "io-not-found",
@@ -78,20 +86,43 @@ impl AppError {
         Self::Other(anyhow::Error::new(err).context("config-error"))
     }
 
-    /// Convert a process-adapter error into the matching application variant.
-    pub(crate) fn from_process_error(err: crate::adapters::process::ProcessError) -> Self {
+    pub(crate) fn from_spawner_error(err: crate::adapters::spawner::SpawnerError) -> Self {
+        use crate::adapters::spawner::SpawnerError;
         match err {
-            crate::adapters::process::ProcessError::NotFound {
+            SpawnerError::NotFound {
                 tried,
                 path_searched,
             } => Self::ChildNotFound {
-                tried,
+                tried: tried.into_std_path_buf(),
                 path_searched,
             },
-            crate::adapters::process::ProcessError::NotExecutable { path } => {
-                Self::ChildNotExecutable { path }
+            SpawnerError::NotExecutable { path } => Self::ChildNotExecutable {
+                path: path.into_std_path_buf(),
+            },
+            SpawnerError::Recursion { path } => Self::ChildRecursion { path },
+            SpawnerError::Exec(io) => Self::ChildExec(io),
+            SpawnerError::NonUtf8Path(err) => Self::Other(anyhow::Error::new(err)),
+        }
+    }
+
+    pub(crate) fn from_spawner_error_ref(err: &crate::adapters::spawner::SpawnerError) -> Self {
+        use crate::adapters::spawner::SpawnerError;
+        match err {
+            SpawnerError::NotFound {
+                tried,
+                path_searched,
+            } => Self::ChildNotFound {
+                tried: tried.clone().into_std_path_buf(),
+                path_searched: path_searched.clone(),
+            },
+            SpawnerError::NotExecutable { path } => Self::ChildNotExecutable {
+                path: path.clone().into_std_path_buf(),
+            },
+            SpawnerError::Recursion { path } => Self::ChildRecursion { path: path.clone() },
+            SpawnerError::Exec(io) => {
+                Self::ChildExec(std::io::Error::new(io.kind(), io.to_string()))
             }
-            other @ crate::adapters::process::ProcessError::Exec(_) => Self::Process(other),
+            SpawnerError::NonUtf8Path(_) => Self::Other(anyhow::anyhow!("non-utf8 child path")),
         }
     }
 
@@ -107,9 +138,9 @@ impl AppError {
             }
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => 66,
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => 77,
-            Self::Process(_) | Self::Io(_) => 74,
+            Self::ChildExec(_) | Self::Io(_) => 74,
             Self::Other(err) if is_config_marker(err) => 78,
-            Self::Other(_) => 70,
+            Self::ChildRecursion { .. } | Self::Other(_) => 70,
         }
     }
 }
@@ -204,11 +235,18 @@ fn detail(err: &AppError) -> ErrorDetail {
             why_line: "the base config file does not exist".to_owned(),
             hint_line: Some("create ~/.codex/config.base.toml or skip the forced merge command"),
         },
-        AppError::Process(source) => ErrorDetail {
+        AppError::ChildExec(source) => ErrorDetail {
             what: "failed to hand control to the wrapped codex process",
             where_line: None,
             why_line: source.to_string(),
             hint_line: None,
+        },
+        AppError::ChildRecursion { path } => ErrorDetail {
+            what: "child binary resolves to the wrapper itself",
+            where_line: Some(path.to_string()),
+            why_line: "the resolved child path is the wrapper binary; this would loop forever"
+                .to_owned(),
+            hint_line: Some("unset CODEX_SESSION_CHILD_BIN or point it at the real `codex`"),
         },
         AppError::Fs(source) => fs_error_detail(source),
         AppError::Merge(source) => ErrorDetail {
@@ -366,13 +404,21 @@ mod tests {
     }
 
     #[test]
-    fn process_is_seventy_four() {
+    fn child_exec_is_seventy_four() {
         assert_eq!(
-            AppError::Process(crate::adapters::process::ProcessError::Exec(
-                std::io::Error::from(std::io::ErrorKind::Other),
-            ))
-            .exit_code(),
+            AppError::ChildExec(std::io::Error::from(std::io::ErrorKind::Other)).exit_code(),
             74
+        );
+    }
+
+    #[test]
+    fn child_recursion_is_seventy() {
+        assert_eq!(
+            AppError::ChildRecursion {
+                path: camino::Utf8PathBuf::from("/usr/local/bin/codex-session"),
+            }
+            .exit_code(),
+            70
         );
     }
 
@@ -492,12 +538,10 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn render_dedupes_caused_by_when_why_matches_first_source() {
-        // Wrapped variants like `Process` set `why_line = source.to_string()`.
+        // Wrapped variants like `ChildExec` set `why_line = source.to_string()`.
         // The first `caused by:` line would repeat the same message; the
         // renderer must suppress that duplicate.
-        let err = AppError::Process(crate::adapters::process::ProcessError::Exec(
-            std::io::Error::other("exec boom"),
-        ));
+        let err = AppError::ChildExec(std::io::Error::other("exec boom"));
         let mut buf = Vec::new();
         super::render(&mut buf, &err).unwrap();
         let rendered = String::from_utf8(buf).unwrap();
@@ -506,13 +550,12 @@ mod tests {
             "render must include a why line: {rendered}"
         );
         let caused_by_count = rendered.matches("caused by:").count();
-        // `exec failed: exec boom` from the thiserror display and the inner
-        // `io::Error` display ("exec boom") differ, so exactly one caused-by
-        // is expected here (the inner io::Error). The duplicate "exec failed:
-        // exec boom" line is suppressed by the dedupe.
+        // `ChildExec` stores the inner `io::Error` directly, so `why:` and the
+        // first source message are identical. The renderer should suppress the
+        // duplicate entirely.
         assert_eq!(
-            caused_by_count, 1,
-            "expected one caused-by line after dedupe, got {caused_by_count} in:\n{rendered}"
+            caused_by_count, 0,
+            "expected zero caused-by lines after dedupe, got {caused_by_count} in:\n{rendered}"
         );
     }
 

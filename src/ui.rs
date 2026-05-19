@@ -23,6 +23,14 @@ impl Ui {
         stdout.write_all(text.as_bytes())
     }
 
+    /// Print the `--dry-run` report verbatim to stdout.
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_dry_run(&self, body: &str) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(body.as_bytes())?;
+        stdout.flush()
+    }
+
     /// Print wrapper and child version details.
     #[allow(clippy::unused_self)]
     pub(crate) fn print_version_details(

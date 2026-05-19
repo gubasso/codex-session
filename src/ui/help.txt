@@ -27,6 +27,9 @@ Wrapper options:
       --version        Print wrapper + child version and exit.
       --format <fmt>   Output format: `text` (default) or `json`.
                        Honored by: version, config status, config show-local.
+      --dry-run        Print the resolved child invocation (binary,
+                       argv, scrubbed env diff) and exit 0 without
+                       running the child.
 
 Environment:
   CODEX_SESSION_CHILD_BIN   Explicit path to the inner `codex` binary.
@@ -34,6 +37,10 @@ Environment:
   CODEX_SESSION_LOG_FILE    Full path to the wrapper's structured log file.
   CODEX_SESSION_LOG_DIR     Directory holding `codex-session.log`.
                             Used only when CODEX_SESSION_LOG_FILE is unset.
+  CODEX_SESSION_REENTRY     Re-entry marker set on the child env to
+                            detect chained-wrapper loops. Refuses to
+                            start the wrapper when set to `1` in the
+                            parent env.
   RUST_LOG                  Standard `tracing` filter; overrides -v.
   NO_COLOR                  Disable ANSI colors on the stderr mirror.
 

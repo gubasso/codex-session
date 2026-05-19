@@ -1,7 +1,7 @@
 //! `version` command.
 #![allow(clippy::missing_errors_doc)]
 
-use crate::adapters::process::Process as _;
+use crate::adapters::spawner::Spawner as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -17,16 +17,13 @@ pub(crate) fn run(
     args: crate::cli::version::VersionArgs,
 ) -> Result<(), crate::error::AppError> {
     tracing::info!(op = "version", status = "start");
-    let child_path = ctx
-        .process
-        .resolve_codex(ctx.config.child.bin.as_deref())
-        .ok();
+    let child_path = ctx.resolved_child().ok().cloned();
     let report = VersionReport {
         wrapper_version: crate::domain::version::current().to_owned(),
         child_version: child_path
-            .as_ref()
-            .and_then(|path| ctx.process.child_version_line(path)),
-        child_path: child_path.map(|path| path.display().to_string()),
+            .as_deref()
+            .and_then(|path| ctx.spawner.child_version_line(path)),
+        child_path: child_path.map(|path| path.to_string()),
     };
     match args.format {
         crate::cli::OutputFormat::Text => ctx.ui.print_version_details(&report)?,

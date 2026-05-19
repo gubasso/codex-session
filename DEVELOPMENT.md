@@ -259,9 +259,6 @@ src/
   error.rs      # typed error layering (thiserror + anyhow)
   logging.rs    # tracing-subscriber + tracing-appender setup
 tests/          # integration tests + snapshots + fixtures + helpers
-docs/
-  adr/                  # accepted architecture decision records
-  implementation-plan/  # per-phase refactor plan files
 ```
 
 Two architectural patterns to keep in mind:
@@ -273,18 +270,6 @@ Two architectural patterns to keep in mind:
 - **AppContext** — services receive an `AppContext` rather than
   reaching for globals (filesystem, env, clock, …). This is what makes
   the integration tests deterministic.
-
-## Implementation-plan workflow
-
-Larger refactors are broken into self-contained phase files under
-`docs/implementation-plan/`. Each phase is sized for a single
-plan → review → implement → review cycle. See
-`docs/implementation-plan/README.md` for the master plan and current
-phase list.
-
-When picking up work, start from the latest unfinished phase and
-follow its acceptance criteria. Smaller changes don't need a phase
-file — open a PR directly.
 
 ## Commits and branches
 

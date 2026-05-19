@@ -1,22 +1,30 @@
 Pass-through:
-  Any subcommand not recognized by the wrapper is forwarded verbatim to the
-  real `codex`. Use `--` to force pass-through of `-`-prefixed arguments.
+  Unrecognized subcommands are forwarded to the real `codex`.
+  Use `--` to force pass-through of `-`-prefixed arguments.
 
 Environment:
-  CODEX_SESSION_CHILD_BIN   Explicit path to the inner `codex` binary.
-                            Tried before PATH lookup.
-  CODEX_SESSION_LOG_FILE    Explicit log file path. Overrides LOG_DIR.
-  CODEX_SESSION_LOG_DIR     Directory holding `codex-session.log`.
-                            Rotated daily as `codex-session.log.<YYYY-MM-DD>`.
-  CODEX_SESSION_PROFILE     Select the active wrapper profile via environment.
-  CODEX_SESSION_REENTRY     Re-entry marker set on the child env to detect
-                            chained-wrapper loops. Refuses to start when set
-                            to `1` in the parent env.
-  RUST_LOG                  Standard `tracing` filter; overrides -v.
-  NO_COLOR                  Disable ANSI colors absolutely.
-  FORCE_COLOR               Force ANSI colors even when output is piped.
-  CLICOLOR=0                Disable ANSI colors on TTY output.
-  CLICOLOR_FORCE            Force ANSI colors even when output is piped.
+  CODEX_SESSION_CHILD_BIN
+      Explicit path to the inner `codex` binary. Tried before
+      PATH lookup.
+  CODEX_SESSION_LOG_FILE
+      Explicit log file path. Overrides LOG_DIR.
+  CODEX_SESSION_LOG_DIR
+      Directory holding `codex-session.log`. Rotated daily as
+      `codex-session.log.<YYYY-MM-DD>`.
+  CODEX_SESSION_PROFILE
+      Active wrapper profile when `--profile` is absent.
+  CODEX_SESSION_REENTRY
+      Re-entry marker. Refuses to start when set to `1`.
+  RUST_LOG
+      Standard `tracing` filter; overrides -v.
+  NO_COLOR
+      Disable ANSI colors absolutely.
+  FORCE_COLOR
+      Force ANSI colors even when output is piped.
+  CLICOLOR=0
+      Disable ANSI colors on TTY output.
+  CLICOLOR_FORCE
+      Force ANSI colors even when output is piped.
 
 Examples:
   codex-session version --format json

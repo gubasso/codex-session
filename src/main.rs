@@ -46,18 +46,6 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(err) => return cli::exit::handle_clap_error(err, &argv),
     };
-    // Bare `codex-session` (no subcommand, no `--version`) renders the
-    // same long help as `codex-session --help` / `codex-session help`.
-    // Per the Phase 11 Tier 1 contract, all three entry points must be
-    // functionally equivalent — including not depending on config /
-    // logging init. Short-circuit here so an unwritable log dir cannot
-    // poison the bare help path.
-    if cli.command.is_none() && !cli.global.version {
-        use clap::CommandFactory;
-        let mut cmd = cli::Cli::command().color(ui::color::stdout_color_choice());
-        let _ = cmd.print_long_help();
-        return ExitCode::SUCCESS;
-    }
     let overrides = config::CliOverrides::from_global(&cli.global);
     let config = match config::Config::load(&overrides) {
         Ok(config) => Arc::new(config),

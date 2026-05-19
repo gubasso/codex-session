@@ -12,7 +12,9 @@ repos:
     hooks:
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: '\.snap$'
       - id: end-of-file-fixer
+        exclude: '\.snap$'
       - id: check-added-large-files
         args: ['--maxkb=2048']
       - id: check-case-conflict

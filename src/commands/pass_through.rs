@@ -1,6 +1,7 @@
 //! Pass-through command path.
 //!
-//! What this is: the handler for forwarded child invocations.
+//! What this is: the handler for forwarded child invocations (including
+//! bare `codex-session`, which forwards an empty child argv -> Codex TUI).
 //! What this is not: clap parsing or child process execution primitives.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 

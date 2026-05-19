@@ -1,5 +1,5 @@
 ---
-source: "../../../../../workspaces/codex-session/tests/cmd_root_help.rs"
+source: tests/cmd_root_help.rs
 expression: normalized
 ---
 Wrapper around `codex` with profile-layered session composition.
@@ -31,7 +31,7 @@ Options:
       --log-format <FMT>
           Format for the stderr log mirror (controls only the mirrored stderr log; the file sink is
           always JSON)
-
+          
           [possible values: json, pretty]
 
   -V, --version
@@ -57,8 +57,9 @@ Options:
           Print help (see a summary with '-h')
 
 Pass-through:
-  Unrecognized subcommands are forwarded to the real `codex`.
-  Use `--` to force pass-through of `-`-prefixed arguments.
+  Bare invocation and unrecognized subcommands are forwarded to the
+  real `codex`. Use `--` to force pass-through of `-`-prefixed
+  arguments. Run `codex-session -- help` to see the real `codex` help.
 
 Environment:
   CODEX_SESSION_CHILD_BIN

@@ -7,6 +7,7 @@ use clap::{ArgAction, Parser, Subcommand};
 use std::ffi::OsString;
 
 pub(crate) mod argv;
+pub(crate) mod completion;
 pub(crate) mod config;
 pub(crate) mod exit;
 pub(crate) mod version;
@@ -85,6 +86,9 @@ pub(crate) enum Commands {
     /// Print wrapper help.
     #[command(name = "help")]
     Help,
+
+    /// Emit a shell-completion script.
+    Completion(completion::CompletionArgs),
 
     /// Operate on config state managed by the wrapper.
     Config(config::ConfigArgs),

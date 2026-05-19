@@ -1,4 +1,9 @@
 //! Layered configuration.
+//!
+//! What this is: the wrapper's layered configuration schema and loader.
+//! What this is not: command dispatch or user-facing rendering.
+
+#![allow(clippy::result_large_err)] // Phase 08 keeps full figment provenance on ConfigError.
 
 pub(crate) mod error;
 
@@ -6,6 +11,7 @@ pub(crate) use error::ConfigError;
 
 use camino::Utf8PathBuf;
 use clap::ValueEnum;
+use figment::{Figment, providers::Format as _};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -254,19 +260,9 @@ impl Config {
 }
 
 fn apply_file_layer(config: &mut Config, path: &Utf8PathBuf) -> Result<(), ConfigError> {
-    let contents = std::fs::read_to_string(path)?;
-    let parsed = toml::from_str::<FileConfig>(&contents).map_err(|source| {
-        extract_unknown_key(&source.to_string()).map_or_else(
-            || ConfigError::Parse {
-                path: path.clone(),
-                source,
-            },
-            |key| ConfigError::UnknownKey {
-                key,
-                path: path.clone(),
-            },
-        )
-    })?;
+    let parsed = Figment::from(figment::providers::Toml::file_exact(path.as_std_path()))
+        .extract::<FileConfig>()
+        .map_err(|source| map_figment_file_error(path, source))?;
     apply_file_config(config, parsed);
     Ok(())
 }
@@ -415,12 +411,17 @@ fn find_project_config(start: std::path::PathBuf) -> Result<Option<Utf8PathBuf>,
     Ok(None)
 }
 
-fn extract_unknown_key(message: &str) -> Option<String> {
-    let needle = "unknown field `";
-    let start = message.find(needle)? + needle.len();
-    let rest = &message[start..];
-    let end = rest.find('`')?;
-    Some(rest[..end].to_owned())
+fn map_figment_file_error(path: &Utf8PathBuf, source: figment::Error) -> ConfigError {
+    match &source.kind {
+        figment::error::Kind::UnknownField(key, _) => ConfigError::UnknownKey {
+            key: key.clone(),
+            path: path.clone(),
+        },
+        _ => ConfigError::Parse {
+            path: path.clone(),
+            source,
+        },
+    }
 }
 
 fn parse_log_format(key: &str, value: &str) -> Result<LogFormat, ConfigError> {

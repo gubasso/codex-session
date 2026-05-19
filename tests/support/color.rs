@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use assert_cmd::Command;
 
 pub fn clear_color_env(cmd: &mut Command) -> &mut Command {

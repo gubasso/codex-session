@@ -4,6 +4,8 @@
 //! What this is not: business logic — every arm is a thin call to a
 //! per-verb handler.
 
+#![allow(clippy::result_large_err)]
+
 use crate::{cli, commands, context, error};
 
 /// Route a parsed root `Cli` to its handler.
@@ -19,6 +21,7 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<(), error:
     match cli.command {
         Some(cli::Commands::Version(args)) => commands::version::run(ctx, args),
         Some(cli::Commands::Help) | None => commands::help::run(ctx),
+        Some(cli::Commands::Completion(args)) => commands::completion::run(ctx, args),
         Some(cli::Commands::Config(args)) => run_config(ctx, args),
         Some(cli::Commands::External(argv)) => commands::pass_through::run(ctx, &argv),
     }

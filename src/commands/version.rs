@@ -1,13 +1,20 @@
 //! `version` command.
-#![allow(clippy::missing_errors_doc)]
+//!
+//! What this is: the verb handler that prints wrapper and resolved child
+//! version details.
+//! What this is not: the clap parse shape; that lives in `cli::version`.
+#![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use crate::adapters::spawner::Spawner as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct VersionView {
+    /// Wrapper version string.
     pub(crate) wrapper_version: String,
+    /// Resolved child binary path when available.
     pub(crate) child_path: Option<String>,
+    /// Child version line when it can be probed.
     pub(crate) child_version: Option<String>,
 }
 

@@ -6,9 +6,11 @@
 ## Context
 
 The bash wrapper rewrote `config.toml` using `${TARGET}.tmp.$$` followed by
-`mv -f`. The Rust port uses `tempfile::NamedTempFile::new_in(dir)` and
-`persist(target)` instead. The user-facing requirement is atomic replacement in
-the target directory without leaving temp-file debris on success.
+`mv -f`. The Rust port uses `tempfile::Builder::permissions(...).tempfile_in`
+and `persist(target)` instead so the temporary file still lands in the target
+directory while honoring the caller's umask. The user-facing requirement is
+atomic replacement in the target directory without leaving temp-file debris on
+success.
 
 ## Decision
 

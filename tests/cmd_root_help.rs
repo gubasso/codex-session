@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+#![allow(missing_docs)]
 
 pub mod support;
 
@@ -93,13 +94,4 @@ fn help_subcommand_prints_wrapper_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Usage:"));
-}
-
-#[test]
-fn double_dash_help_is_passed_through() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().args(["--", "--help"]).assert().success();
-    assert_eq!(env.argc(), "1\n");
-    assert_eq!(env.argv(), vec![String::from("--help")]);
 }

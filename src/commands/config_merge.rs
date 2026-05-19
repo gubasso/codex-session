@@ -1,5 +1,9 @@
 //! `config merge` command.
-#![allow(clippy::missing_errors_doc)]
+//!
+//! What this is: the forced config-merge verb handler.
+//! What this is not: the merge algorithm itself; that lives in
+//! `services::merge`.
+#![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use crate::adapters::fs::Fs as _;
 

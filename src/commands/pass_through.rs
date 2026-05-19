@@ -1,5 +1,8 @@
 //! Pass-through command path.
-#![allow(clippy::missing_errors_doc)]
+//!
+//! What this is: the handler for forwarded child invocations.
+//! What this is not: clap parsing or child process execution primitives.
+#![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use crate::adapters::fs::Fs as _;
 use crate::adapters::spawner::Spawner as _;
@@ -11,9 +14,29 @@ pub(crate) fn run(
     argv: &[std::ffi::OsString],
 ) -> Result<(), crate::error::AppError> {
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
-    let resolved = ctx
-        .resolved_child()
-        .map_err(crate::error::AppError::from_spawner_error_ref)?;
+    let resolved = ctx.resolved_child().map_err(|err| match err {
+        crate::adapters::spawner::SpawnerError::NotFound {
+            tried,
+            path_searched,
+        } => crate::error::AppError::ChildNotFound {
+            tried: tried.clone().into_std_path_buf(),
+            path_searched: path_searched.clone(),
+        },
+        crate::adapters::spawner::SpawnerError::NotExecutable { path } => {
+            crate::error::AppError::ChildNotExecutable {
+                path: path.clone().into_std_path_buf(),
+            }
+        }
+        crate::adapters::spawner::SpawnerError::Recursion { path } => {
+            crate::error::AppError::ChildRecursion { path: path.clone() }
+        }
+        crate::adapters::spawner::SpawnerError::Exec(io) => {
+            crate::error::AppError::ChildExec(std::io::Error::new(io.kind(), io.to_string()))
+        }
+        crate::adapters::spawner::SpawnerError::NonUtf8Path(_) => {
+            crate::error::AppError::Other(anyhow::anyhow!("non-utf8 child path"))
+        }
+    })?;
     tracing::info!(
         op = "child.resolve",
         status = "ok",
@@ -39,5 +62,5 @@ pub(crate) fn run(
     }
 
     let err = ctx.spawner.exec(inv);
-    Err(crate::error::AppError::from_spawner_error(err))
+    Err(crate::error::AppError::from(err))
 }

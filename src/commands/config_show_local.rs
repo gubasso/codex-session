@@ -1,12 +1,18 @@
 //! `config show-local` command.
-#![allow(clippy::missing_errors_doc)]
+//!
+//! What this is: the verb handler that renders machine-local sections preserved
+//! across merges.
+//! What this is not: the merge transform itself; that stays in `domain`.
+#![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use crate::adapters::fs::Fs as _;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct ShowLocalView {
+    /// Config file inspected for local-only sections.
     pub(crate) source_path: String,
+    /// Machine-local TOML sections preserved across merges.
     pub(crate) local_sections: String,
 }
 

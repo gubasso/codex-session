@@ -1,6 +1,6 @@
 //! External-system adapters.
 //!
-//! Holds the only code that talks to the outside world directly. No domain
-//! policy or command dispatch belongs in this module tree.
+//! What this is: the only code that talks to the outside world directly.
+//! What this is not: domain policy or command dispatch.
 pub(crate) mod fs;
 pub(crate) mod spawner;

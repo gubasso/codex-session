@@ -4,6 +4,7 @@
     clippy::missing_panics_doc,
     clippy::must_use_candidate,
     clippy::new_without_default,
+    missing_docs,
     unreachable_pub
 )] // Shared helper methods are used selectively by each integration test file.
 
@@ -15,6 +16,29 @@ pub fn fixture_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(name)
+}
+
+/// Build a hermetic command with no host env leaking in.
+///
+/// New snapshot and signal tests should prefer this helper when they do not
+/// need the fuller [`TestEnv`] fixture wrapper.
+pub fn hermetic(td: &tempfile::TempDir) -> assert_cmd::Command {
+    let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
+    cmd.env_clear()
+        .env("HOME", td.path())
+        .env("XDG_CONFIG_HOME", td.path().join("config"))
+        .env("XDG_STATE_HOME", td.path().join("state"))
+        .env("XDG_CACHE_HOME", td.path().join("cache"))
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("NO_COLOR", "1");
+    cmd
+}
+
+/// Point a command at one of the executable fixtures in `tests/fixtures`.
+pub fn with_stub_child(cmd: &mut assert_cmd::Command, fixture: &str) {
+    let path = fixture_path(fixture);
+    assert!(path.is_file(), "fixture missing: {}", path.display());
+    cmd.env("CODEX_SESSION_CHILD_BIN", path);
 }
 
 pub struct TestEnv {

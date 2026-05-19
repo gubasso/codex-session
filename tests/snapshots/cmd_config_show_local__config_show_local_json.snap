@@ -1,8 +1,0 @@
----
-source: tests/cmd_config_show_local.rs
-expression: value
----
-{
-  "local-sections": "[projects.\"/tmp/example\"]\ntrust_level = \"trusted\"\n\n[projects.\"/tmp/other\"]\ntrust_level = \"untrusted\"\n",
-  "source-path": "<TMP>/home/.codex/config.toml"
-}

@@ -4,7 +4,8 @@
 //! What this is not: clap parsing or child process execution primitives.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
-use crate::adapters::fs::Fs as _;
+use camino::Utf8PathBuf;
+
 use crate::adapters::spawner::Spawner as _;
 use crate::domain::child_invocation::{ChildEnv, ChildInvocation};
 
@@ -37,16 +38,56 @@ pub(crate) fn run(
             crate::error::AppError::Other(anyhow::anyhow!("non-utf8 child path"))
         }
     })?;
-    tracing::info!(
-        op = "child.resolve",
-        status = "ok",
-        bin.resolved = %resolved
+
+    let session = ctx.session()?;
+    let terminal_id = session.terminal_id.clone();
+    let session_dir = session.dir.clone();
+    let cwd = current_cwd()?;
+    let profile = ctx.config.profile.active.clone();
+
+    let env = if let Some(profile_name) = profile.as_deref() {
+        let composition = crate::services::profile::compose(
+            profile_name,
+            &crate::services::profile::ProfilePaths {
+                profiles_dir: ctx.config.profile.profiles_dir.clone(),
+                settings_dir: ctx.config.profile.settings_dir.clone(),
+                cache_settings: cache_settings_path(ctx),
+            },
+        )?;
+        crate::services::profile::write_session_artifacts(&composition, &session_dir)?;
+        composition.env
+    } else {
+        crate::services::profile::write_stock_session_artifacts(&session_dir)?;
+        std::collections::BTreeMap::new()
+    };
+
+    let meta = crate::services::session::meta::SessionMeta::new(
+        profile.as_deref(),
+        &terminal_id,
+        cwd.as_ref(),
     );
+    crate::services::session::meta::write(&session_dir, &meta)?;
+
+    let mut child_env = ChildEnv::scrubbed_default();
+    child_env
+        .set
+        .push(("CODEX_HOME".to_owned(), session_dir.into()));
+    for (key, value) in env {
+        if key.starts_with("CODEX_SESSION_") {
+            return Err(crate::config::ConfigError::EnvKeyInvalid {
+                key,
+                reason: "CODEX_SESSION_* keys are wrapper-private and may not be injected"
+                    .to_owned(),
+            }
+            .into());
+        }
+        child_env.set.push((key, value.into()));
+    }
 
     let inv = ChildInvocation {
         binary: resolved.clone(),
         args: argv.to_vec(),
-        env: ChildEnv::scrubbed_default(),
+        env: child_env,
     };
 
     if ctx.global.dry_run {
@@ -55,12 +96,16 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    if ctx.fs.exists(ctx.paths().base_config.as_std_path())
-        && crate::services::merge::needs_merge_raw(&ctx.fs, ctx.paths())?
-    {
-        crate::services::merge::perform_merge(&ctx.fs, ctx.paths())?;
-    }
-
     let err = ctx.spawner.exec(inv);
     Err(crate::error::AppError::from(err))
+}
+
+fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {
+    Utf8PathBuf::try_from(std::env::current_dir().map_err(crate::config::ConfigError::CurrentDir)?)
+        .map_err(crate::config::ConfigError::from)
+}
+
+fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
+    let path = ctx.config.paths.cache_dir.join("settings.toml");
+    path.is_file().then_some(path)
 }

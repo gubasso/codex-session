@@ -29,6 +29,13 @@ impl Ui {
         stdout.flush()
     }
 
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(bytes)?;
+        stdout.flush()
+    }
+
     /// Print wrapper and child version details.
     #[allow(clippy::unused_self)]
     pub(crate) fn write_version(
@@ -50,7 +57,6 @@ impl Ui {
         }
     }
 
-    /// Print the merge status.
     #[allow(clippy::unused_self)]
     pub(crate) fn write_config_status(
         &self,
@@ -62,37 +68,48 @@ impl Ui {
             crate::cli::OutputFormat::Text => {
                 writeln!(
                     stdout,
-                    "base:        {} (exists={})",
-                    view.base_path, view.base_exists
+                    "active-profile: {}",
+                    view.active_profile.as_deref().unwrap_or("(stock mode)")
                 )?;
                 writeln!(
                     stdout,
-                    "target:      {} (exists={})",
-                    view.target_path, view.target_exists
+                    "manifest-path:  {}",
+                    view.manifest_path
+                        .as_ref()
+                        .map_or_else(|| "(none)".to_owned(), ToString::to_string)
                 )?;
+                writeln!(stdout, "session-root:   {}", view.session_root)?;
+                writeln!(stdout, "session-source: {}", view.session_root_source)?;
                 writeln!(
                     stdout,
-                    "stamp:       {} (exists={})",
-                    view.stamp_path, view.stamp_exists
+                    "child-bin:      {}",
+                    view.child_bin
+                        .as_ref()
+                        .map_or_else(|| "(unavailable)".to_owned(), ToString::to_string)
                 )?;
+                writeln!(stdout, "layers:")?;
+                if view.layer_paths.is_empty() {
+                    writeln!(stdout, "  (none)")?;
+                } else {
+                    for layer in &view.layer_paths {
+                        writeln!(
+                            stdout,
+                            "  {} => {} (exists={})",
+                            layer.name, layer.path, layer.exists
+                        )?;
+                        if let Some(error) = layer.error.as_deref() {
+                            writeln!(stdout, "    error: {error}")?;
+                        }
+                    }
+                }
+                writeln!(stdout, "log.file: {}", view.log.file)?;
+                writeln!(stdout, "log.verbose: {}", view.log.verbose)?;
+                writeln!(stdout, "log.mirror-stderr: {}", view.log.mirror_stderr)?;
+                writeln!(stdout, "log.format: {}", format_log(view.log.format))?;
                 writeln!(
                     stdout,
-                    "child-bin:   {}",
-                    view.child_bin.as_deref().unwrap_or("(unavailable)")
-                )?;
-                writeln!(stdout, "log-file:    {}", view.log_file)?;
-                writeln!(stdout, "log-verbose: {}", view.log_verbose)?;
-                writeln!(stdout, "log-mirror:  {}", view.log_mirror_stderr)?;
-                writeln!(stdout, "log-format:  {}", format_log(view.log_format))?;
-                writeln!(
-                    stdout,
-                    "log-stderr-format: {}",
-                    view.log_stderr_format.map_or("auto", format_log)
-                )?;
-                writeln!(
-                    stdout,
-                    "needs_merge: {}",
-                    if view.needs_merge { "yes" } else { "no" }
+                    "log.stderr-format: {}",
+                    view.log.stderr_format.map_or("auto", format_log)
                 )?;
                 writeln!(stdout, "sources:")?;
                 writeln!(stdout, "  defaults")?;
@@ -113,29 +130,89 @@ impl Ui {
         }
     }
 
-    /// Print local sections verbatim.
     #[allow(clippy::unused_self)]
-    pub(crate) fn write_show_local(
+    pub(crate) fn write_profile_list(
         &self,
-        view: &crate::commands::config_show_local::ShowLocalView,
+        view: &crate::commands::profile_list::ProfileListView,
         fmt: crate::cli::OutputFormat,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match fmt {
-            crate::cli::OutputFormat::Text => stdout.write_all(view.local_sections.as_bytes()),
+            crate::cli::OutputFormat::Text => {
+                if view.profiles.is_empty() {
+                    writeln!(stdout, "(no profiles)")
+                } else {
+                    for profile in &view.profiles {
+                        writeln!(
+                            stdout,
+                            "{}: {} layers={} valid={}",
+                            profile.name, profile.manifest_path, profile.layer_count, profile.valid
+                        )?;
+                        if let Some(error) = profile.error.as_deref() {
+                            writeln!(stdout, "  error: {error}")?;
+                        }
+                    }
+                    Ok(())
+                }
+            }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
         }
     }
 
-    /// Print a successful merge line.
     #[allow(clippy::unused_self)]
-    pub(crate) fn print_merge_success(
+    pub(crate) fn write_profile_show(
         &self,
-        base: &std::path::Path,
-        target: &std::path::Path,
+        view: &crate::commands::profile_show::ProfileShowView,
+        fmt: crate::cli::OutputFormat,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
-        writeln!(stdout, "merged: {} -> {}", base.display(), target.display())
+        match fmt {
+            crate::cli::OutputFormat::Text => {
+                if view.stock_mode {
+                    return writeln!(stdout, "stock mode");
+                }
+                writeln!(
+                    stdout,
+                    "profile: {}",
+                    view.active_profile.as_deref().unwrap_or("(none)")
+                )?;
+                writeln!(
+                    stdout,
+                    "manifest: {}",
+                    view.manifest_path
+                        .as_ref()
+                        .map_or_else(|| "(none)".to_owned(), ToString::to_string)
+                )?;
+                writeln!(stdout, "layers:")?;
+                for layer in &view.layer_paths {
+                    writeln!(
+                        stdout,
+                        "  {} => {} (exists={})",
+                        layer.name, layer.path, layer.exists
+                    )?;
+                }
+                Ok(())
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_profile_compose(
+        &self,
+        view: &crate::commands::profile_compose::ProfileComposeView,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        writeln!(
+            stdout,
+            "profile:      {}",
+            view.profile.as_deref().unwrap_or("(stock mode)")
+        )?;
+        writeln!(stdout, "terminal-id:  {}", view.terminal_id)?;
+        writeln!(stdout, "session-dir:  {}", view.session_dir)?;
+        writeln!(stdout, "config:       {}", view.config_path)?;
+        writeln!(stdout, "sidecar:      {}", view.sidecar_path)?;
+        writeln!(stdout, "session-meta: {}", view.session_meta_path)
     }
 }
 

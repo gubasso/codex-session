@@ -20,6 +20,7 @@ pub(crate) struct Config {
     pub(crate) log: LogConfig,
     pub(crate) paths: PathsConfig,
     pub(crate) child: ChildConfig,
+    pub(crate) profile: ProfileConfig,
     #[serde(skip)]
     pub(crate) sources: ConfigSources,
 }
@@ -37,9 +38,9 @@ pub(crate) struct LogConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
+#[allow(clippy::struct_field_names)]
 pub(crate) struct PathsConfig {
-    pub(crate) base_config: Utf8PathBuf,
-    pub(crate) target_config: Utf8PathBuf,
+    pub(crate) runtime_dir: Option<Utf8PathBuf>,
     pub(crate) cache_dir: Utf8PathBuf,
     pub(crate) state_dir: Utf8PathBuf,
 }
@@ -48,6 +49,17 @@ pub(crate) struct PathsConfig {
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct ChildConfig {
     pub(crate) bin: Option<Utf8PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct ProfileConfig {
+    pub(crate) default: Option<String>,
+    pub(crate) config_dir: Utf8PathBuf,
+    pub(crate) profiles_dir: Utf8PathBuf,
+    pub(crate) settings_dir: Utf8PathBuf,
+    #[serde(skip)]
+    pub(crate) active: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -78,6 +90,8 @@ pub(crate) struct CliValueOverrides {
     pub(crate) log: Option<LogOverrides>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) child: Option<ChildOverrides>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -102,6 +116,7 @@ struct FileConfig {
     log: Option<FileLogConfig>,
     paths: Option<FilePathsConfig>,
     child: Option<FileChildConfig>,
+    profile: Option<FileProfileConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -116,9 +131,9 @@ struct FileLogConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
+#[allow(clippy::struct_field_names)]
 struct FilePathsConfig {
-    base_config: Option<Utf8PathBuf>,
-    target_config: Option<Utf8PathBuf>,
+    runtime_dir: Option<Utf8PathBuf>,
     cache_dir: Option<Utf8PathBuf>,
     state_dir: Option<Utf8PathBuf>,
 }
@@ -127,6 +142,15 @@ struct FilePathsConfig {
 #[serde(deny_unknown_fields, default)]
 struct FileChildConfig {
     bin: Option<Utf8PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+struct FileProfileConfig {
+    default: Option<String>,
+    config_dir: Option<Utf8PathBuf>,
+    profiles_dir: Option<Utf8PathBuf>,
+    settings_dir: Option<Utf8PathBuf>,
 }
 
 impl CliOverrides {
@@ -142,6 +166,7 @@ impl CliOverrides {
                 || log.stderr_format.is_some())
             .then_some(log),
             child: None,
+            profile: global.profile.clone(),
         };
 
         Self {
@@ -166,17 +191,22 @@ impl Default for LogConfig {
 impl Default for PathsConfig {
     fn default() -> Self {
         Self {
-            base_config: Utf8PathBuf::new(),
-            target_config: Utf8PathBuf::new(),
+            runtime_dir: None,
             cache_dir: Utf8PathBuf::new(),
             state_dir: Utf8PathBuf::new(),
         }
     }
 }
 
-impl PathsConfig {
-    pub(crate) fn stamp_file(&self) -> Utf8PathBuf {
-        self.cache_dir.join("last-merge")
+impl Default for ProfileConfig {
+    fn default() -> Self {
+        Self {
+            default: None,
+            config_dir: Utf8PathBuf::new(),
+            profiles_dir: Utf8PathBuf::new(),
+            settings_dir: Utf8PathBuf::new(),
+            active: None,
+        }
     }
 }
 
@@ -189,8 +219,9 @@ impl Config {
             return Err(ConfigError::NoXdg);
         };
 
-        let home_dir = Utf8PathBuf::try_from(base_dirs.home_dir().to_path_buf())?;
+        let _home_dir = Utf8PathBuf::try_from(base_dirs.home_dir().to_path_buf())?;
         let cache_dir = Utf8PathBuf::try_from(project_dirs.cache_dir().to_path_buf())?;
+        let config_dir = Utf8PathBuf::try_from(project_dirs.config_dir().to_path_buf())?;
         let state_dir = Utf8PathBuf::try_from(
             project_dirs
                 .state_dir()
@@ -199,21 +230,27 @@ impl Config {
         )?;
 
         let paths = PathsConfig {
-            base_config: home_dir.join(".codex/config.base.toml"),
-            target_config: home_dir.join(".codex/config.toml"),
+            runtime_dir: std::env::var("XDG_RUNTIME_DIR")
+                .ok()
+                .map(Utf8PathBuf::from)
+                .map(|path| path.join("codex-session")),
             cache_dir,
             state_dir,
         };
 
-        // Intentionally leave `log.file` unset: it is a directory *hint* that
-        // overrides `paths.state_dir`. When unset, `log_dir_from_config` and
-        // `config status` resolve the effective log directory from the
-        // current `paths.state_dir`, so later overrides to `paths.state_dir`
-        // (file / env / CLI) actually move the log destination too.
+        let profile = ProfileConfig {
+            default: None,
+            profiles_dir: config_dir.join("profiles"),
+            settings_dir: config_dir.join("settings"),
+            config_dir,
+            active: None,
+        };
+
         Ok(Self {
             log: LogConfig::default(),
             paths,
             child: ChildConfig::default(),
+            profile,
             sources: ConfigSources::default(),
         })
     }
@@ -247,6 +284,7 @@ impl Config {
         }
 
         apply_env_layer(&mut config)?;
+        config.profile.active = resolve_active_profile(&config, &cli.values);
         apply_cli_overrides(&mut config, &cli.values);
 
         config.sources = ConfigSources {
@@ -287,11 +325,8 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) {
     }
 
     if let Some(paths) = layer.paths {
-        if let Some(base_config) = paths.base_config {
-            config.paths.base_config = base_config;
-        }
-        if let Some(target_config) = paths.target_config {
-            config.paths.target_config = target_config;
+        if let Some(runtime_dir) = paths.runtime_dir {
+            config.paths.runtime_dir = Some(runtime_dir);
         }
         if let Some(cache_dir) = paths.cache_dir {
             config.paths.cache_dir = cache_dir;
@@ -306,6 +341,31 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) {
             config.child.bin = Some(bin);
         }
     }
+
+    if let Some(profile) = layer.profile {
+        if let Some(default) = profile.default {
+            config.profile.default = Some(default);
+        }
+        // When a layer sets `config_dir`, derive `profiles_dir` /
+        // `settings_dir` from it unless the same layer also overrides them
+        // explicitly. This keeps the documented invariant that pointing
+        // `config_dir` at a fresh tree re-roots the whole profile lookup.
+        if let Some(config_dir) = profile.config_dir {
+            if profile.profiles_dir.is_none() {
+                config.profile.profiles_dir = config_dir.join("profiles");
+            }
+            if profile.settings_dir.is_none() {
+                config.profile.settings_dir = config_dir.join("settings");
+            }
+            config.profile.config_dir = config_dir;
+        }
+        if let Some(profiles_dir) = profile.profiles_dir {
+            config.profile.profiles_dir = profiles_dir;
+        }
+        if let Some(settings_dir) = profile.settings_dir {
+            config.profile.settings_dir = settings_dir;
+        }
+    }
 }
 
 fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
@@ -317,6 +377,11 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
         let Some(value) = value.to_str() else {
             continue;
         };
+        // Keep env parsing manual here instead of delegating to
+        // `figment::providers::Env`: the wrapper now owns a `profile`
+        // namespace, and we do not want to engage figment's separate
+        // profile-key machinery.
+        //
         // Accept both flat (`LOG_VERBOSE`) and double-underscore-nested
         // (`LOG__VERBOSE`) leaf names. The flat form matches user intuition
         // and the bash wrapper's historical contract; the nested form
@@ -349,17 +414,17 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             "LOG_STDERR_FORMAT" => {
                 config.log.stderr_format = Some(parse_log_format(key, value)?);
             }
-            "PATHS_BASE_CONFIG" => {
-                config.paths.base_config = Utf8PathBuf::from(value);
-            }
-            "PATHS_TARGET_CONFIG" => {
-                config.paths.target_config = Utf8PathBuf::from(value);
-            }
             "PATHS_CACHE_DIR" => {
                 config.paths.cache_dir = Utf8PathBuf::from(value);
             }
             "PATHS_STATE_DIR" => {
                 config.paths.state_dir = Utf8PathBuf::from(value);
+            }
+            "PATHS_RUNTIME_DIR" => {
+                config.paths.runtime_dir = Some(Utf8PathBuf::from(value));
+            }
+            "PROFILE" => {
+                config.profile.active = Some(value.to_owned());
             }
             _ => {}
         }
@@ -384,6 +449,10 @@ fn apply_cli_overrides(config: &mut Config, cli: &CliValueOverrides) {
         if let Some(bin) = child.bin.as_ref() {
             config.child.bin = Some(bin.clone());
         }
+    }
+
+    if let Some(profile) = cli.profile.as_ref() {
+        config.profile.active = Some(profile.clone());
     }
 }
 
@@ -447,4 +516,25 @@ where
             value: value.to_owned(),
             expected: std::any::type_name::<T>(),
         })
+}
+
+fn resolve_active_profile(config: &Config, cli: &CliValueOverrides) -> Option<String> {
+    if let Some(profile) = cli.profile.as_ref() {
+        return Some(profile.clone());
+    }
+
+    if let Some(profile) = config.profile.active.as_ref() {
+        return Some(profile.clone());
+    }
+
+    if let Some(profile) = config.profile.default.as_ref() {
+        return Some(profile.clone());
+    }
+
+    config
+        .profile
+        .profiles_dir
+        .join("default.yaml")
+        .is_file()
+        .then(|| "default".to_owned())
 }

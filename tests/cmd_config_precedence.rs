@@ -5,13 +5,6 @@ pub mod support;
 
 use support::TestEnv;
 
-fn write_file(path: &std::path::Path, contents: &str) {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap();
-    }
-    std::fs::write(path, contents).unwrap();
-}
-
 fn status_json(cmd: &mut assert_cmd::Command) -> serde_json::Value {
     let output = cmd
         .args(["config", "status", "--format", "json"])
@@ -24,321 +17,151 @@ fn status_json(cmd: &mut assert_cmd::Command) -> serde_json::Value {
 }
 
 #[test]
-fn explicit_config_replaces_user_and_project_layers() {
+fn cli_profile_wins_over_env_file_and_default_manifest() {
     let env = TestEnv::new();
-    let project_dir = env.tmp.path().join("project");
-    let explicit = env.tmp.path().join("explicit.toml");
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[profile]\ndefault = \"from-file\"\n",
+    )
+    .unwrap();
+    env.install_profile(
+        "default",
+        "settings-layers:\n  - default\n",
+        &[("default", "")],
+    );
+    env.install_profile(
+        "from-file",
+        "settings-layers:\n  - from-file\n",
+        &[("from-file", "")],
+    );
+    env.install_profile(
+        "from-cli",
+        "settings-layers:\n  - from-cli\n",
+        &[("from-cli", "")],
+    );
 
-    write_file(
-        &env.wrapper_user_config_path(),
-        "[paths]\ntarget_config = \"/tmp/user-target.toml\"\n",
+    let value = status_json(
+        env.cmd()
+            .env("CODEX_SESSION_PROFILE", "from-env")
+            .args(["--profile", "from-cli"]),
     );
-    write_file(
-        &project_dir.join(".codex-session/config.toml"),
-        "[paths]\ntarget_config = \"/tmp/project-target.toml\"\n",
-    );
-    write_file(
-        &explicit,
-        "[paths]\ntarget_config = \"/tmp/explicit-target.toml\"\n",
-    );
-
-    let output = env
-        .cmd()
-        .current_dir(&project_dir)
-        .args([
-            "--config",
-            explicit.to_str().unwrap(),
-            "config",
-            "status",
-            "--format",
-            "json",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["target-path"], "/tmp/explicit-target.toml");
+    assert_eq!(value["active-profile"], "from-cli");
 }
 
 #[test]
-fn env_layer_wins_over_project_and_user_layers() {
+fn env_profile_wins_over_file_default() {
     let env = TestEnv::new();
-    let project_dir = env.tmp.path().join("project");
-    let child_dir =
-        env.make_fake_codex_in_dir("env-child", "#!/usr/bin/env bash\nprintf 'child-from-env'");
-    let child_bin = child_dir.join("codex");
-    let env_log_dir = env.tmp.path().join("env-log-dir");
-
-    write_file(
-        &env.wrapper_user_config_path(),
-        "[child]\nbin = \"/tmp/user-codex\"\n[log]\nfile = \"/tmp/user.log\"\n",
-    );
-    write_file(
-        &project_dir.join(".codex-session/config.toml"),
-        "[child]\nbin = \"/tmp/project-codex\"\n[log]\nfile = \"/tmp/project.log\"\n",
-    );
-
-    let output = env
-        .cmd()
-        .current_dir(&project_dir)
-        .env("CODEX_SESSION_CHILD_BIN", &child_bin)
-        .env("CODEX_SESSION_LOG_FILE", &env_log_dir)
-        .args(["config", "status", "--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["child-bin"], child_bin.to_string_lossy().as_ref());
-    assert_eq!(value["log-file"], env_log_dir.to_string_lossy().as_ref());
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[profile]\ndefault = \"from-file\"\n",
+    )
+    .unwrap();
+    env.install_profile("from-env", "settings-layers:\n  - base\n", &[("base", "")]);
+    let value = status_json(env.cmd().env("CODEX_SESSION_PROFILE", "from-env"));
+    assert_eq!(value["active-profile"], "from-env");
 }
 
 #[test]
-fn unknown_key_in_user_config_exits_seventy_eight() {
+fn file_default_wins_when_no_cli_or_env_override() {
     let env = TestEnv::new();
-    write_file(&env.wrapper_user_config_path(), "surprise = true\n");
-
-    // `version` is the canonical benign wrapper verb that exercises the
-    // config-loading path (`help` is clap-owned and short-circuits before
-    // config loads).
-    env.cmd().arg("version").assert().code(78);
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[profile]\ndefault = \"from-file\"\n",
+    )
+    .unwrap();
+    env.install_profile("from-file", "settings-layers:\n  - base\n", &[("base", "")]);
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["active-profile"], "from-file");
 }
 
 #[test]
-fn user_config_verbose_enables_logging_without_cli_flags() {
+fn default_manifest_is_used_when_no_other_profile_is_selected() {
     let env = TestEnv::new();
-    write_file(&env.wrapper_user_config_path(), "[log]\nverbose = 2\n");
+    env.install_profile("default", "settings-layers:\n  - base\n", &[("base", "")]);
+    let value = status_json(&mut env.cmd());
+    assert_eq!(value["active-profile"], "default");
+}
 
-    let output = env
-        .cmd()
-        .arg("version")
-        .assert()
-        .success()
-        .get_output()
-        .clone();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        stderr.contains("version"),
-        "expected info log on stderr, got: {stderr}"
+#[test]
+fn runtime_dir_env_override_updates_session_root() {
+    let env = TestEnv::new();
+    let override_root = env.tmp.path().join("runtime-override");
+    std::fs::create_dir_all(&override_root).unwrap();
+    let value = status_json(
+        env.cmd()
+            .env("CODEX_SESSION_PATHS_RUNTIME_DIR", &override_root),
     );
-}
-
-#[test]
-fn log_stderr_format_precedence_file_env_cli() {
-    // The user config sets `stderr_format = "pretty"`. The env var should
-    // override the file. The CLI `--log-format json` should override both.
-    // `config status --format json` reports the resolved `log-stderr-format`,
-    // which lets us assert each layer wins in turn without having to parse
-    // the actual stderr mirror output.
-    let env = TestEnv::new();
-    write_file(
-        &env.wrapper_user_config_path(),
-        "[log]\nstderr_format = \"pretty\"\n",
-    );
-
-    // File layer only.
-    let file_only = env
-        .cmd()
-        .args(["config", "status", "--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: serde_json::Value = serde_json::from_slice(&file_only).unwrap();
-    assert_eq!(value["log-stderr-format"], "pretty");
-
-    // Env overrides file.
-    let env_wins = env
-        .cmd()
-        .env("CODEX_SESSION_LOG_STDERR_FORMAT", "json")
-        .args(["config", "status", "--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: serde_json::Value = serde_json::from_slice(&env_wins).unwrap();
-    assert_eq!(value["log-stderr-format"], "json");
-
-    // CLI `--log-format` overrides env and file.
-    let cli_wins = env
-        .cmd()
-        .env("CODEX_SESSION_LOG_STDERR_FORMAT", "json")
-        .args([
-            "--log-format",
-            "pretty",
-            "config",
-            "status",
-            "--format",
-            "json",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: serde_json::Value = serde_json::from_slice(&cli_wins).unwrap();
-    assert_eq!(value["log-stderr-format"], "pretty");
-}
-
-#[test]
-fn paths_state_dir_override_moves_default_log_directory() {
-    // Regression guard for F1: `Config::defaults` must not freeze the log
-    // destination at the XDG state dir. When `paths.state_dir` is overridden
-    // (here via env) and `log.file` is unset, the resolved `log-file` should
-    // follow the new state dir, not the XDG default.
-    let env = TestEnv::new();
-    let overridden_state = env.tmp.path().join("overridden-state");
-    std::fs::create_dir_all(&overridden_state).unwrap();
-
-    let output = env
-        .cmd()
-        .env("CODEX_SESSION_PATHS_STATE_DIR", &overridden_state)
-        .args(["config", "status", "--format", "json"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(
-        value["log-file"],
-        overridden_state.to_string_lossy().as_ref()
+        value["session-root"],
+        override_root.to_string_lossy().as_ref()
     );
 }
 
 #[test]
-fn log_verbose_precedence_defaults_user_project_env_cli() {
+fn env_child_bin_wins_over_user_file() {
+    // User config sets `[child].bin` to a path that does not exist; the env
+    // var must override and select a real binary. Regression test for the
+    // `child`/`log` precedence chain — file → env → CLI — that pre-dates
+    // Phase 12 and continues to be a supported wrapper contract.
     let env = TestEnv::new();
-    let project_dir = env.tmp.path().join("project");
+    let child_dir =
+        env.make_fake_codex_in_dir("env-child", "#!/usr/bin/env bash\nprintf 'env-child'");
+    let child_bin = child_dir.join("codex");
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[child]\nbin = \"/nonexistent/from-file\"\n",
+    )
+    .unwrap();
 
-    let value = status_json(&mut env.cmd());
-    assert_eq!(value["log-verbose"], 0);
-
-    write_file(&env.wrapper_user_config_path(), "[log]\nverbose = 1\n");
-    let value = status_json(&mut env.cmd());
-    assert_eq!(value["log-verbose"], 1);
-
-    write_file(
-        &project_dir.join(".codex-session/config.toml"),
-        "[log]\nverbose = 2\n",
-    );
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-verbose"], 2);
-
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .env("CODEX_SESSION_LOG_VERBOSE", "3");
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-verbose"], 3);
-
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .env("CODEX_SESSION_LOG_VERBOSE", "3")
-        .args(["-v"]);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-verbose"], 1);
-
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .env("CODEX_SESSION_LOG_VERBOSE", "3")
-        .args(["-vvvv"]);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-verbose"], 4);
+    let value = status_json(env.cmd().env("CODEX_SESSION_CHILD_BIN", &child_bin));
+    assert_eq!(value["child-bin"], child_bin.to_string_lossy().as_ref());
 }
 
 #[test]
-fn log_mirror_stderr_precedence_defaults_user_project_env_cli() {
+fn env_log_file_wins_over_user_file() {
+    // Same precedence guarantee for `[log].file`: env var overrides the
+    // user-file value.
     let env = TestEnv::new();
-    let project_dir = env.tmp.path().join("project");
+    let env_log = env.tmp.path().join("from-env.log");
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[log]\nfile = \"/tmp/from-file.log\"\n",
+    )
+    .unwrap();
 
-    let value = status_json(&mut env.cmd());
-    assert_eq!(value["log-mirror-stderr"], false);
-
-    write_file(
-        &env.wrapper_user_config_path(),
-        "[log]\nmirror_stderr = true\n",
-    );
-    let value = status_json(&mut env.cmd());
-    assert_eq!(value["log-mirror-stderr"], true);
-
-    write_file(
-        &project_dir.join(".codex-session/config.toml"),
-        "[log]\nmirror_stderr = false\n",
-    );
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-mirror-stderr"], false);
-
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .env("CODEX_SESSION_LOG_MIRROR_STDERR", "true");
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-mirror-stderr"], true);
-
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .env("CODEX_SESSION_LOG_MIRROR_STDERR", "false")
-        .args(["--log-stderr"]);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["log-mirror-stderr"], true);
+    let value = status_json(env.cmd().env("CODEX_SESSION_LOG_FILE", &env_log));
+    assert_eq!(value["log"]["file"], env_log.to_string_lossy().as_ref());
 }
 
 #[test]
-fn child_bin_precedence_defaults_user_project_env_and_explicit_config() {
+fn profile_config_dir_redirects_profile_lookup() {
+    // Setting `[profile].config_dir` in the user file must also re-root
+    // `profiles_dir` / `settings_dir` (unless those are explicitly set), so
+    // a profile installed under the alternate tree is discoverable.
     let env = TestEnv::new();
-    let project_dir = env.tmp.path().join("project");
-    let explicit = env.tmp.path().join("explicit.toml");
-    let user_bin = env.make_fake_codex_in_dir("user-child", "#!/usr/bin/env bash\nprintf 'user'");
-    let project_bin =
-        env.make_fake_codex_in_dir("project-child", "#!/usr/bin/env bash\nprintf 'project'");
-    let env_bin = env.make_fake_codex_in_dir("env-child", "#!/usr/bin/env bash\nprintf 'env'");
-    let explicit_bin =
-        env.make_fake_codex_in_dir("explicit-child", "#!/usr/bin/env bash\nprintf 'explicit'");
-    let user_bin = user_bin.join("codex");
-    let project_bin = project_bin.join("codex");
-    let env_bin = env_bin.join("codex");
-    let explicit_bin = explicit_bin.join("codex");
+    let alt_root = env.tmp.path().join("alt-config");
+    std::fs::create_dir_all(alt_root.join("profiles")).unwrap();
+    std::fs::create_dir_all(alt_root.join("settings")).unwrap();
+    std::fs::write(
+        alt_root.join("profiles").join("alt.yaml"),
+        "settings-layers:\n  - base\n",
+    )
+    .unwrap();
+    std::fs::write(alt_root.join("settings").join("base.toml"), "").unwrap();
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        format!(
+            "[profile]\ndefault = \"alt\"\nconfig_dir = \"{}\"\n",
+            alt_root.display()
+        ),
+    )
+    .unwrap();
 
     let value = status_json(&mut env.cmd());
-    assert!(value["child-bin"].is_null());
-
-    write_file(
-        &env.wrapper_user_config_path(),
-        &format!("[child]\nbin = {:?}\n", user_bin.to_string_lossy()),
+    assert_eq!(value["active-profile"], "alt");
+    let manifest_path = value["manifest-path"].as_str().unwrap();
+    assert!(
+        manifest_path.starts_with(alt_root.to_str().unwrap()),
+        "manifest-path should resolve under alt config_dir; got {manifest_path}",
     );
-    let value = status_json(&mut env.cmd());
-    assert_eq!(value["child-bin"], user_bin.to_string_lossy().as_ref());
-
-    write_file(
-        &project_dir.join(".codex-session/config.toml"),
-        &format!("[child]\nbin = {:?}\n", project_bin.to_string_lossy()),
-    );
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["child-bin"], project_bin.to_string_lossy().as_ref());
-
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .env("CODEX_SESSION_CHILD_BIN", &env_bin);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["child-bin"], env_bin.to_string_lossy().as_ref());
-
-    write_file(
-        &explicit,
-        &format!("[child]\nbin = {:?}\n", explicit_bin.to_string_lossy()),
-    );
-    let mut cmd = env.cmd();
-    cmd.current_dir(&project_dir)
-        .args(["--config", explicit.to_str().unwrap()]);
-    let value = status_json(&mut cmd);
-    assert_eq!(value["child-bin"], explicit_bin.to_string_lossy().as_ref());
 }

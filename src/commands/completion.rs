@@ -15,11 +15,13 @@ use clap::CommandFactory as _;
 
 /// Execute the `completion <shell>` verb.
 pub(crate) fn run(
-    _ctx: &crate::context::AppContext,
+    ctx: &crate::context::AppContext,
     args: crate::cli::completion::CompletionArgs,
 ) -> Result<(), crate::error::AppError> {
     let mut cmd = crate::cli::Cli::command();
     let bin = cmd.get_name().to_string();
-    clap_complete::generate(args.shell, &mut cmd, bin, &mut std::io::stdout());
+    let mut output = Vec::new();
+    clap_complete::generate(args.shell, &mut cmd, bin, &mut output);
+    ctx.ui.write_bytes(&output)?;
     Ok(())
 }

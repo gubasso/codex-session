@@ -20,6 +20,42 @@ fn exec_foo_bar_is_passed_through_to_codex() {
             String::from("bar")
         ]
     );
+    assert!(env.session_dir().join("config.toml").exists());
+    assert!(env.session_dir().join("session-meta.json").exists());
+}
+
+#[test]
+fn stock_mode_writes_stable_empty_compose_sidecar() {
+    // Stock mode (no active profile, no manifest) must still produce a
+    // sidecar with the canonical shape so downstream consumers can read one
+    // schema in both stock and composed modes.
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.cmd().args(["exec", "noop"]).assert().success();
+
+    let sidecar_path = env.session_dir().join(".codex-session-compose.json");
+    let sidecar: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&sidecar_path).unwrap()).unwrap();
+    assert!(sidecar.is_object(), "sidecar must be a JSON object");
+    assert!(
+        sidecar
+            .get("manifest")
+            .is_some_and(serde_json::Value::is_null)
+    );
+    assert_eq!(sidecar["layers"], serde_json::json!([]));
+    assert_eq!(sidecar["env"], serde_json::json!({}));
+}
+
+#[test]
+fn wrapper_profile_flag_is_not_forwarded_to_child() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.install_profile("work", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.cmd()
+        .args(["--profile", "work", "exec", "foo"])
+        .assert()
+        .success();
+    assert_eq!(env.argv(), vec!["exec".to_string(), "foo".to_string()]);
 }
 
 #[test]
@@ -68,105 +104,6 @@ fn missing_codex_binary_uses_shell_not_found_exit_code() {
         .stderr(predicate::str::contains(
             "codex-session: failed to resolve wrapped codex binary",
         ));
-}
-
-#[test]
-fn missing_base_falls_through_to_codex_without_creating_target_or_stamp() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.cmd().arg("exec").assert().success();
-    assert_eq!(env.argv(), vec![String::from("exec")]);
-    assert!(!env.target_path().exists());
-    assert!(!env.stamp_path().exists());
-}
-
-#[test]
-fn fresh_stamp_skips_merge_and_leaves_target_mtime_unchanged() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    std::fs::create_dir_all(env.stamp_path().parent().unwrap()).unwrap();
-    std::fs::write(env.stamp_path(), "").unwrap();
-    env.touch_older(&env.base_path());
-    env.touch_newer(&env.stamp_path());
-
-    let before = std::fs::metadata(env.target_path())
-        .unwrap()
-        .modified()
-        .unwrap();
-    env.cmd().arg("exec").assert().success();
-    let after = std::fs::metadata(env.target_path())
-        .unwrap()
-        .modified()
-        .unwrap();
-    assert_eq!(before, after);
-}
-
-#[test]
-fn missing_stamp_triggers_merge_to_expected_output() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    env.cmd().arg("exec").assert().success();
-    let got = std::fs::read_to_string(env.target_path()).unwrap();
-    let want = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/expected-merged.toml"),
-    )
-    .unwrap();
-    assert_eq!(got, want);
-}
-
-#[test]
-fn base_newer_than_stamp_triggers_merge() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    std::fs::create_dir_all(env.stamp_path().parent().unwrap()).unwrap();
-    std::fs::write(env.stamp_path(), "").unwrap();
-    env.touch_older(&env.stamp_path());
-    env.touch_newer(&env.base_path());
-    env.cmd().arg("exec").assert().success();
-    let got = std::fs::read_to_string(env.target_path()).unwrap();
-    let want = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/expected-merged.toml"),
-    )
-    .unwrap();
-    assert_eq!(got, want);
-}
-
-#[test]
-fn missing_target_with_existing_base_writes_base_only() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.cmd().arg("exec").assert().success();
-    let got = std::fs::read_to_string(env.target_path()).unwrap();
-    let want = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/base.toml"),
-    )
-    .unwrap();
-    assert_eq!(got, want);
-    assert!(!got.contains("Machine-local"));
-}
-
-#[test]
-fn merge_creates_stamp_and_cache_dir_on_virgin_machine() {
-    let env = TestEnv::new();
-    env.make_fake_codex();
-    env.install_base();
-    env.install_target_with_local();
-    let cache = env.stamp_path().parent().unwrap().to_path_buf();
-    if cache.exists() {
-        std::fs::remove_dir_all(&cache).unwrap();
-    }
-    env.cmd().arg("exec").assert().success();
-    assert!(cache.exists(), "cache dir must be created");
-    assert!(env.stamp_path().exists(), "stamp must be created");
 }
 
 #[test]

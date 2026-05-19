@@ -8,6 +8,7 @@ Environment:
   CODEX_SESSION_LOG_FILE    Explicit log file path. Overrides LOG_DIR.
   CODEX_SESSION_LOG_DIR     Directory holding `codex-session.log`.
                             Rotated daily as `codex-session.log.<YYYY-MM-DD>`.
+  CODEX_SESSION_PROFILE     Select the active wrapper profile via environment.
   CODEX_SESSION_REENTRY     Re-entry marker set on the child env to detect
                             chained-wrapper loops. Refuses to start when set
                             to `1` in the parent env.
@@ -20,4 +21,5 @@ Environment:
 Examples:
   codex-session version --format json
   codex-session config status
+  codex-session --profile work profile show
   codex-session --dry-run -- foo bar

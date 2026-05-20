@@ -111,23 +111,65 @@ pub(crate) fn run(
         return Ok(());
     }
 
+    run_under_bridge(ctx, &session_dir, inv)
+}
+
+fn run_under_bridge(
+    ctx: &crate::context::AppContext,
+    session_dir: &camino::Utf8Path,
+    inv: ChildInvocation,
+) -> Result<(), crate::error::AppError> {
     let child_pid = Arc::new(AtomicI32::new(0));
-    let _sig_guard = crate::services::auth::signal::install(Arc::clone(&child_pid))
+    let sig_guard = crate::services::auth::signal::install(Arc::clone(&child_pid))
         .map_err(crate::error::AppError::Io)?;
     let home = ctx.home_dir().to_path_buf();
-    let mut bridge = crate::services::auth::AuthBridge::new(&home, &session_dir)?;
+    let mut bridge = crate::services::auth::AuthBridge::new(&home, session_dir)?;
     bridge.seed_into_session()?;
 
+    // `_persist` is declared before the scope, so it drops AFTER
+    // `thread::scope` has joined the watcher. This means
+    // `persist_to_native()` (run in the Drop impl) can never race with a
+    // watcher write — there is no live watcher by the time persist runs.
     let _persist = PersistGuard { bridge: &bridge };
-    let spawn_result = ctx.spawner.spawn_and_wait(inv, &child_pid);
-    // Clear the child PID immediately so that any signal arriving between
-    // here and process exit cannot be forwarded to a PID the kernel may
-    // have already recycled for an unrelated process.
-    child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let spawn_result = std::thread::scope(|s| {
+        let _watcher = crate::services::auth::watcher::run_until(s, &bridge, &stop);
+        let result = ctx.spawner.spawn_and_wait(inv, &child_pid);
+        // Clear the child PID before stopping/joining the watcher so any
+        // signal arriving during the join window cannot be forwarded to a
+        // PID the kernel may have already recycled for an unrelated
+        // process. The signal thread's `pid <= 0` branch re-raises with
+        // default semantics.
+        child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        result
+    });
     let status = spawn_result?;
+    finalize_child_status(status, &sig_guard)
+}
+
+fn finalize_child_status(
+    status: std::process::ExitStatus,
+    sig_guard: &crate::services::auth::signal::SignalGuard,
+) -> Result<(), crate::error::AppError> {
     match status.code() {
-        Some(0) => Ok(()),
+        // Child exited cleanly. If the wrapper itself observed a fatal
+        // signal (e.g. user pressed Ctrl-C and the child trapped it),
+        // surface it with conventional shell semantics (exit 128+sig).
+        // The kernel never reported a signal on the child, so this is
+        // the only chance we have to propagate the user's intent.
+        Some(0) => sig_guard.observed_signal().map_or(Ok(()), |signal| {
+            let synthetic =
+                <std::process::ExitStatus as std::os::unix::process::ExitStatusExt>::from_raw(
+                    signal,
+                );
+            Err(crate::error::AppError::ChildSignaled(synthetic))
+        }),
         Some(code) => Err(crate::error::AppError::ChildExitNonZero(code)),
+        // Child died of a signal. Prefer the kernel-reported status — it
+        // names the exact signal the child took (which may differ from
+        // the signal the wrapper observed, e.g. when the child SIGSEGV'd
+        // independently of the user's Ctrl-C).
         None => Err(crate::error::AppError::ChildSignaled(status)),
     }
 }

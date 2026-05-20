@@ -60,6 +60,27 @@ Profile manifests list ordered `settings-layers`. Each layer is parsed from
 table, then written into the session directory. Stock mode still creates a
 session directory with an empty `config.toml`.
 
+## Skills
+
+codex-session does **not** manage personal Codex skills. Codex CLI discovers
+skills at these locations (all are scanned; duplicate `name`s are not merged
+— both can appear in skill selectors):
+
+- **Repo scopes.** Codex walks up from the current working directory to the
+  repo root, looking for `.agents/skills/` at every level (so a project can
+  pin a skill at `./.agents/skills/` and a workspace can share one further
+  up the tree).
+- **User scope.** `~/.agents/skills/` — recommended for personal skills.
+- **Admin scope.** `/etc/codex/skills/`.
+- **System scope.** Bundled with Codex itself.
+
+Place each personal skill at `~/.agents/skills/<name>/SKILL.md`
+(case-sensitive filename). Dotfiles users can stow a `.agents/` tree from
+their dotfiles repo to deploy skills as symlinks under
+`~/.agents/skills/`.
+
+Reference: <https://developers.openai.com/codex/skills>
+
 ## Environment
 
 - `CODEX_SESSION_CHILD_BIN`: explicit path to the wrapped `codex` binary.

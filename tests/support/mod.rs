@@ -9,6 +9,7 @@
 )] // Shared helper methods are used selectively by each integration test file.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub mod color;
 
@@ -103,6 +104,24 @@ impl TestEnv {
                 .env("XDG_RUNTIME_DIR", &self.runtime)
                 .env("PATH", path),
         );
+        cmd
+    }
+
+    pub fn std_cmd(&self) -> Command {
+        let mut cmd = Command::new(assert_cmd::cargo::cargo_bin("codex-session"));
+        let path = self.fake_bin.display().to_string();
+        cmd.env_clear()
+            .env("HOME", &self.home)
+            .env("XDG_CACHE_HOME", &self.cache)
+            .env("XDG_CONFIG_HOME", &self.config_home)
+            .env("XDG_STATE_HOME", &self.state_home)
+            .env("XDG_RUNTIME_DIR", &self.runtime)
+            .env("PATH", path)
+            .env_remove("NO_COLOR")
+            .env_remove("FORCE_COLOR")
+            .env_remove("CLICOLOR")
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("TERM");
         cmd
     }
 
@@ -237,13 +256,16 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
     }
 
     pub fn session_dir(&self) -> PathBuf {
-        let sessions_dir = self.session_root().join("sessions");
-        let mut entries = std::fs::read_dir(&sessions_dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .collect::<Vec<_>>();
+        let mut entries = self.session_dirs();
         entries.sort();
         entries.into_iter().next().unwrap()
+    }
+
+    pub fn session_dirs(&self) -> Vec<PathBuf> {
+        let sessions_dir = self.session_root().join("sessions");
+        std::fs::read_dir(&sessions_dir)
+            .map(|entries| entries.map(|entry| entry.unwrap().path()).collect())
+            .unwrap_or_default()
     }
 
     pub fn normalize_text(&self, text: &str) -> String {

@@ -144,6 +144,9 @@ fn build_report(
     // 14. Session sidecar inventory.
     checks.push(check_session_inventory(ctx));
 
+    // 15. Native auth bridge health.
+    checks.push(check_auth_native(ctx));
+
     populate_next_steps(&checks, &mut next_steps);
 
     let summary = summarize(&checks);
@@ -609,6 +612,106 @@ fn check_session_inventory(ctx: &crate::context::AppContext) -> CheckResult {
         warn("session.inventory", detail)
     } else {
         ok("session.inventory", detail)
+    }
+}
+
+fn check_auth_native(ctx: &crate::context::AppContext) -> CheckResult {
+    // Render the `inspect_native_health` result. The OS-level predicates
+    // live in `services::auth` so the bridge and doctor never disagree on
+    // what counts as healthy.
+    use crate::services::auth::{AuthFileHealth, DirHealth, inspect_native_health};
+
+    let health = inspect_native_health(ctx.home_dir());
+
+    let dir_warn: Option<String> = match &health.dir {
+        DirHealth::Missing => {
+            return ok("auth.native", "no native codex home yet".to_owned());
+        }
+        DirHealth::Symlink => {
+            return fail(
+                "auth.native",
+                format!("{} is a symlink; bridge will refuse", health.paths.dir),
+            );
+        }
+        DirHealth::NotDirectory => {
+            return fail(
+                "auth.native",
+                format!("{} is not a directory", health.paths.dir),
+            );
+        }
+        DirHealth::WrongOwner { uid, expected } => {
+            return fail(
+                "auth.native",
+                format!(
+                    "{} owned by uid {uid}, expected {expected}; bridge will refuse",
+                    health.paths.dir,
+                ),
+            );
+        }
+        DirHealth::InspectError(err) => {
+            return fail(
+                "auth.native",
+                format!("could not inspect {}: {err}", health.paths.dir),
+            );
+        }
+        DirHealth::OkAt0700 => None,
+        // Non-0o700 dir mode is auto-corrected on first login, so it's
+        // a warning, not fatal. Continue inspecting `auth.json` below —
+        // a bad file beats a fixable directory mode.
+        DirHealth::OkNeedsChmod { mode } => Some(format!(
+            "{} mode {mode:04o}; will be chmod'd on first login",
+            health.paths.dir,
+        )),
+    };
+
+    let detail = match health.auth {
+        AuthFileHealth::DirAbsent => {
+            // Unreachable: the dir match above returns for every non-Ok
+            // arm. Treat defensively.
+            return dir_warn.map_or_else(
+                || ok("auth.native", "no login yet".to_owned()),
+                |msg| warn("auth.native", msg),
+            );
+        }
+        AuthFileHealth::Missing => {
+            return dir_warn.map_or_else(
+                || ok("auth.native", "no login yet".to_owned()),
+                |msg| warn("auth.native", msg),
+            );
+        }
+        AuthFileHealth::Symlink => {
+            return fail("auth.native", "auth.json is a symlink".to_owned());
+        }
+        AuthFileHealth::Hardlinked => {
+            return fail(
+                "auth.native",
+                "auth.json has multiple hard links".to_owned(),
+            );
+        }
+        AuthFileHealth::WrongOwner { uid, expected } => {
+            return fail(
+                "auth.native",
+                format!("auth.json owned by uid {uid}, expected {expected}"),
+            );
+        }
+        AuthFileHealth::BadMode { mode } => {
+            return fail(
+                "auth.native",
+                format!("auth.json mode {mode:04o} has group/other bits set; bridge will refuse"),
+            );
+        }
+        AuthFileHealth::InspectError(err) => {
+            format!("last_refresh unknown ({err})")
+        }
+        AuthFileHealth::Readable { last_refresh } => last_refresh.map_or_else(
+            || "last_refresh unknown".to_owned(),
+            |ts| format!("last_refresh {ts}"),
+        ),
+    };
+
+    match dir_warn {
+        Some(msg) => warn("auth.native", format!("{msg}; {detail}")),
+        None => ok("auth.native", detail),
     }
 }
 

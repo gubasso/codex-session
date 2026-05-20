@@ -3,6 +3,8 @@
 
 pub mod support;
 
+use std::os::unix::fs::{PermissionsExt as _, symlink};
+
 use predicates::prelude::*;
 use support::TestEnv;
 
@@ -58,6 +60,7 @@ fn doctor_json_shape() {
     assert!(names.contains(&"profile.active"));
     assert!(names.contains(&"composition.default.dry-run"));
     assert!(names.contains(&"session.root"));
+    assert!(names.contains(&"auth.native"));
 }
 
 #[test]
@@ -297,4 +300,56 @@ fn doctor_show_env_redacts_secrets() {
         .stdout(predicate::str::contains("MY_TOKEN=***"))
         .stdout(predicate::str::contains("INNOCENT=hello"))
         .stdout(predicate::str::contains("deadbeef").not());
+}
+
+#[test]
+fn doctor_reports_missing_native_auth_as_ok() {
+    let env = TestEnv::new();
+    install_minimal_profile(&env);
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("auth.native"))
+        .stdout(predicate::str::contains("no native codex home yet"));
+}
+
+#[test]
+fn doctor_fails_on_symlinked_native_auth() {
+    let env = TestEnv::new();
+    install_minimal_profile(&env);
+    let native_dir = env.home.join(".codex");
+    std::fs::create_dir_all(&native_dir).unwrap();
+    std::fs::set_permissions(&native_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let sentinel = env.home.join("sentinel-auth.json");
+    std::fs::write(&sentinel, "sentinel-data").unwrap();
+    symlink(&sentinel, native_dir.join("auth.json")).unwrap();
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("auth.native"))
+        .stdout(predicate::str::contains("FAIL"))
+        .stdout(predicate::str::contains("auth.json is a symlink"));
+}
+
+#[test]
+fn doctor_warns_on_native_auth_dir_mode() {
+    let env = TestEnv::new();
+    install_minimal_profile(&env);
+    let native_dir = env.home.join(".codex");
+    std::fs::create_dir_all(&native_dir).unwrap();
+    std::fs::set_permissions(&native_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("auth.native"))
+        .stdout(predicate::str::contains("WARN"))
+        .stdout(predicate::str::contains(
+            "mode 0755; will be chmod'd on first login",
+        ));
 }

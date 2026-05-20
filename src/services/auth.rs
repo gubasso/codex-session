@@ -5,6 +5,7 @@
 //! What this is not: token issuance, refresh, or any cryptography.
 
 pub(crate) mod signal;
+pub(crate) mod watcher;
 
 use std::fs::{File, OpenOptions, Permissions};
 use std::io::{Read as _, Write as _};
@@ -87,10 +88,69 @@ impl AuthBridge {
         })
     }
 
+    fn sync_once(&self) -> Result<SyncOutcome, AuthError> {
+        with_lock(&self.lockfile, || {
+            let native = read_native_for_sync(&self.native_auth)?;
+            let session = read_session_for_sync(&self.session_auth)?;
+
+            match (native, session) {
+                (None, SessionRead::Missing | SessionRead::Skip) | (Some(_), SessionRead::Skip) => {
+                    Ok(SyncOutcome::Unchanged)
+                }
+                (None, SessionRead::Parsed { bytes, .. }) => {
+                    self.write_native(&bytes)?;
+                    Ok(SyncOutcome::WroteNative)
+                }
+                (Some(native), SessionRead::Missing) => {
+                    self.write_session(&native.bytes)?;
+                    Ok(SyncOutcome::WroteSession)
+                }
+                (Some(native), SessionRead::Parsed { bytes, ts }) => match ts.cmp(&native.ts) {
+                    std::cmp::Ordering::Greater => {
+                        self.write_native(&bytes)?;
+                        Ok(SyncOutcome::WroteNative)
+                    }
+                    std::cmp::Ordering::Less => {
+                        self.write_session(&native.bytes)?;
+                        Ok(SyncOutcome::WroteSession)
+                    }
+                    std::cmp::Ordering::Equal => Ok(SyncOutcome::Unchanged),
+                },
+            }
+        })
+    }
+
+    fn write_native(&self, bytes: &[u8]) -> Result<(), AuthError> {
+        secure_file_write_atomic(&self.native_auth, bytes)?;
+        tracing::debug!(
+            op = "auth.sync",
+            outcome = "wrote-native",
+            path = %self.native_auth
+        );
+        Ok(())
+    }
+
+    fn write_session(&self, bytes: &[u8]) -> Result<(), AuthError> {
+        secure_file_write_atomic(&self.session_auth, bytes)?;
+        tracing::debug!(
+            op = "auth.sync",
+            outcome = "wrote-session",
+            path = %self.session_auth
+        );
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub(crate) fn session_auth_path(&self) -> &Utf8Path {
         &self.session_auth
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyncOutcome {
+    WroteNative,
+    WroteSession,
+    Unchanged,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -282,6 +342,72 @@ fn secure_file_write_atomic(target: &Utf8Path, contents: &[u8]) -> Result<(), Au
     Ok(())
 }
 
+#[derive(Debug)]
+struct NativeAuth {
+    bytes: Vec<u8>,
+    ts: SystemTime,
+}
+
+#[derive(Debug)]
+enum SessionRead {
+    Missing,
+    Parsed {
+        bytes: Vec<u8>,
+        ts: SystemTime,
+    },
+    /// Session file exists but its JSON is malformed. The bridge treats
+    /// this as "in flight" and skips the tick rather than overwriting
+    /// native with the partially-written contents.
+    Skip,
+}
+
+/// Native is the source of truth: parse errors propagate. A malformed
+/// native file is a real problem the user needs to know about, not a
+/// transient in-flight write (codex writes native via `tempfile`+rename,
+/// which is atomic).
+fn read_native_for_sync(path: &Utf8Path) -> Result<Option<NativeAuth>, AuthError> {
+    match std::fs::symlink_metadata(path.as_std_path()) {
+        Ok(_) => {
+            let bytes = secure_file_read(path)?;
+            let ts = sync_timestamp_from_json(path, &bytes)?;
+            Ok(Some(NativeAuth { bytes, ts }))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(AuthError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn read_session_for_sync(path: &Utf8Path) -> Result<SessionRead, AuthError> {
+    match std::fs::symlink_metadata(path.as_std_path()) {
+        Ok(_) => {
+            let bytes = secure_file_read(path)?;
+            match sync_timestamp_from_json(path, &bytes) {
+                Ok(ts) => Ok(SessionRead::Parsed { bytes, ts }),
+                Err(AuthError::JsonParse { .. }) => Ok(SessionRead::Skip),
+                Err(err) => Err(err),
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(SessionRead::Missing),
+        Err(source) => Err(AuthError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn sync_timestamp_from_json(path: &Utf8Path, bytes: &[u8]) -> Result<SystemTime, AuthError> {
+    let value = serde_json::from_slice::<serde_json::Value>(bytes).map_err(|source| {
+        AuthError::JsonParse {
+            path: path.to_path_buf(),
+            source,
+        }
+    })?;
+    Ok(last_refresh_from_value(&value).unwrap_or(UNIX_EPOCH))
+}
+
 fn with_lock<R>(
     lockfile: &Utf8Path,
     f: impl FnOnce() -> Result<R, AuthError>,
@@ -318,6 +444,10 @@ fn with_lock<R>(
 // validator that wants to surface parse failures explicitly.
 fn last_refresh_from_json(bytes: &[u8]) -> Option<SystemTime> {
     let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    last_refresh_from_value(&value)
+}
+
+fn last_refresh_from_value(value: &serde_json::Value) -> Option<SystemTime> {
     let ts = value.get("tokens")?.get("last_refresh")?.as_str()?;
     let parsed =
         time::OffsetDateTime::parse(ts, &time::format_description::well_known::Rfc3339).ok()?;
@@ -349,4 +479,310 @@ fn open_nofollow_read(path: &Utf8Path) -> Result<File, AuthError> {
 
 fn current_uid() -> u32 {
     rustix::process::getuid().as_raw()
+}
+
+/// Standard native paths derived from `$HOME`. Shared with `doctor` so
+/// the wrapper and its health check never disagree on what they're
+/// looking at.
+pub(crate) fn native_paths(home: &Utf8Path) -> NativePaths {
+    let dir = home.join(".codex");
+    let auth = dir.join("auth.json");
+    NativePaths { dir, auth }
+}
+
+#[derive(Debug)]
+pub(crate) struct NativePaths {
+    pub(crate) dir: Utf8PathBuf,
+    pub(crate) auth: Utf8PathBuf,
+}
+
+/// Read-only inspection of `~/.codex/{,auth.json}`. The bridge uses this
+/// same set of predicates as part of its enforcement; `doctor` consumes
+/// the result to render OK/WARN/FAIL without re-implementing the OS
+/// checks. Keep the predicates here as the single source of truth.
+pub(crate) fn inspect_native_health(home: &Utf8Path) -> NativeHealth {
+    let paths = native_paths(home);
+    let self_uid = current_uid();
+
+    let dir = match std::fs::symlink_metadata(paths.dir.as_std_path()) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                DirHealth::Symlink
+            } else if !meta.is_dir() {
+                DirHealth::NotDirectory
+            } else if meta.uid() != self_uid {
+                DirHealth::WrongOwner {
+                    uid: meta.uid(),
+                    expected: self_uid,
+                }
+            } else {
+                let mode = meta.permissions().mode() & 0o777;
+                if mode == 0o700 {
+                    DirHealth::OkAt0700
+                } else {
+                    DirHealth::OkNeedsChmod { mode }
+                }
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return NativeHealth {
+                paths,
+                dir: DirHealth::Missing,
+                auth: AuthFileHealth::DirAbsent,
+            };
+        }
+        Err(err) => DirHealth::InspectError(err),
+    };
+
+    let dir_usable = matches!(dir, DirHealth::OkAt0700 | DirHealth::OkNeedsChmod { .. });
+    let auth = if dir_usable {
+        inspect_native_auth_file(&paths.auth, self_uid)
+    } else {
+        AuthFileHealth::DirAbsent
+    };
+
+    NativeHealth { paths, dir, auth }
+}
+
+fn inspect_native_auth_file(path: &Utf8Path, self_uid: u32) -> AuthFileHealth {
+    let meta = match std::fs::symlink_metadata(path.as_std_path()) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return AuthFileHealth::Missing,
+        Err(err) => return AuthFileHealth::InspectError(err),
+    };
+    if meta.file_type().is_symlink() {
+        return AuthFileHealth::Symlink;
+    }
+    if meta.nlink() > 1 {
+        return AuthFileHealth::Hardlinked;
+    }
+    if meta.uid() != self_uid {
+        return AuthFileHealth::WrongOwner {
+            uid: meta.uid(),
+            expected: self_uid,
+        };
+    }
+    let mode = meta.permissions().mode() & 0o777;
+    if mode & 0o077 != 0 {
+        return AuthFileHealth::BadMode { mode };
+    }
+
+    let last_refresh = std::fs::read(path.as_std_path()).ok().and_then(|bytes| {
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("tokens")
+                    .and_then(|tokens| tokens.get("last_refresh"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(ToOwned::to_owned)
+            })
+    });
+    AuthFileHealth::Readable { last_refresh }
+}
+
+#[derive(Debug)]
+pub(crate) struct NativeHealth {
+    pub(crate) paths: NativePaths,
+    pub(crate) dir: DirHealth,
+    pub(crate) auth: AuthFileHealth,
+}
+
+#[derive(Debug)]
+pub(crate) enum DirHealth {
+    Missing,
+    Symlink,
+    NotDirectory,
+    WrongOwner {
+        uid: u32,
+        expected: u32,
+    },
+    /// Dir exists and is owned by self; mode is 0o700. The bridge will
+    /// accept this as-is.
+    OkAt0700,
+    /// Dir exists and is owned by self; mode is something else. The
+    /// bridge auto-corrects this on first login, so doctor treats it as
+    /// a WARN, not a FAIL.
+    OkNeedsChmod {
+        mode: u32,
+    },
+    InspectError(std::io::Error),
+}
+
+#[derive(Debug)]
+pub(crate) enum AuthFileHealth {
+    /// Dir was missing or unusable; no point inspecting the file.
+    DirAbsent,
+    Missing,
+    Symlink,
+    Hardlinked,
+    WrongOwner {
+        uid: u32,
+        expected: u32,
+    },
+    BadMode {
+        mode: u32,
+    },
+    Readable {
+        last_refresh: Option<String>,
+    },
+    InspectError(std::io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use anyhow::Result;
+    use filetime::FileTime;
+
+    fn bridge_fixture() -> Result<(tempfile::TempDir, AuthBridge)> {
+        let td = tempfile::tempdir()?;
+        let home = Utf8PathBuf::from_path_buf(td.path().join("home"))
+            .map_err(|_| anyhow::anyhow!("home path must be utf-8"))?;
+        let session = Utf8PathBuf::from_path_buf(td.path().join("session"))
+            .map_err(|_| anyhow::anyhow!("session path must be utf-8"))?;
+        std::fs::create_dir_all(session.as_std_path())?;
+        let bridge = AuthBridge::new(&home, &session)?;
+        Ok((td, bridge))
+    }
+
+    fn write_auth(path: &Utf8Path, payload: &str) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent.as_std_path())?;
+            std::fs::set_permissions(parent.as_std_path(), Permissions::from_mode(0o700))?;
+        }
+        std::fs::write(path.as_std_path(), payload)?;
+        std::fs::set_permissions(path.as_std_path(), Permissions::from_mode(0o600))?;
+        Ok(())
+    }
+
+    fn payload(ts: &str, token: &str) -> String {
+        format!(r#"{{"tokens":{{"last_refresh":"{ts}","access_token":"{token}"}}}}"#)
+    }
+
+    #[test]
+    fn sync_once_skips_unparseable_session() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+        let native = payload("2026-06-01T00:00:00Z", "native");
+        write_auth(&bridge.native_auth, &native)?;
+        write_auth(&bridge.session_auth, r#"{"tokens":{"#)?;
+
+        let outcome = bridge.sync_once()?;
+
+        assert_eq!(outcome, SyncOutcome::Unchanged);
+        assert_eq!(
+            std::fs::read_to_string(bridge.native_auth.as_std_path())?,
+            native
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sync_once_prefers_newer_native_when_both_parse() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+        let native = payload("2026-06-02T00:00:00Z", "native-newer");
+        let session = payload("2026-06-01T00:00:00Z", "session-older");
+        write_auth(&bridge.native_auth, &native)?;
+        write_auth(&bridge.session_auth, &session)?;
+
+        let outcome = bridge.sync_once()?;
+
+        assert_eq!(outcome, SyncOutcome::WroteSession);
+        assert_eq!(
+            std::fs::read_to_string(bridge.session_auth.as_std_path())?,
+            native
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sync_once_prefers_newer_session_when_both_parse() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+        let native = payload("2026-06-01T00:00:00Z", "native-older");
+        let session = payload("2026-06-02T00:00:00Z", "session-newer");
+        write_auth(&bridge.native_auth, &native)?;
+        write_auth(&bridge.session_auth, &session)?;
+
+        let outcome = bridge.sync_once()?;
+
+        assert_eq!(outcome, SyncOutcome::WroteNative);
+        assert_eq!(
+            std::fs::read_to_string(bridge.native_auth.as_std_path())?,
+            session
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sync_once_writes_native_when_only_session_present() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+        let session = payload("2026-06-01T00:00:00Z", "session-only");
+        write_auth(&bridge.session_auth, &session)?;
+
+        let outcome = bridge.sync_once()?;
+
+        assert_eq!(outcome, SyncOutcome::WroteNative);
+        assert_eq!(
+            std::fs::read_to_string(bridge.native_auth.as_std_path())?,
+            session
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sync_once_writes_session_when_only_native_present() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+        let native = payload("2026-06-01T00:00:00Z", "native-only");
+        write_auth(&bridge.native_auth, &native)?;
+
+        let outcome = bridge.sync_once()?;
+
+        assert_eq!(outcome, SyncOutcome::WroteSession);
+        assert_eq!(
+            std::fs::read_to_string(bridge.session_auth.as_std_path())?,
+            native
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sync_once_unchanged_when_both_missing() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+
+        let outcome = bridge.sync_once()?;
+
+        assert_eq!(outcome, SyncOutcome::Unchanged);
+        assert!(!bridge.native_auth.as_std_path().exists());
+        assert!(!bridge.session_auth.as_std_path().exists());
+        Ok(())
+    }
+
+    #[test]
+    fn sync_once_unchanged_on_tie() -> Result<()> {
+        let (_td, bridge) = bridge_fixture()?;
+        let native = payload("2026-06-01T00:00:00Z", "native");
+        let session = payload("2026-06-01T00:00:00Z", "session");
+        write_auth(&bridge.native_auth, &native)?;
+        write_auth(&bridge.session_auth, &session)?;
+        let before = FileTime::from_unix_time(1_700_000_000, 0);
+        filetime::set_file_mtime(bridge.native_auth.as_std_path(), before)?;
+
+        let outcome = bridge.sync_once()?;
+        let after = FileTime::from_last_modification_time(&std::fs::metadata(
+            bridge.native_auth.as_std_path(),
+        )?);
+
+        assert_eq!(outcome, SyncOutcome::Unchanged);
+        assert_eq!(after, before);
+        assert_eq!(
+            std::fs::read_to_string(bridge.native_auth.as_std_path())?,
+            native
+        );
+        assert_eq!(
+            std::fs::read_to_string(bridge.session_auth.as_std_path())?,
+            session
+        );
+        Ok(())
+    }
 }

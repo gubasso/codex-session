@@ -63,3 +63,32 @@ fn profile_compose_prepends_cache_layer() {
     assert!(config.contains("default = \"gpt-5\""));
     assert!(config.contains("effort = \"high\""));
 }
+
+#[test]
+fn profile_compose_preserves_machine_local_projects_table() {
+    // Regression for the trust-persistence round-trip: a `[projects."<path>"]`
+    // entry living in the machine-local cache layer must survive deep-merge
+    // into the composed config alongside unrelated settings. Uses the
+    // canonical fixtures `base.toml` + `target-with-local.toml` and asserts
+    // structural equality with `expected-merged.toml`.
+    let base = std::fs::read_to_string(support::fixture_path("base.toml")).unwrap();
+    let local = std::fs::read_to_string(support::fixture_path("target-with-local.toml")).unwrap();
+    let expected = std::fs::read_to_string(support::fixture_path("expected-merged.toml")).unwrap();
+
+    let env = TestEnv::new();
+    env.install_profile(
+        "default",
+        "settings-layers:\n  - base\n",
+        &[("base", &base)],
+    );
+    // The cache layer composes BEFORE the profile layers, so the projects
+    // table lives there to avoid clobbering by stow-managed sources.
+    env.write_cache_settings(&local);
+
+    env.cmd().args(["profile", "compose"]).assert().success();
+
+    let actual = std::fs::read_to_string(env.session_dir().join("config.toml")).unwrap();
+    let actual_table: toml::Table = toml::from_str(&actual).unwrap();
+    let expected_table: toml::Table = toml::from_str(&expected).unwrap();
+    assert_eq!(actual_table, expected_table);
+}

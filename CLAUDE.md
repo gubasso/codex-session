@@ -28,3 +28,14 @@ gates) are fine to invoke as-is: `just build`, `just run -- <args>`,
 
 If you need a check the justfile doesn't cover, run raw `cargo` — but say so,
 and consider whether the recipe should be extended.
+
+## Upstream codex behavior reference
+
+When answering a question or making a change that depends on how upstream
+`codex` behaves (config paths, trust schema, `CODEX_HOME` semantics, write
+model, prompt gating), **consult [`docs/upstream-codex.md`](./docs/upstream-codex.md)
+before guessing or re-researching.** That file records the verified facts
+and links to source-of-truth issues/PRs in `openai/codex`.
+
+Keep `docs/upstream-codex.md` up to date — if you confirm or refute a fact
+during a session, update the file (and bump the `Last verified` date).

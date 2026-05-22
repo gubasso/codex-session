@@ -60,7 +60,7 @@ pub(crate) fn run(
     let cwd = current_cwd()?;
     let profile = ctx.config.profile.active.clone();
 
-    let env = if let Some(profile_name) = profile.as_deref() {
+    let (env, baseline_projects) = if let Some(profile_name) = profile.as_deref() {
         let composition = crate::services::profile::compose(
             profile_name,
             &crate::services::profile::ProfilePaths {
@@ -70,10 +70,10 @@ pub(crate) fn run(
             },
         )?;
         crate::services::profile::write_session_artifacts(&composition, &session_dir)?;
-        composition.env
+        (composition.env, composition.baseline_projects)
     } else {
         crate::services::profile::write_stock_session_artifacts(&session_dir)?;
-        std::collections::BTreeMap::new()
+        (std::collections::BTreeMap::new(), None)
     };
 
     let meta = crate::services::session::meta::SessionMeta::new(
@@ -111,7 +111,47 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    run_under_bridge(ctx, &session_dir, inv)
+    // Run codex, then sync any trust decisions it persisted into our
+    // session-scoped CODEX_HOME back to the machine-local cache layer.
+    // The sync runs on both clean and non-zero exits — the user may have
+    // confirmed trust before a later unrelated failure. Log-and-swallow on
+    // sync errors mirrors the auth.persist contract (and upstream codex's
+    // own PR #17595 policy).
+    let cache_settings = cache_settings_target(ctx);
+    let session_config = session_dir.join("config.toml");
+    let result = run_under_bridge(ctx, &session_dir, inv);
+    persist_trust(&session_config, &cache_settings, baseline_projects.as_ref());
+    result
+}
+
+fn persist_trust(
+    session_config: &camino::Utf8Path,
+    cache_settings: &camino::Utf8Path,
+    baseline: Option<&toml::Table>,
+) {
+    match crate::services::trust_sync::persist_projects(session_config, cache_settings, baseline) {
+        Ok(crate::services::trust_sync::TrustSyncOutcome::Unchanged) => {
+            tracing::debug!(op = "trust.persist", outcome = "unchanged");
+        }
+        Ok(crate::services::trust_sync::TrustSyncOutcome::Wrote { added, changed }) => {
+            tracing::info!(
+                op = "trust.persist",
+                outcome = "wrote",
+                added,
+                changed,
+                path = %cache_settings
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                op = "trust.persist",
+                status = "error",
+                err.kind = err.kind(),
+                err = %err,
+                path = %err.path(),
+            );
+        }
+    }
 }
 
 fn run_under_bridge(
@@ -180,6 +220,14 @@ fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {
 }
 
 fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
-    let path = ctx.config.paths.cache_dir.join("settings.toml");
+    let path = cache_settings_target(ctx);
     path.is_file().then_some(path)
+}
+
+/// Canonical cache-settings target path — used both as the source of the
+/// machine-local layer during `compose()` (gated on existence by
+/// `cache_settings_path`) and as the destination for trust-sync writes.
+/// Always `<cache_dir>/settings.toml`.
+fn cache_settings_target(ctx: &crate::context::AppContext) -> Utf8PathBuf {
+    ctx.config.paths.cache_dir.join("settings.toml")
 }

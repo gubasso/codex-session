@@ -21,9 +21,9 @@ fn native_auth(env: &TestEnv) -> std::path::PathBuf {
 fn auth_bridge_rollback_protection() {
     let env = TestEnv::new();
     let native_payload =
-        r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"newer"}}"#;
+        r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"newer"}}"#;
     let stale_payload =
-        r#"{"tokens":{"last_refresh":"2026-05-01T00:00:00Z","access_token":"stale"}}"#;
+        r#"{"last_refresh":"2026-05-01T00:00:00Z","tokens":{"access_token":"stale"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -68,7 +68,7 @@ chmod 600 "$CODEX_HOME/auth.json"
 fn watcher_skips_live_malformed_session_instead_of_rolling_back() {
     let env = TestEnv::new();
     let native_payload =
-        r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"native"}}"#;
+        r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"native"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();

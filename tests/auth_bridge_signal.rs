@@ -13,7 +13,7 @@ fn auth_bridge_signal_persists_on_sigterm() {
 
     let fixture = td.path().join("child.sh");
     let ready_flag = td.path().join("child-ready");
-    let payload = r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"signaled"}}"#;
+    let payload = r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"signaled"}}"#;
     // The fixture writes auth.json, chmods it, then touches a ready sentinel
     // outside $CODEX_HOME. The test polls that sentinel before sending
     // SIGTERM so the auth.json write is guaranteed to be complete first.

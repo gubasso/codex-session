@@ -43,6 +43,10 @@ pub(crate) struct CheckSummary {
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct DoctorReport {
     pub(crate) profile: Option<String>,
+    pub(crate) account: String,
+    pub(crate) group_id: String,
+    pub(crate) group_id_source: String,
+    pub(crate) codex_home: Utf8PathBuf,
     pub(crate) checks: Vec<CheckResult>,
     pub(crate) summary: CheckSummary,
     pub(crate) next_steps: Vec<String>,
@@ -64,6 +68,7 @@ pub(crate) fn run(
     Ok(u8::from(report.summary.fail > 0))
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_report(
     ctx: &crate::context::AppContext,
     args: crate::cli::doctor::DoctorArgs,
@@ -71,6 +76,47 @@ fn build_report(
     let mut checks: Vec<CheckResult> = Vec::new();
     let mut next_steps: Vec<String> = Vec::new();
     let mut env_dump: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    let root = crate::services::session::dir::inspect_session_root(
+        ctx.config.paths.runtime_dir.as_deref(),
+        &ctx.config.paths.state_dir,
+    )
+    .ok();
+
+    let (account, group_id, group_id_source, codex_home) = match (
+        crate::services::session::group_id::current(ctx),
+        root.as_ref(),
+    ) {
+        (Ok(resolved_group), Some(inspected_root)) => {
+            let codex_home = crate::services::session::dir::inspect_session_dir(
+                &inspected_root.root.path,
+                "default",
+                resolved_group.id.as_str(),
+            )
+            .map(|dir| dir.path)
+            .unwrap_or_default();
+            (
+                "default".to_owned(),
+                resolved_group.id.as_str().to_owned(),
+                group_id_source_label(resolved_group.source).to_owned(),
+                codex_home,
+            )
+        }
+        (Ok(resolved_group), None) => (
+            "default".to_owned(),
+            resolved_group.id.as_str().to_owned(),
+            group_id_source_label(resolved_group.source).to_owned(),
+            Utf8PathBuf::new(),
+        ),
+        (Err(err), _) => {
+            checks.push(fail("session.group_id", err.to_string()));
+            (
+                "default".to_owned(),
+                "(unresolved)".to_owned(),
+                "error".to_owned(),
+                Utf8PathBuf::new(),
+            )
+        }
+    };
 
     // 1. Active profile resolution + source.
     let active = ctx.config.profile.active.clone();
@@ -152,6 +198,10 @@ fn build_report(
     let summary = summarize(&checks);
     DoctorReport {
         profile: active,
+        account,
+        group_id,
+        group_id_source,
+        codex_home,
         checks,
         summary,
         next_steps,
@@ -507,18 +557,18 @@ fn check_session_root(ctx: &crate::context::AppContext) -> CheckResult {
                 crate::services::session::dir::SessionRootSource::State => "state",
             };
             let path = &inspected.root.path;
-            let on_state_fallback = matches!(
+            let on_runtime_fallback = matches!(
                 inspected.root.source,
-                crate::services::session::dir::SessionRootSource::State
+                crate::services::session::dir::SessionRootSource::Runtime
             );
             let mut notes: Vec<&'static str> = Vec::new();
-            if on_state_fallback {
-                notes.push("runtime fallback");
+            if on_runtime_fallback {
+                notes.push("runtime fallback (legacy)");
             }
             if inspected.root_missing {
                 notes.push("not yet initialized");
-            } else if inspected.sessions_subdir_missing {
-                notes.push("sessions/ not yet created");
+            } else if inspected.accounts_subdir_missing {
+                notes.push("accounts/ not yet created");
             }
 
             let detail = if notes.is_empty() {
@@ -527,13 +577,25 @@ fn check_session_root(ctx: &crate::context::AppContext) -> CheckResult {
                 format!("{path} (source: {source} — {})", notes.join("; "))
             };
 
-            if on_state_fallback || inspected.root_missing || inspected.sessions_subdir_missing {
+            if on_runtime_fallback || inspected.root_missing || inspected.accounts_subdir_missing {
                 warn("session.root", detail)
             } else {
                 ok("session.root", detail)
             }
         }
         Err(err) => fail("session.root", err.to_string()),
+    }
+}
+
+const fn group_id_source_label(
+    source: crate::services::session::group_id::GroupIdSource,
+) -> &'static str {
+    match source {
+        crate::services::session::group_id::GroupIdSource::Flag => "flag",
+        crate::services::session::group_id::GroupIdSource::Env => "env",
+        crate::services::session::group_id::GroupIdSource::Tty => "tty",
+        crate::services::session::group_id::GroupIdSource::Ppid => "ppid",
+        crate::services::session::group_id::GroupIdSource::Pid => "pid",
     }
 }
 
@@ -568,8 +630,13 @@ fn check_session_inventory(ctx: &crate::context::AppContext) -> CheckResult {
             "session root unresolved — skipped".to_owned(),
         );
     };
-    let sessions_dir = inspected.root.path.join("sessions");
-    let Ok(entries) = std::fs::read_dir(sessions_dir.as_std_path()) else {
+    let groups_dir = inspected
+        .root
+        .path
+        .join("accounts")
+        .join("default")
+        .join("groups");
+    let Ok(entries) = std::fs::read_dir(groups_dir.as_std_path()) else {
         return ok("session.inventory", "no sessions directory".to_owned());
     };
 

@@ -12,6 +12,10 @@ pub(crate) struct ConfigStatusView {
     pub(crate) active_profile: Option<String>,
     pub(crate) manifest_path: Option<Utf8PathBuf>,
     pub(crate) layer_paths: Vec<LayerEntry>,
+    pub(crate) account: String,
+    pub(crate) group_id: String,
+    pub(crate) group_id_source: String,
+    pub(crate) codex_home: Utf8PathBuf,
     pub(crate) session_root: Utf8PathBuf,
     pub(crate) session_root_source: String,
     pub(crate) child_bin: Option<Utf8PathBuf>,
@@ -64,6 +68,12 @@ pub(crate) fn build_view(
         ctx.config.paths.runtime_dir.as_deref(),
         &ctx.config.paths.state_dir,
     )?;
+    let resolved_group = crate::services::session::group_id::current(ctx)?;
+    let inspected_dir = crate::services::session::dir::inspect_session_dir(
+        &root.path,
+        "default",
+        resolved_group.id.as_str(),
+    )?;
 
     // `config status` is an introspection command: even if the active profile
     // is missing or its manifest is malformed, still report what we resolved
@@ -78,6 +88,10 @@ pub(crate) fn build_view(
         active_profile: ctx.config.profile.active.clone(),
         manifest_path,
         layer_paths,
+        account: "default".to_owned(),
+        group_id: resolved_group.id.as_str().to_owned(),
+        group_id_source: group_id_source_label(resolved_group.source).to_owned(),
+        codex_home: inspected_dir.path,
         session_root: root.path,
         session_root_source: match root.source {
             crate::services::session::dir::SessionRootSource::Runtime => "runtime".to_owned(),
@@ -105,6 +119,18 @@ pub(crate) fn build_view(
             cli: ctx.config.sources.cli.clone(),
         },
     })
+}
+
+const fn group_id_source_label(
+    source: crate::services::session::group_id::GroupIdSource,
+) -> &'static str {
+    match source {
+        crate::services::session::group_id::GroupIdSource::Flag => "flag",
+        crate::services::session::group_id::GroupIdSource::Env => "env",
+        crate::services::session::group_id::GroupIdSource::Tty => "tty",
+        crate::services::session::group_id::GroupIdSource::Ppid => "ppid",
+        crate::services::session::group_id::GroupIdSource::Pid => "pid",
+    }
 }
 
 fn profile_layers_or_error(

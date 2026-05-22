@@ -4,8 +4,6 @@
 mod support;
 
 use std::os::unix::fs::PermissionsExt as _;
-use std::process::Stdio;
-use std::time::{Duration, Instant};
 
 use support::TestEnv;
 
@@ -20,25 +18,15 @@ fn native_auth(env: &TestEnv) -> std::path::PathBuf {
 #[test]
 fn auth_bridge_seed_and_persist() {
     let env = TestEnv::new();
-    let old_payload = r#"{"last_refresh":"2026-01-01T00:00:00Z","tokens":{"access_token":"old"}}"#;
-    let new_payload = r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"new"}}"#;
+    let native_payload =
+        r#"{"last_refresh":"2026-01-01T00:00:00Z","tokens":{"access_token":"old"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();
-    std::fs::write(native_auth(&env), old_payload).unwrap();
+    std::fs::write(native_auth(&env), native_payload).unwrap();
     std::fs::set_permissions(native_auth(&env), std::fs::Permissions::from_mode(0o600)).unwrap();
 
-    let child_dir = env.make_fake_codex_in_dir(
-        "auth-child",
-        &format!(
-            r#"#!/usr/bin/env bash
-cat > "$CODEX_HOME/auth.json" <<'EOF'
-{new_payload}
-EOF
-chmod 600 "$CODEX_HOME/auth.json"
-"#
-        ),
-    );
+    let child_dir = env.make_fake_codex_in_dir("auth-child", "#!/usr/bin/env bash\nexit 0\n");
     let child_bin = child_dir.join("codex");
 
     env.cmd()
@@ -48,13 +36,19 @@ chmod 600 "$CODEX_HOME/auth.json"
         .success();
 
     assert_eq!(
+        std::fs::read_to_string(env.session_dir().join("auth.json"))
+            .unwrap()
+            .trim_end(),
+        native_payload
+    );
+    assert_eq!(
         std::fs::read_to_string(native_auth(&env))
             .unwrap()
             .trim_end(),
-        new_payload
+        native_payload
     );
     assert_eq!(
-        std::fs::metadata(native_auth(&env))
+        std::fs::metadata(env.session_dir().join("auth.json"))
             .unwrap()
             .permissions()
             .mode()
@@ -72,7 +66,7 @@ chmod 600 "$CODEX_HOME/auth.json"
 }
 
 #[test]
-fn watcher_propagates_refresh_back_into_running_session() {
+fn second_run_does_not_overwrite_existing_session_auth() {
     let env = TestEnv::new();
     let initial_payload =
         r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"initial"}}"#;
@@ -84,46 +78,31 @@ fn watcher_propagates_refresh_back_into_running_session() {
     std::fs::write(native_auth(&env), initial_payload).unwrap();
     std::fs::set_permissions(native_auth(&env), std::fs::Permissions::from_mode(0o600)).unwrap();
 
-    let child_dir =
-        env.make_fake_codex_in_dir("watcher-refresh-back", "#!/usr/bin/env bash\nsleep 3\n");
+    let child_dir = env.make_fake_codex_in_dir("one-shot-import", "#!/usr/bin/env bash\nexit 0\n");
     let child_bin = child_dir.join("codex");
 
-    let mut terminal_a = env.std_cmd();
-    terminal_a
+    env.cmd()
         .arg("exec")
         .env("CODEX_SESSION_CHILD_BIN", &child_bin)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let mut child_a = terminal_a.spawn().unwrap();
+        .assert()
+        .success();
 
-    let session_deadline = Instant::now() + Duration::from_millis(1_500);
-    while (env.session_dirs().is_empty() || !env.session_dir().join("auth.json").is_file())
-        && Instant::now() < session_deadline
-    {
-        std::thread::sleep(Duration::from_millis(50));
-    }
     let session_auth = env.session_dir().join("auth.json");
-    assert!(
-        session_auth.is_file(),
-        "terminal A never seeded session auth"
-    );
-
     std::fs::write(native_auth(&env), refreshed_payload).unwrap();
     std::fs::set_permissions(native_auth(&env), std::fs::Permissions::from_mode(0o600)).unwrap();
 
-    let refresh_deadline = Instant::now() + Duration::from_millis(1_500);
-    while std::fs::read_to_string(&session_auth)
-        .unwrap_or_default()
-        .trim_end()
-        != refreshed_payload
-        && Instant::now() < refresh_deadline
-    {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    env.cmd()
+        .arg("exec")
+        .env("CODEX_SESSION_CHILD_BIN", &child_bin)
+        .assert()
+        .success();
 
     assert_eq!(
         std::fs::read_to_string(&session_auth).unwrap().trim_end(),
-        refreshed_payload
+        initial_payload
     );
-    assert!(child_a.wait().unwrap().success());
 }
+
+#[test]
+#[ignore = "R4: AuthBridge watcher removed; one-shot import only in R1"]
+fn watcher_propagates_refresh_back_into_running_session() {}

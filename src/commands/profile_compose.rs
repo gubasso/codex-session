@@ -11,7 +11,7 @@ use camino::Utf8PathBuf;
 pub(crate) struct ProfileComposeView {
     pub(crate) stock_mode: bool,
     pub(crate) profile: Option<String>,
-    pub(crate) terminal_id: String,
+    pub(crate) group_id: String,
     pub(crate) session_dir: Utf8PathBuf,
     pub(crate) config_path: Utf8PathBuf,
     pub(crate) sidecar_path: Utf8PathBuf,
@@ -23,7 +23,7 @@ pub(crate) fn run(
     args: crate::cli::profile::ProfileComposeArgs,
 ) -> Result<(), crate::error::AppError> {
     let session = ctx.session()?;
-    let terminal_id = session.terminal_id.clone();
+    let group_id = session.group_id.as_str().to_owned();
     let session_dir = session.dir.clone();
     let cwd = current_cwd()?;
 
@@ -38,20 +38,16 @@ pub(crate) fn run(
             },
         )?;
         crate::services::profile::write_session_artifacts(&composition, &session_dir)?;
-        let meta = crate::services::session::meta::SessionMeta::new(
-            Some(name),
-            &terminal_id,
-            cwd.as_ref(),
-        );
+        let meta =
+            crate::services::session::meta::SessionMeta::new(Some(name), &group_id, cwd.as_ref());
         crate::services::session::meta::write(&session_dir, &meta)?;
-        let view = build_view(Some(name.to_owned()), false, terminal_id, session_dir);
+        let view = build_view(Some(name.to_owned()), false, group_id, session_dir);
         ctx.ui.write_profile_compose(&view)?;
     } else {
         crate::services::profile::write_stock_session_artifacts(&session_dir)?;
-        let meta =
-            crate::services::session::meta::SessionMeta::new(None, &terminal_id, cwd.as_ref());
+        let meta = crate::services::session::meta::SessionMeta::new(None, &group_id, cwd.as_ref());
         crate::services::session::meta::write(&session_dir, &meta)?;
-        let view = build_view(None, true, terminal_id, session_dir);
+        let view = build_view(None, true, group_id, session_dir);
         ctx.ui.write_profile_compose(&view)?;
     }
 
@@ -61,13 +57,13 @@ pub(crate) fn run(
 fn build_view(
     profile: Option<String>,
     stock_mode: bool,
-    terminal_id: String,
+    group_id: String,
     session_dir: Utf8PathBuf,
 ) -> ProfileComposeView {
     ProfileComposeView {
         stock_mode,
         profile,
-        terminal_id,
+        group_id,
         config_path: session_dir.join("config.toml"),
         sidecar_path: session_dir.join(".codex-session-compose.json"),
         session_meta_path: session_dir.join("session-meta.json"),

@@ -1,12 +1,16 @@
 ---
 source: tests/cmd_config_status.rs
-assertion_line: 31
+assertion_line: 32
 expression: stdout
 ---
 active-profile: default
 manifest-path:  <TMP>/config/codex-session/profiles/default.yaml
-session-root:   <TMP>/runtime/codex-session
-session-source: runtime
+account:        default
+group-id:       stable
+group-id-source: flag
+codex_home:     <TMP>/state/codex-session/accounts/default/groups/stable
+session-root:   <TMP>/state/codex-session
+session-source: state
 child-bin:      <TMP>/bin/codex
 layers:
   base => <TMP>/config/codex-session/settings/base.toml (exists=true)

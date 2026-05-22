@@ -50,6 +50,9 @@ Options:
       --profile <NAME>
           Select the wrapper profile before any passthrough child argv begins
 
+      --group <ID>
+          Override the auto-derived group-id used for session-dir scoping
+
       --dry-run
           Print the resolved child invocation and exit without running it
 

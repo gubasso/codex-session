@@ -6,14 +6,14 @@ mod support;
 use support::TestEnv;
 
 #[test]
-fn session_cleanup_prune() {
+fn prune_stale_sessions_under_new_accounts_tree() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("OK");
 
-    let sessions_root = env.session_root().join("sessions");
-    let fresh = sessions_root.join("fresh");
-    let old = sessions_root.join("old");
-    let ancient = sessions_root.join("ancient");
+    let groups_root = env.groups_root();
+    let fresh = groups_root.join("fresh");
+    let old = groups_root.join("old");
+    let ancient = groups_root.join("ancient");
     std::fs::create_dir_all(&fresh).unwrap();
     std::fs::create_dir_all(&old).unwrap();
     std::fs::create_dir_all(&ancient).unwrap();
@@ -37,4 +37,38 @@ fn session_cleanup_prune() {
         !ancient.exists(),
         "30-day-old session directory should be pruned"
     );
+}
+
+#[test]
+fn prune_legacy_pid_dirs_runs_once() {
+    let env = TestEnv::new();
+    env.make_fake_codex_printing_stdout("OK");
+
+    let runtime_legacy = env.legacy_runtime_sessions_root().join("pid-old");
+    let state_legacy = env.legacy_state_sessions_root().join("pid-old");
+    std::fs::create_dir_all(&runtime_legacy).unwrap();
+    std::fs::create_dir_all(&state_legacy).unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(48 * 3600);
+    filetime::set_file_mtime(&runtime_legacy, filetime::FileTime::from_system_time(old)).unwrap();
+    filetime::set_file_mtime(&state_legacy, filetime::FileTime::from_system_time(old)).unwrap();
+
+    env.cmd().arg("exec").assert().success().stdout("OK");
+
+    assert!(!runtime_legacy.exists());
+    assert!(!state_legacy.exists());
+    assert!(
+        env.state_session_root()
+            .join("state/.legacy-pruned")
+            .exists()
+    );
+
+    let second = env
+        .legacy_state_sessions_root()
+        .join("pid-fresh-but-second-run");
+    std::fs::create_dir_all(&second).unwrap();
+    filetime::set_file_mtime(&second, filetime::FileTime::from_system_time(old)).unwrap();
+
+    env.cmd().arg("exec").assert().success().stdout("OK");
+
+    assert!(second.exists(), "legacy prune should run only once");
 }

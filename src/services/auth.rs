@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use camino::{Utf8Path, Utf8PathBuf};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct AuthBridge {
     #[allow(dead_code)]
     native_dir: Utf8PathBuf,
@@ -24,6 +25,7 @@ pub(crate) struct AuthBridge {
     seeded_refresh_ts: Option<SystemTime>,
 }
 
+#[allow(dead_code)]
 impl AuthBridge {
     pub(crate) fn new(home: &Utf8Path, session_dir: &Utf8Path) -> Result<Self, AuthError> {
         let native_dir = home.join(".codex");
@@ -146,7 +148,43 @@ impl AuthBridge {
     }
 }
 
+pub(crate) fn import_if_missing(
+    group_dir: &Utf8Path,
+    native_home: &Utf8Path,
+) -> Result<(), AuthError> {
+    let group_auth = group_dir.join("auth.json");
+    if group_auth.exists() {
+        tracing::debug!(
+            op = "auth.import",
+            outcome = "skip-present",
+            path = %group_auth
+        );
+        return Ok(());
+    }
+
+    let native = native_paths(native_home);
+    if !native.auth.exists() {
+        tracing::debug!(
+            op = "auth.import",
+            outcome = "skip-no-native",
+            path = %native.auth
+        );
+        return Ok(());
+    }
+
+    let bytes = secure_file_read(&native.auth)?;
+    secure_file_write_atomic(&group_auth, &bytes)?;
+    tracing::info!(
+        op = "auth.import",
+        outcome = "imported",
+        from = %native.auth,
+        to = %group_auth
+    );
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum SyncOutcome {
     WroteNative,
     WroteSession,
@@ -173,7 +211,6 @@ pub(crate) enum AuthError {
         #[source]
         source: std::io::Error,
     },
-    #[allow(dead_code)]
     #[error("auth: malformed json at {path}")]
     JsonParse {
         path: Utf8PathBuf,
@@ -346,12 +383,14 @@ pub(crate) fn secure_file_write_atomic(
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct NativeAuth {
     bytes: Vec<u8>,
     ts: SystemTime,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum SessionRead {
     Missing,
     Parsed {
@@ -368,6 +407,7 @@ enum SessionRead {
 /// native file is a real problem the user needs to know about, not a
 /// transient in-flight write (codex writes native via `tempfile`+rename,
 /// which is atomic).
+#[allow(dead_code)]
 fn read_native_for_sync(path: &Utf8Path) -> Result<Option<NativeAuth>, AuthError> {
     match std::fs::symlink_metadata(path.as_std_path()) {
         Ok(_) => {
@@ -383,6 +423,7 @@ fn read_native_for_sync(path: &Utf8Path) -> Result<Option<NativeAuth>, AuthError
     }
 }
 
+#[allow(dead_code)]
 fn read_session_for_sync(path: &Utf8Path) -> Result<SessionRead, AuthError> {
     match std::fs::symlink_metadata(path.as_std_path()) {
         Ok(_) => {
@@ -401,6 +442,7 @@ fn read_session_for_sync(path: &Utf8Path) -> Result<SessionRead, AuthError> {
     }
 }
 
+#[allow(dead_code)]
 fn sync_timestamp_from_json(path: &Utf8Path, bytes: &[u8]) -> Result<SystemTime, AuthError> {
     let value = serde_json::from_slice::<serde_json::Value>(bytes).map_err(|source| {
         AuthError::JsonParse {
@@ -411,6 +453,7 @@ fn sync_timestamp_from_json(path: &Utf8Path, bytes: &[u8]) -> Result<SystemTime,
     Ok(last_refresh_from_value(&value).unwrap_or(UNIX_EPOCH))
 }
 
+#[allow(dead_code)]
 fn with_lock<R>(
     lockfile: &Utf8Path,
     f: impl FnOnce() -> Result<R, AuthError>,
@@ -445,11 +488,13 @@ fn with_lock<R>(
 // quarantining the user behind a stale token they can't refresh. The
 // `AuthError::JsonParse` variant is reserved for a future strict-mode
 // validator that wants to surface parse failures explicitly.
+#[allow(dead_code)]
 fn last_refresh_from_json(bytes: &[u8]) -> Option<SystemTime> {
     let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
     last_refresh_from_value(&value)
 }
 
+#[allow(dead_code)]
 fn last_refresh_from_value(value: &serde_json::Value) -> Option<SystemTime> {
     let ts = value.get("last_refresh")?.as_str()?;
     let parsed =

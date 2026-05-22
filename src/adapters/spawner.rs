@@ -35,10 +35,10 @@ pub(crate) trait Spawner {
     /// Spawn the child, publish its PID via `pid_sink`, then wait.
     ///
     /// The `pid_sink` parameter looks like a leaky abstraction but is
-    /// load-bearing: the signal-forwarding thread installed by
-    /// `services::auth::signal::install` runs in parallel with this call
-    /// and needs the child's PID to forward signals to. Two designs were
-    /// considered (see the reviewed plan, Phase 5):
+    /// load-bearing: the signal-forwarding path installed by
+    /// `services::auth::signal::install` needs the child's PID to forward
+    /// signals to. Two designs were considered (see the reviewed plan,
+    /// Phase 5):
     ///
     /// (a) thread an `&AtomicI32` through `spawn_and_wait` so the spawner
     ///     publishes the PID after `Command::spawn` returns. *Chosen.*

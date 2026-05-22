@@ -36,6 +36,16 @@ impl Ui {
         stdout.flush()
     }
 
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_warning(&self, body: &str) -> std::io::Result<()> {
+        let mut stderr = std::io::stderr().lock();
+        stderr.write_all(body.as_bytes())?;
+        if !body.ends_with('\n') {
+            stderr.write_all(b"\n")?;
+        }
+        stderr.flush()
+    }
+
     /// Print wrapper and child version details.
     #[allow(clippy::unused_self)]
     pub(crate) fn write_version(
@@ -78,6 +88,10 @@ impl Ui {
                         .as_ref()
                         .map_or_else(|| "(none)".to_owned(), ToString::to_string)
                 )?;
+                writeln!(stdout, "account:        {}", view.account)?;
+                writeln!(stdout, "group-id:       {}", view.group_id)?;
+                writeln!(stdout, "group-id-source: {}", view.group_id_source)?;
+                writeln!(stdout, "codex_home:     {}", view.codex_home)?;
                 writeln!(stdout, "session-root:   {}", view.session_root)?;
                 writeln!(stdout, "session-source: {}", view.session_root_source)?;
                 writeln!(
@@ -206,6 +220,11 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         match fmt {
             crate::cli::OutputFormat::Text => {
+                writeln!(stdout, "account:         {}", report.account)?;
+                writeln!(stdout, "group-id:        {}", report.group_id)?;
+                writeln!(stdout, "group-id-source: {}", report.group_id_source)?;
+                writeln!(stdout, "codex_home:      {}", report.codex_home)?;
+                writeln!(stdout)?;
                 let name_width = report
                     .checks
                     .iter()
@@ -264,7 +283,7 @@ impl Ui {
             "profile:      {}",
             view.profile.as_deref().unwrap_or("(stock mode)")
         )?;
-        writeln!(stdout, "terminal-id:  {}", view.terminal_id)?;
+        writeln!(stdout, "group-id:     {}", view.group_id)?;
         writeln!(stdout, "session-dir:  {}", view.session_dir)?;
         writeln!(stdout, "config:       {}", view.config_path)?;
         writeln!(stdout, "sidecar:      {}", view.sidecar_path)?;

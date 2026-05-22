@@ -208,7 +208,7 @@ impl AuthError {
     }
 }
 
-fn ensure_owned_dir_0700(path: &Utf8Path) -> Result<(), AuthError> {
+pub(crate) fn ensure_owned_dir_0700(path: &Utf8Path) -> Result<(), AuthError> {
     if std::fs::symlink_metadata(path.as_std_path()).is_ok_and(|meta| meta.file_type().is_symlink())
     {
         return Err(AuthError::SymlinkRefused {
@@ -244,7 +244,7 @@ fn ensure_owned_dir_0700(path: &Utf8Path) -> Result<(), AuthError> {
     Ok(())
 }
 
-fn secure_file_read(path: &Utf8Path) -> Result<Vec<u8>, AuthError> {
+pub(crate) fn secure_file_read(path: &Utf8Path) -> Result<Vec<u8>, AuthError> {
     let mut file = open_nofollow_read(path)?;
     let metadata = file.metadata().map_err(|source| AuthError::Io {
         path: path.to_path_buf(),
@@ -270,7 +270,10 @@ fn secure_file_read(path: &Utf8Path) -> Result<Vec<u8>, AuthError> {
     Ok(bytes)
 }
 
-fn secure_file_write_atomic(target: &Utf8Path, contents: &[u8]) -> Result<(), AuthError> {
+pub(crate) fn secure_file_write_atomic(
+    target: &Utf8Path,
+    contents: &[u8],
+) -> Result<(), AuthError> {
     let Some(parent) = target.parent() else {
         return Err(AuthError::Io {
             path: target.to_path_buf(),

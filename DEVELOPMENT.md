@@ -264,7 +264,13 @@ src/
   error.rs      # typed error layering (thiserror + anyhow)
   logging.rs    # tracing-subscriber + tracing-appender setup
 tests/          # integration tests + snapshots + fixtures + helpers
+docs/           # in-repo reference docs (e.g. upstream codex behavior)
 ```
+
+See [`docs/upstream-codex.md`](./docs/upstream-codex.md) for verified
+behavior of the wrapped `codex` binary — config paths, trust schema,
+`CODEX_HOME` semantics, write model. Read it before making changes that
+depend on how upstream codex behaves.
 
 Two architectural patterns to keep in mind:
 

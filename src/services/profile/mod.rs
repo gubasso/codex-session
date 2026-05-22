@@ -65,11 +65,17 @@ pub(crate) fn compose(
     }
 
     let env = extract_env(&mut merged)?;
+    // Snapshot AFTER `extract_env`, which mutates `merged` by removing
+    // `[env]`. The baseline must reflect what eventually gets serialized
+    // into the session config so the post-flight trust sync can diff
+    // accurately.
+    let baseline_projects = merged.get("projects").and_then(|v| v.as_table().cloned());
     Ok(Composition {
         manifest_path: manifest.path,
         layer_paths: layer_refs,
         merged_config: merged,
         env,
+        baseline_projects,
     })
 }
 

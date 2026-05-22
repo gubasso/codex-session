@@ -6,3 +6,4 @@
 pub(crate) mod auth;
 pub(crate) mod profile;
 pub(crate) mod session;
+pub(crate) mod trust_sync;

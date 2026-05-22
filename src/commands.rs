@@ -3,6 +3,7 @@
 //! What this is: one runtime handler module per wrapper-owned verb.
 //! What this is not: clap parser definitions or shared orchestration;
 //! those live in `cli/` and `services/`.
+pub(crate) mod account;
 pub(crate) mod completion;
 pub(crate) mod config_status;
 pub(crate) mod dispatch;

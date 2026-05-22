@@ -74,9 +74,9 @@ fn main() -> ExitCode {
     let runtime_root = ctx.config.paths.runtime_dir.as_deref();
     crate::services::session::cleanup::prune_legacy_pid_dirs(state_root, runtime_root);
 
-    let sessions_root = state_root.join("accounts").join("default").join("groups");
-    crate::services::session::cleanup::prune_stale_sessions(
-        &sessions_root,
+    let accounts_root = state_root.join("accounts");
+    crate::services::session::cleanup::prune_stale_sessions_all_accounts(
+        &accounts_root,
         std::time::Duration::from_secs(7 * 24 * 3600),
     );
     match commands::dispatch::run(&ctx, cli) {

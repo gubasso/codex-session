@@ -52,6 +52,7 @@ fn config_status_json_snapshot() {
         .clone();
     let mut value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     env.normalize_json(&mut value);
+    assert_eq!(value["account-source"], "fallback");
     assert_json_snapshot!("config_status_json", value);
 }
 

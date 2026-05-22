@@ -34,12 +34,15 @@ pub(crate) fn legacy_self_invocation(argv: &[OsString]) -> bool {
             "--" => return false,
             "--verbose" | "--log-stderr" | "--quiet" | "-q" | "--silent" | "--version" | "-V"
             | "--dry-run" => {}
-            "--config" | "--log-format" | "--format" => {
+            "--config" | "--log-format" | "--format" | "--profile" | "--group" | "--account" => {
                 let _ = iter.next();
             }
             _ if s.starts_with("--config=") => {}
             _ if s.starts_with("--log-format=") => {}
             _ if s.starts_with("--format=") => {}
+            _ if s.starts_with("--profile=") => {}
+            _ if s.starts_with("--group=") => {}
+            _ if s.starts_with("--account=") => {}
             "self" => return true,
             _ if s.strip_prefix('-').is_some_and(|rest| {
                 !rest.is_empty() && rest.chars().all(|ch| ch == 'v' || ch == 'q')
@@ -61,6 +64,18 @@ mod tests {
             OsString::from("--silent"),
             OsString::from("--log-format"),
             OsString::from("json"),
+            OsString::from("self"),
+            OsString::from("version"),
+        ];
+        assert!(legacy_self_invocation(&argv));
+    }
+
+    #[test]
+    fn legacy_self_invocation_survives_account_flag() {
+        let argv = vec![
+            OsString::from("--account"),
+            OsString::from("work"),
+            OsString::from("--profile=fast"),
             OsString::from("self"),
             OsString::from("version"),
         ];

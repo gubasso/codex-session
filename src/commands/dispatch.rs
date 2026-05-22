@@ -26,6 +26,7 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error:
         Some(cli::Commands::Config(args)) => run_config(ctx, &args).map(|()| 0),
         Some(cli::Commands::Profile(args)) => run_profile(ctx, args).map(|()| 0),
         Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx, args),
+        Some(cli::Commands::Account(args)) => commands::account::dispatch(ctx, args).map(|()| 0),
         Some(cli::Commands::External(argv)) => commands::pass_through::run(ctx, &argv).map(|()| 0),
         // No subcommand: forward to `codex` with an empty child argv
         // (launches the Codex TUI when `codex` is resolvable).

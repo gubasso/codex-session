@@ -21,6 +21,7 @@ pub(crate) struct Config {
     pub(crate) paths: PathsConfig,
     pub(crate) child: ChildConfig,
     pub(crate) profile: ProfileConfig,
+    pub(crate) account: AccountConfig,
     #[serde(skip)]
     pub(crate) sources: ConfigSources,
 }
@@ -60,6 +61,14 @@ pub(crate) struct ProfileConfig {
     pub(crate) settings_dir: Utf8PathBuf,
     #[serde(skip)]
     pub(crate) active: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub(crate) struct AccountConfig {
+    pub(crate) default: Option<crate::services::account::AccountId>,
+    pub(crate) pinned: Option<crate::services::account::AccountId>,
+    pub(crate) registry_dir: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -117,6 +126,7 @@ struct FileConfig {
     paths: Option<FilePathsConfig>,
     child: Option<FileChildConfig>,
     profile: Option<FileProfileConfig>,
+    account: Option<FileAccountConfig>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -151,6 +161,14 @@ struct FileProfileConfig {
     config_dir: Option<Utf8PathBuf>,
     profiles_dir: Option<Utf8PathBuf>,
     settings_dir: Option<Utf8PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+struct FileAccountConfig {
+    default: Option<String>,
+    pinned: Option<String>,
+    registry_dir: Option<Utf8PathBuf>,
 }
 
 impl CliOverrides {
@@ -246,6 +264,7 @@ impl Config {
             paths,
             child: ChildConfig::default(),
             profile,
+            account: AccountConfig::default(),
             sources: ConfigSources::default(),
         })
     }
@@ -303,11 +322,10 @@ fn apply_file_layer(config: &mut Config, path: &Utf8PathBuf) -> Result<(), Confi
     let parsed = Figment::from(figment::providers::Toml::file_exact(path.as_std_path()))
         .extract::<FileConfig>()
         .map_err(|source| map_figment_file_error(path, source))?;
-    apply_file_config(config, parsed);
-    Ok(())
+    apply_file_config(config, parsed)
 }
 
-fn apply_file_config(config: &mut Config, layer: FileConfig) {
+fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), ConfigError> {
     if let Some(log) = layer.log {
         if let Some(verbose) = log.verbose {
             config.log.verbose = verbose;
@@ -368,6 +386,20 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) {
             config.profile.settings_dir = settings_dir;
         }
     }
+
+    if let Some(account) = layer.account {
+        if let Some(value) = account.default {
+            config.account.default = Some(parse_account_id_field("account.default", value)?);
+        }
+        if let Some(value) = account.pinned {
+            config.account.pinned = Some(parse_account_id_field("account.pinned", value)?);
+        }
+        if let Some(dir) = account.registry_dir {
+            config.account.registry_dir = Some(dir);
+        }
+    }
+
+    Ok(())
 }
 
 fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
@@ -427,6 +459,15 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             }
             "PROFILE" => {
                 config.profile.active = Some(value.to_owned());
+            }
+            "ACCOUNT_DEFAULT" => {
+                config.account.default = Some(parse_account_id_env(key, value)?);
+            }
+            "ACCOUNT_PINNED" => {
+                config.account.pinned = Some(parse_account_id_env(key, value)?);
+            }
+            "ACCOUNT_REGISTRY_DIR" => {
+                config.account.registry_dir = Some(Utf8PathBuf::from(value));
             }
             _ => {}
         }
@@ -507,6 +548,32 @@ fn parse_log_format(key: &str, value: &str) -> Result<LogFormat, ConfigError> {
     }
 }
 
+fn parse_account_id_field(
+    field: &'static str,
+    value: String,
+) -> Result<crate::services::account::AccountId, ConfigError> {
+    value
+        .parse::<crate::services::account::AccountId>()
+        .map_err(|reason| ConfigError::AccountConfigParse {
+            field,
+            value,
+            reason,
+        })
+}
+
+fn parse_account_id_env(
+    key: &str,
+    value: &str,
+) -> Result<crate::services::account::AccountId, ConfigError> {
+    value
+        .parse::<crate::services::account::AccountId>()
+        .map_err(|_| ConfigError::EnvParse {
+            key: key.to_owned(),
+            value: value.to_owned(),
+            expected: "account name matching [a-z0-9][a-z0-9_-]{0,31}",
+        })
+}
+
 fn parse_env_value<T>(key: &str, value: &str) -> Result<T, crate::config::error::EnvParseError>
 where
     T: std::str::FromStr,
@@ -539,4 +606,47 @@ fn resolve_active_profile(config: &Config, cli: &CliValueOverrides) -> Option<St
         .join("default.yaml")
         .is_file()
         .then(|| "default".to_owned())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{Config, ConfigError};
+
+    #[test]
+    fn invalid_account_default_in_file_layer_errors() {
+        let mut config = Config::defaults().unwrap();
+        let layer = super::FileConfig {
+            account: Some(super::FileAccountConfig {
+                default: Some("BAD!".to_owned()),
+                ..super::FileAccountConfig::default()
+            }),
+            ..super::FileConfig::default()
+        };
+        let err = super::apply_file_config(&mut config, layer).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::AccountConfigParse {
+                field: "account.default",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn invalid_account_pinned_in_env_layer_errors() {
+        let err = super::parse_account_id_env("CODEX_SESSION_ACCOUNT_PINNED", "BAD!").unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::EnvParse { key, .. } if key == "CODEX_SESSION_ACCOUNT_PINNED"
+        ));
+    }
+
+    #[test]
+    fn account_config_round_trips() {
+        let value = "\"work\"";
+        let parsed: crate::services::account::AccountId = serde_json::from_str(value).unwrap();
+        let encoded = serde_json::to_string(&parsed).unwrap();
+        assert_eq!(encoded, value);
+    }
 }

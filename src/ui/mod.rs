@@ -89,6 +89,7 @@ impl Ui {
                         .map_or_else(|| "(none)".to_owned(), ToString::to_string)
                 )?;
                 writeln!(stdout, "account:        {}", view.account)?;
+                writeln!(stdout, "account-source: {}", view.account_source)?;
                 writeln!(stdout, "group-id:       {}", view.group_id)?;
                 writeln!(stdout, "group-id-source: {}", view.group_id_source)?;
                 writeln!(stdout, "codex_home:     {}", view.codex_home)?;
@@ -221,9 +222,32 @@ impl Ui {
         match fmt {
             crate::cli::OutputFormat::Text => {
                 writeln!(stdout, "account:         {}", report.account)?;
+                writeln!(stdout, "account-source:  {}", report.account_source)?;
                 writeln!(stdout, "group-id:        {}", report.group_id)?;
                 writeln!(stdout, "group-id-source: {}", report.group_id_source)?;
                 writeln!(stdout, "codex_home:      {}", report.codex_home)?;
+                writeln!(
+                    stdout,
+                    "active account:  {} ({})",
+                    report.active_account.name, report.active_account.source
+                )?;
+                writeln!(stdout, "accounts:")?;
+                if report.accounts.is_empty() {
+                    writeln!(stdout, "  (none)")?;
+                } else {
+                    for account in &report.accounts {
+                        writeln!(
+                            stdout,
+                            "  {} current={} has_auth={} last_used_at_unix={}",
+                            account.name,
+                            account.current,
+                            account.has_auth,
+                            account
+                                .last_used_at_unix
+                                .map_or_else(|| "(none)".to_owned(), |value| value.to_string())
+                        )?;
+                    }
+                }
                 writeln!(stdout)?;
                 let name_width = report
                     .checks
@@ -270,6 +294,69 @@ impl Ui {
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, report),
         }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_list(
+        &self,
+        view: &crate::commands::account::AccountListView,
+        format: crate::cli::OutputFormat,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match format {
+            crate::cli::OutputFormat::Text => {
+                if let Some(active) = view.active.as_ref() {
+                    writeln!(stdout, "active: {} ({})", active.name, active.source)?;
+                }
+                if view.accounts.is_empty() {
+                    writeln!(stdout, "(no accounts)")
+                } else {
+                    for account in &view.accounts {
+                        writeln!(
+                            stdout,
+                            "{}: {} has_auth={} current={} last_used_at_unix={}",
+                            account.name,
+                            account.dir,
+                            account.has_auth,
+                            account.current,
+                            account
+                                .last_used_at_unix
+                                .map_or_else(|| "(none)".to_owned(), |value| value.to_string())
+                        )?;
+                    }
+                    Ok(())
+                }
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_current(
+        &self,
+        view: &crate::commands::account::AccountCurrentView,
+        format: crate::cli::OutputFormat,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match format {
+            crate::cli::OutputFormat::Text => writeln!(stdout, "{} ({})", view.name, view.source),
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_mutation(
+        &self,
+        verb: &'static str,
+        view: &crate::commands::account::AccountMutationView,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        writeln!(stdout, "account {verb}: {}", view.name)?;
+        writeln!(stdout, "path: {}", view.path)?;
+        if let Some(archived_to) = view.archived_to.as_ref() {
+            writeln!(stdout, "archived-to: {archived_to}")?;
+        }
+        Ok(())
     }
 
     #[allow(clippy::unused_self)]

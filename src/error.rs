@@ -61,6 +61,10 @@ pub(crate) enum AppError {
     #[error(transparent)]
     Auth(crate::services::auth::AuthError),
 
+    /// Account registry / resolver failure.
+    #[error(transparent)]
+    Account(crate::services::account::AccountError),
+
     /// Unexpected I/O failure.
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
@@ -98,6 +102,12 @@ impl From<crate::services::auth::AuthError> for AppError {
     }
 }
 
+impl From<crate::services::account::AccountError> for AppError {
+    fn from(err: crate::services::account::AccountError) -> Self {
+        Self::Account(err)
+    }
+}
+
 impl AppError {
     /// Return the stable machine-readable error kind.
     pub(crate) fn kind(&self) -> &'static str {
@@ -111,6 +121,7 @@ impl AppError {
             Self::ChildSignaled(_) => "child-signaled",
             Self::ChildRecursion { .. } => "child-recursion",
             Self::Auth(err) => err.kind(),
+            Self::Account(err) => err.kind(),
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => "io-not-found",
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
                 "io-permission-denied"
@@ -132,6 +143,15 @@ impl AppError {
                 .signal()
                 .and_then(|signal| u8::try_from(128 + signal).ok())
                 .unwrap_or(70),
+            Self::Account(err) => match err {
+                crate::services::account::AccountError::InvalidName { .. } => 64,
+                crate::services::account::AccountError::NotFound { .. }
+                | crate::services::account::AccountError::AlreadyExists { .. } => 78,
+                crate::services::account::AccountError::NoEligible => 75,
+                crate::services::account::AccountError::QuotaFetch { .. } => 69,
+                crate::services::account::AccountError::QuotaParse { .. } => 65,
+                crate::services::account::AccountError::RegistryIo { .. } => 74,
+            },
             Self::ChildRecursion { .. } | Self::Other(_) => 70,
             Self::Auth(_) => 75,
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => 66,
@@ -272,6 +292,7 @@ fn detail(err: &AppError) -> ErrorDetail {
                 .to_owned(),
         },
         AppError::Auth(auth_err) => auth_error_detail(auth_err),
+        AppError::Account(account_err) => account_error_detail(account_err),
         AppError::Io(source) => ErrorDetail {
             what: "unexpected I/O failure".to_owned(),
             why_line: source.to_string(),
@@ -360,6 +381,14 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
             what: format!("config: invalid profile env key `{key}`"),
             why_line: reason.clone(),
         },
+        ConfigError::AccountConfigParse {
+            field,
+            value,
+            reason,
+        } => ErrorDetail {
+            what: format!("config: invalid `{field}` value `{value}`"),
+            why_line: reason.clone(),
+        },
     }
 }
 
@@ -394,6 +423,41 @@ fn auth_error_detail(err: &crate::services::auth::AuthError) -> ErrorDetail {
     }
 }
 
+fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDetail {
+    use crate::services::account::AccountError;
+
+    match err {
+        AccountError::InvalidName { value, reason } => ErrorDetail {
+            what: format!("account: invalid account name `{value}`"),
+            why_line: reason.clone(),
+        },
+        AccountError::NotFound { name, .. } => ErrorDetail {
+            what: format!("account: `{name}` not found"),
+            why_line: "the named account is not registered".to_owned(),
+        },
+        AccountError::AlreadyExists { name, .. } => ErrorDetail {
+            what: format!("account: `{name}` already exists"),
+            why_line: "the named account is already registered".to_owned(),
+        },
+        AccountError::RegistryIo { source, .. } => ErrorDetail {
+            what: "account: registry io error".to_owned(),
+            why_line: source.to_string(),
+        },
+        AccountError::NoEligible => ErrorDetail {
+            what: "account: no eligible account".to_owned(),
+            why_line: "all accounts were filtered out".to_owned(),
+        },
+        AccountError::QuotaFetch { detail } => ErrorDetail {
+            what: "account: quota fetch failed".to_owned(),
+            why_line: detail.clone(),
+        },
+        AccountError::QuotaParse { detail } => ErrorDetail {
+            what: "account: quota parse failed".to_owned(),
+            why_line: detail.clone(),
+        },
+    }
+}
+
 fn format_where_line(err: &AppError) -> Option<String> {
     let path = error_path(err)?;
     match error_line(err) {
@@ -420,6 +484,7 @@ fn error_path(err: &AppError) -> Option<String> {
         AppError::ChildNotFound { tried, .. } => Some(tried.display().to_string()),
         AppError::ChildNotExecutable { path } => Some(path.display().to_string()),
         AppError::Auth(auth_err) => Some(auth_err.path().to_string()),
+        AppError::Account(account_err) => account_err.path().map(ToString::to_string),
         AppError::Usage(_)
         | AppError::ChildExec(_)
         | AppError::ChildExitNonZero(_)
@@ -435,7 +500,8 @@ fn error_path(err: &AppError) -> Option<String> {
             | ConfigError::EnvParse { .. }
             | ConfigError::MergeFailed { .. }
             | ConfigError::SessionDirUnresolvable { .. }
-            | ConfigError::EnvKeyInvalid { .. },
+            | ConfigError::EnvKeyInvalid { .. }
+            | ConfigError::AccountConfigParse { .. },
         ) => None,
     }
 }
@@ -490,6 +556,12 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Auth(AuthError::BadOwnership { .. }) => {
             Some("chown the file to your user and `chmod 0600 ~/.codex/auth.json`")
         }
+        AppError::Account(crate::services::account::AccountError::NotFound { .. }) => {
+            Some("run `codex-session account list` to inspect registered accounts")
+        }
+        AppError::Account(crate::services::account::AccountError::AlreadyExists { .. }) => {
+            Some("choose a different account name or remove the existing account first")
+        }
         AppError::Config(
             ConfigError::NoXdg
             | ConfigError::NoHomeDir
@@ -504,10 +576,18 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             | ConfigError::LayerParse { .. }
             | ConfigError::MergeFailed { .. }
             | ConfigError::SessionDirUnresolvable { .. }
-            | ConfigError::EnvKeyInvalid { .. },
+            | ConfigError::EnvKeyInvalid { .. }
+            | ConfigError::AccountConfigParse { .. },
         )
         | AppError::Auth(
             AuthError::Io { .. } | AuthError::LockFailed { .. } | AuthError::JsonParse { .. },
+        )
+        | AppError::Account(
+            crate::services::account::AccountError::InvalidName { .. }
+            | crate::services::account::AccountError::RegistryIo { .. }
+            | crate::services::account::AccountError::NoEligible
+            | crate::services::account::AccountError::QuotaFetch { .. }
+            | crate::services::account::AccountError::QuotaParse { .. },
         )
         | AppError::Usage(_)
         | AppError::ChildExec(_)
@@ -685,6 +765,71 @@ mod tests {
         });
         assert_eq!(err.exit_code(), 75);
         assert_eq!(err.kind(), "auth-bad-ownership");
+    }
+
+    #[test]
+    fn account_invalid_name_maps_to_usage() {
+        let err = AppError::Account(crate::services::account::AccountError::InvalidName {
+            value: "BAD".to_owned(),
+            reason: "must start with a lowercase ASCII letter or digit".to_owned(),
+        });
+        assert_eq!(err.exit_code(), 64);
+        assert_eq!(err.kind(), "account-invalid-name");
+    }
+
+    #[test]
+    fn account_not_found_maps_to_config() {
+        let err = AppError::Account(crate::services::account::AccountError::NotFound {
+            name: crate::services::account::AccountId::from_unchecked("work".to_owned()),
+            path: camino::Utf8PathBuf::from("/tmp/accounts/work"),
+        });
+        assert_eq!(err.exit_code(), 78);
+        assert_eq!(err.kind(), "account-not-found");
+    }
+
+    #[test]
+    fn account_already_exists_maps_to_config() {
+        let err = AppError::Account(crate::services::account::AccountError::AlreadyExists {
+            name: crate::services::account::AccountId::from_unchecked("work".to_owned()),
+            path: camino::Utf8PathBuf::from("/tmp/accounts/work"),
+        });
+        assert_eq!(err.exit_code(), 78);
+        assert_eq!(err.kind(), "account-already-exists");
+    }
+
+    #[test]
+    fn account_registry_io_maps_to_ioerr() {
+        let err = AppError::Account(crate::services::account::AccountError::RegistryIo {
+            path: camino::Utf8PathBuf::from("/tmp/accounts"),
+            source: std::io::Error::from(std::io::ErrorKind::Other),
+        });
+        assert_eq!(err.exit_code(), 74);
+        assert_eq!(err.kind(), "account-registry-io");
+    }
+
+    #[test]
+    fn account_no_eligible_maps_to_tempfail() {
+        let err = AppError::Account(crate::services::account::AccountError::NoEligible);
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "account-no-eligible");
+    }
+
+    #[test]
+    fn account_quota_fetch_maps_to_unavailable() {
+        let err = AppError::Account(crate::services::account::AccountError::QuotaFetch {
+            detail: "boom".to_owned(),
+        });
+        assert_eq!(err.exit_code(), 69);
+        assert_eq!(err.kind(), "account-quota-fetch");
+    }
+
+    #[test]
+    fn account_quota_parse_maps_to_dataerr() {
+        let err = AppError::Account(crate::services::account::AccountError::QuotaParse {
+            detail: "boom".to_owned(),
+        });
+        assert_eq!(err.exit_code(), 65);
+        assert_eq!(err.kind(), "account-quota-parse");
     }
 
     #[test]

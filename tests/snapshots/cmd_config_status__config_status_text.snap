@@ -6,6 +6,7 @@ expression: stdout
 active-profile: default
 manifest-path:  <TMP>/config/codex-session/profiles/default.yaml
 account:        default
+account-source: fallback
 group-id:       stable
 group-id-source: flag
 codex_home:     <TMP>/state/codex-session/accounts/default/groups/stable

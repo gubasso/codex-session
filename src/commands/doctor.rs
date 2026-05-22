@@ -44,9 +44,12 @@ pub(crate) struct CheckSummary {
 pub(crate) struct DoctorReport {
     pub(crate) profile: Option<String>,
     pub(crate) account: String,
+    pub(crate) account_source: String,
     pub(crate) group_id: String,
     pub(crate) group_id_source: String,
     pub(crate) codex_home: Utf8PathBuf,
+    pub(crate) accounts: Vec<DoctorAccountEntry>,
+    pub(crate) active_account: DoctorActiveAccount,
     pub(crate) checks: Vec<CheckResult>,
     pub(crate) summary: CheckSummary,
     pub(crate) next_steps: Vec<String>,
@@ -56,6 +59,22 @@ pub(crate) struct DoctorReport {
     /// can contain one entry per profile whose composition succeeded.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) env: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct DoctorAccountEntry {
+    pub(crate) name: String,
+    pub(crate) has_auth: bool,
+    pub(crate) last_used_at_unix: Option<u64>,
+    pub(crate) current: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct DoctorActiveAccount {
+    pub(crate) name: String,
+    pub(crate) source: String,
 }
 
 pub(crate) fn run(
@@ -81,40 +100,69 @@ fn build_report(
         &ctx.config.paths.state_dir,
     )
     .ok();
-
-    let (account, group_id, group_id_source, codex_home) = match (
+    // Match the `session.group_id` failure mode below: surface a `fail`
+    // check and render the report's top-level account fields as
+    // `(unresolved)` / `error` instead of fabricating a `default`/`fallback`
+    // value that would contradict the failed check.
+    let resolved_account_result = crate::services::account::resolver::resolve(ctx);
+    if let Err(err) = &resolved_account_result {
+        checks.push(fail("session.account", err.to_string()));
+    }
+    let resolved_account = resolved_account_result.ok();
+    let (group_id, group_id_source, codex_home) = match (
         crate::services::session::group_id::current(ctx),
         root.as_ref(),
+        resolved_account.as_ref(),
     ) {
-        (Ok(resolved_group), Some(inspected_root)) => {
+        (Ok(resolved_group), Some(inspected_root), Some(account)) => {
             let codex_home = crate::services::session::dir::inspect_session_dir(
                 &inspected_root.root.path,
-                "default",
+                &account.id,
                 resolved_group.id.as_str(),
             )
             .map(|dir| dir.path)
             .unwrap_or_default();
             (
-                "default".to_owned(),
                 resolved_group.id.as_str().to_owned(),
                 group_id_source_label(resolved_group.source).to_owned(),
                 codex_home,
             )
         }
-        (Ok(resolved_group), None) => (
-            "default".to_owned(),
+        (Ok(resolved_group), _, _) => (
             resolved_group.id.as_str().to_owned(),
             group_id_source_label(resolved_group.source).to_owned(),
             Utf8PathBuf::new(),
         ),
-        (Err(err), _) => {
+        (Err(err), _, _) => {
             checks.push(fail("session.group_id", err.to_string()));
             (
-                "default".to_owned(),
                 "(unresolved)".to_owned(),
                 "error".to_owned(),
                 Utf8PathBuf::new(),
             )
+        }
+    };
+    let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+    // Surface registry I/O errors as a `fail` check rather than silently
+    // hiding them behind `unwrap_or_default()`.
+    let accounts = match registry.list() {
+        Ok(entries) => entries
+            .into_iter()
+            .map(|entry| DoctorAccountEntry {
+                current: resolved_account
+                    .as_ref()
+                    .is_some_and(|active| active.id == entry.id),
+                has_auth: entry.has_auth,
+                last_used_at_unix: entry
+                    .last_used_at
+                    .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|value| value.as_secs()),
+                name: entry.id.to_string(),
+            })
+            .collect(),
+        Err(err) => {
+            checks.push(fail("accounts.registry", err.to_string()));
+            Vec::new()
         }
     };
 
@@ -196,12 +244,27 @@ fn build_report(
     populate_next_steps(&checks, &mut next_steps);
 
     let summary = summarize(&checks);
+    let (account_name, account_source) = resolved_account.as_ref().map_or_else(
+        || ("(unresolved)".to_owned(), "error".to_owned()),
+        |value| {
+            (
+                value.id.to_string(),
+                crate::services::account::resolver::source_label(value.source).to_owned(),
+            )
+        },
+    );
     DoctorReport {
         profile: active,
-        account,
+        account: account_name.clone(),
+        account_source: account_source.clone(),
         group_id,
         group_id_source,
         codex_home,
+        accounts,
+        active_account: DoctorActiveAccount {
+            name: account_name,
+            source: account_source,
+        },
         checks,
         summary,
         next_steps,
@@ -630,13 +693,8 @@ fn check_session_inventory(ctx: &crate::context::AppContext) -> CheckResult {
             "session root unresolved — skipped".to_owned(),
         );
     };
-    let groups_dir = inspected
-        .root
-        .path
-        .join("accounts")
-        .join("default")
-        .join("groups");
-    let Ok(entries) = std::fs::read_dir(groups_dir.as_std_path()) else {
+    let groups_dir = inspected.root.path.join("accounts").to_path_buf();
+    let Ok(account_entries) = std::fs::read_dir(groups_dir.as_std_path()) else {
         return ok("session.inventory", "no sessions directory".to_owned());
     };
 
@@ -647,22 +705,54 @@ fn check_session_inventory(ctx: &crate::context::AppContext) -> CheckResult {
     let mut total_bytes: u64 = 0;
     let mut oldest: Option<SystemTime> = None;
 
-    for entry in entries.flatten() {
-        let Ok(meta) = entry.metadata() else { continue };
-        if !meta.is_dir() {
+    for account in account_entries.flatten() {
+        let Ok(account_name) = account.file_name().into_string() else {
+            continue;
+        };
+        if account_name == ".trash" {
             continue;
         }
-        count += 1;
-        total_bytes = total_bytes.saturating_add(dir_size(&entry.path()));
-        if let Ok(mtime) = meta.modified() {
-            oldest = match oldest {
-                Some(prev) if prev < mtime => Some(prev),
-                _ => Some(mtime),
+        // No-follow checks at every step: a symlinked account dir, groups
+        // dir, or session child must not redirect `doctor`'s scan (or the
+        // recursive `dir_size`) into arbitrary paths outside the session
+        // tree.
+        let account_path = account.path();
+        let Ok(account_meta) = std::fs::symlink_metadata(&account_path) else {
+            continue;
+        };
+        if account_meta.file_type().is_symlink() || !account_meta.is_dir() {
+            continue;
+        }
+        let groups = account_path.join("groups");
+        let Ok(groups_meta) = std::fs::symlink_metadata(&groups) else {
+            continue;
+        };
+        if groups_meta.file_type().is_symlink() || !groups_meta.is_dir() {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&groups) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            let Ok(meta) = std::fs::symlink_metadata(&entry_path) else {
+                continue;
             };
-            if let Ok(age) = now.duration_since(mtime)
-                && age > stale_threshold
-            {
-                stale += 1;
+            if meta.file_type().is_symlink() || !meta.is_dir() {
+                continue;
+            }
+            count += 1;
+            total_bytes = total_bytes.saturating_add(dir_size(&entry_path));
+            if let Ok(mtime) = meta.modified() {
+                oldest = match oldest {
+                    Some(prev) if prev < mtime => Some(prev),
+                    _ => Some(mtime),
+                };
+                if let Ok(age) = now.duration_since(mtime)
+                    && age > stale_threshold
+                {
+                    stale += 1;
+                }
             }
         }
     }
@@ -788,11 +878,21 @@ fn dir_size(path: &std::path::Path) -> u64 {
         return 0;
     };
     for entry in entries.flatten() {
-        let Ok(meta) = entry.metadata() else { continue };
+        let entry_path = entry.path();
+        // Use symlink_metadata so a symlinked file or directory inside a
+        // session dir cannot redirect the recursive walk outside the
+        // session tree (e.g. via `auth.json -> /etc/shadow` or
+        // `subdir -> /`).
+        let Ok(meta) = std::fs::symlink_metadata(&entry_path) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
         if meta.is_file() {
             total = total.saturating_add(meta.len());
         } else if meta.is_dir() {
-            total = total.saturating_add(dir_size(&entry.path()));
+            total = total.saturating_add(dir_size(&entry_path));
         }
     }
     total

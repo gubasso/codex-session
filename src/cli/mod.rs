@@ -6,6 +6,7 @@
 use clap::{ArgAction, Parser, Subcommand};
 use std::ffi::OsString;
 
+pub(crate) mod account;
 pub(crate) mod argv;
 pub(crate) mod completion;
 pub(crate) mod config;
@@ -83,6 +84,10 @@ pub(crate) struct GlobalArgs {
     #[arg(long, value_name = "ID", global = true)]
     pub(crate) group: Option<crate::services::session::group_id::GroupId>,
 
+    /// Select the account whose `CODEX_HOME` the child uses. Use `auto` for R3+ selector.
+    #[arg(long, value_name = "NAME", global = true)]
+    pub(crate) account: Option<crate::cli::account::AccountSelector>,
+
     /// Print the resolved child invocation and exit without running it.
     #[arg(long, global = true)]
     pub(crate) dry_run: bool,
@@ -105,6 +110,9 @@ pub(crate) enum Commands {
 
     /// Run full validation of the codex-session config setup.
     Doctor(doctor::DoctorArgs),
+
+    /// Manage codex-session accounts (multi-credential pool).
+    Account(account::AccountArgs),
 
     /// Forward any unknown top-level verb to the wrapped `codex` binary.
     #[command(external_subcommand)]

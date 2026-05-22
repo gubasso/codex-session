@@ -28,6 +28,7 @@ impl ConfigError {
             Self::MergeFailed { .. } => "merge-failed",
             Self::SessionDirUnresolvable { .. } => "session-dir-unresolvable",
             Self::EnvKeyInvalid { .. } => "env-key-invalid",
+            Self::AccountConfigParse { .. } => "config-account-parse",
         }
     }
 }
@@ -138,6 +139,14 @@ pub(crate) enum ConfigError {
     /// An invalid key/value pair appeared in a profile `[env]` table.
     #[error("config: invalid profile env key `{key}`")]
     EnvKeyInvalid { key: String, reason: String },
+
+    /// An invalid account config value could not be parsed into `AccountId`.
+    #[error("config: invalid `{field}` value `{value}`: {reason}")]
+    AccountConfigParse {
+        field: &'static str,
+        value: String,
+        reason: String,
+    },
 }
 
 #[derive(Debug)]

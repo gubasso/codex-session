@@ -62,17 +62,19 @@ impl LazySession {
         }
 
         let resolved = crate::services::session::group_id::current(ctx)?;
+        let resolved_account = crate::services::account::resolver::resolve(ctx)?;
         let root = crate::services::session::dir::resolve_session_root(
             ctx.config.paths.runtime_dir.as_deref(),
             &ctx.config.paths.state_dir,
         )?;
         let dir = crate::services::session::dir::session_dir(
             &root.path,
-            "default",
+            &resolved_account.id,
             resolved.id.as_str(),
         )?;
         let session = Arc::new(SessionContext {
-            account: "default".to_owned(),
+            account: resolved_account.id.clone(),
+            account_source: resolved_account.source,
             dir,
             group_id: resolved.id,
             group_id_source: resolved.source,
@@ -85,8 +87,9 @@ impl LazySession {
 
 /// Session-scoped state shared by profile composition commands.
 pub(crate) struct SessionContext {
+    pub(crate) account: crate::services::account::AccountId,
     #[allow(dead_code)]
-    pub(crate) account: String,
+    pub(crate) account_source: crate::services::account::resolver::AccountResolutionSource,
     pub(crate) dir: Utf8PathBuf,
     pub(crate) group_id: crate::services::session::group_id::GroupId,
     #[allow(dead_code)]

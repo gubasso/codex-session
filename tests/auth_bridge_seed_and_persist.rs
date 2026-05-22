@@ -20,8 +20,8 @@ fn native_auth(env: &TestEnv) -> std::path::PathBuf {
 #[test]
 fn auth_bridge_seed_and_persist() {
     let env = TestEnv::new();
-    let old_payload = r#"{"tokens":{"last_refresh":"2026-01-01T00:00:00Z","access_token":"old"}}"#;
-    let new_payload = r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"new"}}"#;
+    let old_payload = r#"{"last_refresh":"2026-01-01T00:00:00Z","tokens":{"access_token":"old"}}"#;
+    let new_payload = r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"new"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -75,9 +75,9 @@ chmod 600 "$CODEX_HOME/auth.json"
 fn watcher_propagates_refresh_back_into_running_session() {
     let env = TestEnv::new();
     let initial_payload =
-        r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"initial"}}"#;
+        r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"initial"}}"#;
     let refreshed_payload =
-        r#"{"tokens":{"last_refresh":"2026-06-01T00:01:00Z","access_token":"refreshed"}}"#;
+        r#"{"last_refresh":"2026-06-01T00:01:00Z","tokens":{"access_token":"refreshed"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();

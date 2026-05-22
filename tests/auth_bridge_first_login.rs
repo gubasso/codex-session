@@ -22,7 +22,7 @@ fn native_auth(env: &TestEnv) -> std::path::PathBuf {
 fn auth_bridge_first_login() {
     let env = TestEnv::new();
     let new_payload =
-        r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"first-login"}}"#;
+        r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"first-login"}}"#;
 
     let child_dir = env.make_fake_codex_in_dir(
         "first-login-child",
@@ -71,7 +71,7 @@ chmod 600 "$CODEX_HOME/auth.json"
 fn watcher_propagates_first_login_to_concurrent_session() {
     let env = TestEnv::new();
     let payload =
-        r#"{"tokens":{"last_refresh":"2026-06-15T00:00:00Z","access_token":"watcher-login"}}"#;
+        r#"{"last_refresh":"2026-06-15T00:00:00Z","tokens":{"access_token":"watcher-login"}}"#;
     let ready_a = env.home.join("ready-a");
 
     let child_dir_a = env.make_fake_codex_in_dir(

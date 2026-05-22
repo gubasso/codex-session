@@ -20,7 +20,7 @@ fn auth_bridge_hardlink_refused() {
     let env = TestEnv::new();
     let sentinel = env.home.join("sentinel-auth.json");
     let new_payload =
-        r#"{"tokens":{"last_refresh":"2026-06-01T00:00:00Z","access_token":"newer"}}"#;
+        r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"newer"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();

@@ -1,7 +1,7 @@
 //! Bridge auth.json between native ~/.codex and per-session `CODEX_HOME`.
 //!
 //! What this is: copy-in/copy-back of upstream codex's auth.json under
-//! flock and a `tokens.last_refresh` timestamp guard.
+//! flock and a top-level `last_refresh` timestamp guard.
 //! What this is not: token issuance, refresh, or any cryptography.
 
 pub(crate) mod signal;
@@ -435,10 +435,10 @@ fn with_lock<R>(
     result
 }
 
-// Missing/malformed `tokens.last_refresh` returns `None`, which callers treat
-// as `UNIX_EPOCH`. This is deliberate: the rollback-protection contract is
-// "the newer copy wins, ties skip." Treating a parse failure as epoch lets a
-// well-formed session file replace a corrupt native file, instead of
+// Missing/malformed top-level `last_refresh` returns `None`, which callers
+// treat as `UNIX_EPOCH`. This is deliberate: the rollback-protection contract
+// is "the newer copy wins, ties skip." Treating a parse failure as epoch lets
+// a well-formed session file replace a corrupt native file, instead of
 // quarantining the user behind a stale token they can't refresh. The
 // `AuthError::JsonParse` variant is reserved for a future strict-mode
 // validator that wants to surface parse failures explicitly.
@@ -448,14 +448,14 @@ fn last_refresh_from_json(bytes: &[u8]) -> Option<SystemTime> {
 }
 
 fn last_refresh_from_value(value: &serde_json::Value) -> Option<SystemTime> {
-    let ts = value.get("tokens")?.get("last_refresh")?.as_str()?;
+    let ts = value.get("last_refresh")?.as_str()?;
     let parsed =
         time::OffsetDateTime::parse(ts, &time::format_description::well_known::Rfc3339).ok()?;
-    let unix = parsed.unix_timestamp();
-    if unix <= 0 {
+    let nanos = parsed.unix_timestamp_nanos();
+    if nanos <= 0 {
         return Some(UNIX_EPOCH);
     }
-    Some(UNIX_EPOCH + Duration::from_secs(u64::try_from(unix).ok()?))
+    Some(UNIX_EPOCH + Duration::from_nanos(u64::try_from(nanos).ok()?))
 }
 
 fn open_nofollow_read(path: &Utf8Path) -> Result<File, AuthError> {
@@ -572,8 +572,7 @@ fn inspect_native_auth_file(path: &Utf8Path, self_uid: u32) -> AuthFileHealth {
             .ok()
             .and_then(|value| {
                 value
-                    .get("tokens")
-                    .and_then(|tokens| tokens.get("last_refresh"))
+                    .get("last_refresh")
                     .and_then(serde_json::Value::as_str)
                     .map(ToOwned::to_owned)
             })
@@ -658,7 +657,7 @@ mod tests {
     }
 
     fn payload(ts: &str, token: &str) -> String {
-        format!(r#"{{"tokens":{{"last_refresh":"{ts}","access_token":"{token}"}}}}"#)
+        format!(r#"{{"last_refresh":"{ts}","tokens":{{"access_token":"{token}"}}}}"#)
     }
 
     #[test]

@@ -55,21 +55,27 @@ impl LazySession {
 
     pub(crate) fn get_or_resolve(
         &self,
-        cfg: &crate::config::Config,
-    ) -> Result<Arc<SessionContext>, crate::config::ConfigError> {
+        ctx: &crate::context::AppContext,
+    ) -> Result<Arc<SessionContext>, crate::error::AppError> {
         if let Some(session) = self.cell.get() {
             return Ok(Arc::clone(session));
         }
 
-        let terminal_id = crate::services::session::terminal_id::current();
+        let resolved = crate::services::session::group_id::current(ctx)?;
         let root = crate::services::session::dir::resolve_session_root(
-            cfg.paths.runtime_dir.as_deref(),
-            &cfg.paths.state_dir,
+            ctx.config.paths.runtime_dir.as_deref(),
+            &ctx.config.paths.state_dir,
         )?;
-        let dir = crate::services::session::dir::session_dir(&root.path, &terminal_id)?;
+        let dir = crate::services::session::dir::session_dir(
+            &root.path,
+            "default",
+            resolved.id.as_str(),
+        )?;
         let session = Arc::new(SessionContext {
+            account: "default".to_owned(),
             dir,
-            terminal_id,
+            group_id: resolved.id,
+            group_id_source: resolved.source,
             composition: None,
         });
         let _ = self.cell.set(Arc::clone(&session));
@@ -79,8 +85,12 @@ impl LazySession {
 
 /// Session-scoped state shared by profile composition commands.
 pub(crate) struct SessionContext {
+    #[allow(dead_code)]
+    pub(crate) account: String,
     pub(crate) dir: Utf8PathBuf,
-    pub(crate) terminal_id: String,
+    pub(crate) group_id: crate::services::session::group_id::GroupId,
+    #[allow(dead_code)]
+    pub(crate) group_id_source: crate::services::session::group_id::GroupIdSource,
     #[allow(dead_code)]
     pub(crate) composition: Option<crate::services::profile::Composition>,
 }
@@ -138,7 +148,7 @@ impl AppContext {
     }
 
     /// Borrow the resolved session context, resolving on first access.
-    pub(crate) fn session(&self) -> Result<Arc<SessionContext>, crate::config::ConfigError> {
-        self.session.get_or_resolve(&self.config)
+    pub(crate) fn session(&self) -> Result<Arc<SessionContext>, crate::error::AppError> {
+        self.session.get_or_resolve(self)
     }
 }

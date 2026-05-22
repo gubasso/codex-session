@@ -10,6 +10,14 @@ fn auth_bridge_signal_persists_on_sigterm() {
     let td = tempfile::tempdir().unwrap();
     let home = td.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
+    let xdg_cache = td.path().join("cache");
+    let xdg_config = td.path().join("config");
+    let xdg_state = td.path().join("state");
+    let xdg_runtime = td.path().join("runtime");
+    std::fs::create_dir_all(&xdg_cache).unwrap();
+    std::fs::create_dir_all(&xdg_config).unwrap();
+    std::fs::create_dir_all(&xdg_state).unwrap();
+    std::fs::create_dir_all(&xdg_runtime).unwrap();
 
     let fixture = td.path().join("child.sh");
     let ready_flag = td.path().join("child-ready");
@@ -53,7 +61,12 @@ sleep 30
         .arg(&pid_file)
         .env_clear()
         .env("HOME", &home)
+        .env("XDG_CACHE_HOME", &xdg_cache)
+        .env("XDG_CONFIG_HOME", &xdg_config)
+        .env("XDG_STATE_HOME", &xdg_state)
+        .env("XDG_RUNTIME_DIR", &xdg_runtime)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("CODEX_SESSION_GROUP", "signal-test")
         .env("CODEX_SESSION_CHILD_BIN", &fixture)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -82,9 +95,11 @@ sleep 30
     let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(143));
     assert_eq!(
-        std::fs::read_to_string(home.join(".codex/auth.json"))
-            .unwrap()
-            .trim_end(),
+        std::fs::read_to_string(
+            xdg_state.join("codex-session/accounts/default/groups/signal-test/auth.json")
+        )
+        .unwrap()
+        .trim_end(),
         payload
     );
 }

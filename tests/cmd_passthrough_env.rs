@@ -30,3 +30,25 @@ fn passthrough_sets_codex_home_and_profile_env_without_leaking_wrapper_namespace
     assert!(stdout.contains("CODEX_SESSION_REENTRY=1"));
     assert!(!stdout.contains("LEAKED:CODEX_SESSION_PROFILE"));
 }
+
+#[test]
+fn passthrough_scrubs_codex_session_group_and_other_wrapper_env() {
+    let env = TestEnv::new();
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_CHILD_BIN", fixture_path("echo-env.sh"))
+        .env("CODEX_SESSION_GROUP", "test")
+        .env("CODEX_SESSION_FOO", "bar")
+        .args(["exec"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+
+    assert!(!stdout.contains("LEAKED:CODEX_SESSION_GROUP=test"));
+    assert!(!stdout.contains("LEAKED:CODEX_SESSION_FOO=bar"));
+    assert!(stdout.contains("CODEX_SESSION_REENTRY=1"));
+}

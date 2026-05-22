@@ -19,9 +19,12 @@ use std::time::{Duration, Instant};
 
 use super::{AuthBridge, SyncOutcome};
 
+#[allow(dead_code)]
 const TICK: Duration = Duration::from_millis(500);
+#[allow(dead_code)]
 const SHUTDOWN_SLICE: Duration = Duration::from_millis(50);
 
+#[allow(dead_code)]
 pub(crate) fn run_until<'a>(
     scope: &'a Scope<'a, '_>,
     bridge: &'a AuthBridge,
@@ -95,6 +98,7 @@ pub(crate) fn run_until<'a>(
     })
 }
 
+#[allow(dead_code)]
 fn reset_err_window(last_kind: &mut Option<&'static str>, suppressed: &mut u64) {
     if last_kind.is_some() {
         flush_suppressed(suppressed);
@@ -102,6 +106,7 @@ fn reset_err_window(last_kind: &mut Option<&'static str>, suppressed: &mut u64) 
     }
 }
 
+#[allow(dead_code)]
 fn flush_suppressed(suppressed: &mut u64) {
     if *suppressed > 0 {
         tracing::debug!(

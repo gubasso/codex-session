@@ -251,45 +251,99 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.cache.join("codex-session/settings.toml")
     }
 
-    pub fn session_root(&self) -> PathBuf {
+    pub fn runtime_session_root(&self) -> PathBuf {
         self.runtime.join("codex-session")
     }
 
-    pub fn session_dir(&self) -> PathBuf {
+    pub fn session_root(&self) -> PathBuf {
+        self.runtime_session_root()
+    }
+
+    pub fn state_session_root(&self) -> PathBuf {
+        self.state_home.join("codex-session")
+    }
+
+    pub fn account_root(&self) -> PathBuf {
+        self.state_session_root().join("accounts/default")
+    }
+
+    pub fn groups_root(&self) -> PathBuf {
+        self.account_root().join("groups")
+    }
+
+    pub fn group_dir(&self, name: &str) -> PathBuf {
+        self.groups_root().join(name)
+    }
+
+    pub fn default_group_dir(&self) -> PathBuf {
         let mut entries = self.session_dirs();
         entries.sort();
         entries.into_iter().next().unwrap()
     }
 
+    pub fn legacy_runtime_sessions_root(&self) -> PathBuf {
+        self.runtime_session_root().join("sessions")
+    }
+
+    pub fn legacy_state_sessions_root(&self) -> PathBuf {
+        self.state_session_root().join("sessions")
+    }
+
+    pub fn session_dir(&self) -> PathBuf {
+        self.default_group_dir()
+    }
+
     pub fn session_dirs(&self) -> Vec<PathBuf> {
-        let sessions_dir = self.session_root().join("sessions");
-        std::fs::read_dir(&sessions_dir)
+        let groups_dir = self.groups_root();
+        std::fs::read_dir(&groups_dir)
             .map(|entries| entries.map(|entry| entry.unwrap().path()).collect())
             .unwrap_or_default()
     }
 
     pub fn normalize_text(&self, text: &str) -> String {
         let mut normalized = text.replace(self.tmp.path().to_string_lossy().as_ref(), "<TMP>");
-        if self.session_root().exists() {
+        if self.runtime_session_root().exists() || self.state_session_root().exists() {
             normalized = self.normalize_session_paths(&normalized);
         }
         normalized
     }
 
     pub fn normalize_session_paths(&self, text: &str) -> String {
-        let session_root = self.session_root();
-        let sessions_dir = session_root.join("sessions");
+        let runtime_root = self.runtime_session_root();
+        let state_root = self.state_session_root();
+        let groups_dir = self.groups_root();
         let mut normalized = text.to_owned();
-        if session_root.exists() {
-            normalized =
-                normalized.replace(session_root.to_string_lossy().as_ref(), "<SESSION_ROOT>");
+        if runtime_root.exists() {
+            normalized = normalized.replace(
+                runtime_root.to_string_lossy().as_ref(),
+                "<RUNTIME_SESSION_ROOT>",
+            );
         }
-        if sessions_dir.exists() {
-            normalized =
-                normalized.replace(sessions_dir.to_string_lossy().as_ref(), "<SESSIONS_DIR>");
+        if state_root.exists() {
+            normalized = normalized.replace(
+                state_root.to_string_lossy().as_ref(),
+                "<STATE_SESSION_ROOT>",
+            );
         }
-        if self.session_root().join("sessions").exists() {
-            for entry in std::fs::read_dir(self.session_root().join("sessions")).unwrap() {
+        if groups_dir.exists() {
+            normalized = normalized.replace(groups_dir.to_string_lossy().as_ref(), "<GROUPS_DIR>");
+        }
+        if self.legacy_runtime_sessions_root().exists() {
+            normalized = normalized.replace(
+                self.legacy_runtime_sessions_root()
+                    .to_string_lossy()
+                    .as_ref(),
+                "<LEGACY_RUNTIME_SESSIONS_DIR>",
+            );
+        }
+        if self.legacy_state_sessions_root().exists() {
+            normalized = normalized.replace(
+                self.legacy_state_sessions_root().to_string_lossy().as_ref(),
+                "<LEGACY_STATE_SESSIONS_DIR>",
+            );
+        }
+        if self.groups_root().exists() {
+            for entry in std::fs::read_dir(self.groups_root()).unwrap() {
                 let path = entry.unwrap().path();
                 normalized = normalized.replace(path.to_string_lossy().as_ref(), "<SESSION_DIR>");
             }

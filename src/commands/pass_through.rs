@@ -12,18 +12,6 @@ use std::sync::atomic::AtomicI32;
 use crate::adapters::spawner::Spawner as _;
 use crate::domain::child_invocation::{ChildEnv, ChildInvocation};
 
-struct PersistGuard<'a> {
-    bridge: &'a crate::services::auth::AuthBridge,
-}
-
-impl Drop for PersistGuard<'_> {
-    fn drop(&mut self) {
-        if let Err(err) = self.bridge.persist_to_native() {
-            tracing::warn!(op = "auth.persist", status = "error", err = %err);
-        }
-    }
-}
-
 /// Run the non-`self` path.
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
@@ -55,7 +43,7 @@ pub(crate) fn run(
     })?;
 
     let session = ctx.session()?;
-    let terminal_id = session.terminal_id.clone();
+    let group_id = session.group_id.as_str().to_owned();
     let session_dir = session.dir.clone();
     let cwd = current_cwd()?;
     let profile = ctx.config.profile.active.clone();
@@ -78,7 +66,7 @@ pub(crate) fn run(
 
     let meta = crate::services::session::meta::SessionMeta::new(
         profile.as_deref(),
-        &terminal_id,
+        &group_id,
         cwd.as_ref(),
     );
     crate::services::session::meta::write(&session_dir, &meta)?;
@@ -119,7 +107,7 @@ pub(crate) fn run(
     // own PR #17595 policy).
     let cache_settings = cache_settings_target(ctx);
     let session_config = session_dir.join("config.toml");
-    let result = run_under_bridge(ctx, &session_dir, inv);
+    let result = run_child(ctx, &session_dir, inv);
     persist_trust(&session_config, &cache_settings, baseline_projects.as_ref());
     result
 }
@@ -154,7 +142,7 @@ fn persist_trust(
     }
 }
 
-fn run_under_bridge(
+fn run_child(
     ctx: &crate::context::AppContext,
     session_dir: &camino::Utf8Path,
     inv: ChildInvocation,
@@ -162,28 +150,11 @@ fn run_under_bridge(
     let child_pid = Arc::new(AtomicI32::new(0));
     let sig_guard = crate::services::auth::signal::install(Arc::clone(&child_pid))
         .map_err(crate::error::AppError::Io)?;
-    let home = ctx.home_dir().to_path_buf();
-    let mut bridge = crate::services::auth::AuthBridge::new(&home, session_dir)?;
-    bridge.seed_into_session()?;
-
-    // `_persist` is declared before the scope, so it drops AFTER
-    // `thread::scope` has joined the watcher. This means
-    // `persist_to_native()` (run in the Drop impl) can never race with a
-    // watcher write — there is no live watcher by the time persist runs.
-    let _persist = PersistGuard { bridge: &bridge };
-    let stop = std::sync::atomic::AtomicBool::new(false);
-    let spawn_result = std::thread::scope(|s| {
-        let _watcher = crate::services::auth::watcher::run_until(s, &bridge, &stop);
-        let result = ctx.spawner.spawn_and_wait(inv, &child_pid);
-        // Clear the child PID before stopping/joining the watcher so any
-        // signal arriving during the join window cannot be forwarded to a
-        // PID the kernel may have already recycled for an unrelated
-        // process. The signal thread's `pid <= 0` branch re-raises with
-        // default semantics.
-        child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
-        stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        result
-    });
+    crate::services::auth::import_if_missing(session_dir, ctx.home_dir())?;
+    let spawn_result = ctx.spawner.spawn_and_wait(inv, &child_pid);
+    // Clear the child PID after wait so any later-arriving signal cannot
+    // be forwarded to a recycled PID.
+    child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
     let status = spawn_result?;
     finalize_child_status(status, &sig_guard)
 }

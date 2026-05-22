@@ -1,11 +1,15 @@
 ---
 source: tests/cmd_config_status.rs
-assertion_line: 54
+assertion_line: 55
 expression: value
 ---
 {
+  "account": "default",
   "active-profile": "default",
   "child-bin": "<TMP>/bin/codex",
+  "codex-home": "<TMP>/state/codex-session/accounts/default/groups/stable",
+  "group-id": "stable",
+  "group-id-source": "flag",
   "layer-paths": [
     {
       "error": null,
@@ -22,8 +26,8 @@ expression: value
     "verbose": 0
   },
   "manifest-path": "<TMP>/config/codex-session/profiles/default.yaml",
-  "session-root": "<TMP>/runtime/codex-session",
-  "session-root-source": "runtime",
+  "session-root": "<TMP>/state/codex-session",
+  "session-root-source": "state",
   "sources": {
     "cli": "CliValueOverrides { log: None, child: None, profile: None }",
     "defaults": true,

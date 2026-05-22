@@ -79,6 +79,10 @@ pub(crate) struct GlobalArgs {
     #[arg(long, value_name = "NAME", global = true)]
     pub(crate) profile: Option<String>,
 
+    /// Override the auto-derived group-id used for session-dir scoping.
+    #[arg(long, value_name = "ID", global = true)]
+    pub(crate) group: Option<crate::services::session::group_id::GroupId>,
+
     /// Print the resolved child invocation and exit without running it.
     #[arg(long, global = true)]
     pub(crate) dry_run: bool,

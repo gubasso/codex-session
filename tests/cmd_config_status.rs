@@ -22,7 +22,7 @@ fn config_status_text_snapshot() {
 
     let output = env
         .cmd()
-        .args(["config", "status"])
+        .args(["--group", "stable", "config", "status"])
         .assert()
         .success()
         .get_output()
@@ -44,7 +44,7 @@ fn config_status_json_snapshot() {
 
     let output = env
         .cmd()
-        .args(["config", "status", "--format", "json"])
+        .args(["--group", "stable", "config", "status", "--format", "json"])
         .assert()
         .success()
         .get_output()

@@ -83,13 +83,13 @@ fn default_manifest_is_used_when_no_other_profile_is_selected() {
 }
 
 #[test]
-fn runtime_dir_env_override_updates_session_root() {
+fn state_dir_env_override_updates_session_root() {
     let env = TestEnv::new();
-    let override_root = env.tmp.path().join("runtime-override");
+    let override_root = env.tmp.path().join("state-override");
     std::fs::create_dir_all(&override_root).unwrap();
     let value = status_json(
         env.cmd()
-            .env("CODEX_SESSION_PATHS_RUNTIME_DIR", &override_root),
+            .env("CODEX_SESSION_PATHS_STATE_DIR", &override_root),
     );
     assert_eq!(
         value["session-root"],

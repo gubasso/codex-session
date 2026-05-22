@@ -49,6 +49,10 @@ fn doctor_json_shape() {
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(value["profile"], "default");
+    assert_eq!(value["account"], "default");
+    assert!(value.get("group-id").is_some());
+    assert!(value.get("group-id-source").is_some());
+    assert!(value.get("codex-home").is_some());
     let checks = value["checks"].as_array().unwrap();
     assert!(!checks.is_empty());
     let summary = &value["summary"];
@@ -190,12 +194,7 @@ fn doctor_all_profiles_aggregates() {
 }
 
 #[test]
-fn doctor_reports_runtime_when_session_root_not_yet_initialized() {
-    // Regression: on a fresh install, `XDG_RUNTIME_DIR` exists but
-    // `$XDG_RUNTIME_DIR/codex-session` does not. `doctor` must still
-    // classify the candidate as `source: runtime` (with a friendly
-    // "not yet initialized" note), not fall through to a misleading
-    // `state — runtime fallback` warning.
+fn doctor_reports_state_when_session_root_not_yet_initialized() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
 
@@ -217,16 +216,16 @@ fn doctor_reports_runtime_when_session_root_not_yet_initialized() {
     .unwrap();
 
     assert!(
-        stdout.contains("source: runtime"),
-        "session.root should classify as runtime when its parent is OK; got:\n{stdout}"
+        stdout.contains("source: state"),
+        "session.root should classify as state on a fresh install; got:\n{stdout}"
     );
     assert!(
         !stdout.contains("runtime fallback"),
-        "session.root must not say `runtime fallback` when runtime is usable; got:\n{stdout}"
+        "session.root must not say `runtime fallback` when state is usable; got:\n{stdout}"
     );
     assert!(
-        stdout.contains("not yet initialized"),
-        "session.root should note that the root is not yet initialized; got:\n{stdout}"
+        stdout.contains("accounts/ not yet created"),
+        "session.root should note that the accounts tree is not yet initialized; got:\n{stdout}"
     );
 }
 

@@ -264,6 +264,7 @@ exit 0
         for i in 0..6 {
             s.spawn(move || {
                 env.cmd()
+                    .env("CODEX_SESSION_GROUP", format!("trust-{i}"))
                     .env("CST_TRUST_KEY", format!("/p{i}"))
                     .assert()
                     .success();

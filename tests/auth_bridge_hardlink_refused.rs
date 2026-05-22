@@ -19,27 +19,15 @@ fn native_auth(env: &TestEnv) -> std::path::PathBuf {
 fn auth_bridge_hardlink_refused() {
     let env = TestEnv::new();
     let sentinel = env.home.join("sentinel-auth.json");
-    let new_payload =
-        r#"{"last_refresh":"2026-06-01T00:00:00Z","tokens":{"access_token":"newer"}}"#;
 
     std::fs::create_dir_all(native_dir(&env)).unwrap();
     std::fs::set_permissions(native_dir(&env), std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::write(&sentinel, "sentinel-unchanged").unwrap();
     std::fs::set_permissions(&sentinel, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::fs::remove_file(native_auth(&env)).ok();
+    std::fs::hard_link(&sentinel, native_auth(&env)).unwrap();
 
-    let child_dir = env.make_fake_codex_in_dir(
-        "hardlink-child",
-        &format!(
-            r#"#!/usr/bin/env bash
-cat > "$CODEX_HOME/auth.json" <<'EOF'
-{new_payload}
-EOF
-chmod 600 "$CODEX_HOME/auth.json"
-rm -f "$HOME/.codex/auth.json"
-ln "$HOME/sentinel-auth.json" "$HOME/.codex/auth.json"
-"#
-        ),
-    );
+    let child_dir = env.make_fake_codex_in_dir("hardlink-child", "#!/usr/bin/env bash\nexit 0\n");
     let child_bin = child_dir.join("codex");
 
     let output = env
@@ -47,7 +35,7 @@ ln "$HOME/sentinel-auth.json" "$HOME/.codex/auth.json"
         .args(["--log-stderr", "-v", "exec"])
         .env("CODEX_SESSION_CHILD_BIN", &child_bin)
         .assert()
-        .success()
+        .code(75)
         .get_output()
         .stderr
         .clone();
@@ -65,4 +53,5 @@ ln "$HOME/sentinel-auth.json" "$HOME/.codex/auth.json"
         std::fs::read_to_string(native_auth(&env)).unwrap(),
         "sentinel-unchanged"
     );
+    assert!(!env.session_dir().join("auth.json").exists());
 }

@@ -3,6 +3,7 @@
 pub(crate) mod add;
 pub(crate) mod current;
 pub(crate) mod list;
+pub(crate) mod quota;
 pub(crate) mod remove;
 pub(crate) mod use_;
 
@@ -38,6 +39,28 @@ pub(crate) struct AccountMutationView {
     pub(crate) archived_to: Option<camino::Utf8PathBuf>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountQuotaWindowView {
+    pub(crate) percent_left: f64,
+    pub(crate) reset_at_unix: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountQuotaEntryView {
+    pub(crate) account: String,
+    pub(crate) active: bool,
+    pub(crate) mode: String,
+    pub(crate) fetched_at_unix: u64,
+    pub(crate) ttl_secs: u64,
+    pub(crate) stale: bool,
+    pub(crate) live: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) five_hour: Option<AccountQuotaWindowView>,
+    pub(crate) weekly: Option<AccountQuotaWindowView>,
+}
+
 pub(crate) fn dispatch(
     ctx: &crate::context::AppContext,
     args: crate::cli::account::AccountArgs,
@@ -50,6 +73,7 @@ pub(crate) fn dispatch(
         AccountCommand::Current(args) => current::run(ctx, args),
         AccountCommand::Use(args) => use_::run(ctx, &args),
         AccountCommand::Remove(args) => remove::run(ctx, &args),
+        AccountCommand::Quota(args) => quota::run(ctx, args),
     }
 }
 

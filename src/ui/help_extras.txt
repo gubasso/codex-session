@@ -9,7 +9,7 @@ WRAPPER VERBS
   profile       Inspect and compose wrapper-owned profiles.
   doctor        Run full validation of the codex-session setup.
   account       Manage codex-session accounts (subcommands: add, list,
-                current, use, remove).
+                current, use, remove, quota).
 
 PASSTHROUGH
   Any verb not listed above is forwarded verbatim to `codex` (e.g. exec,
@@ -19,16 +19,19 @@ PASSTHROUGH
 ACCOUNT MANAGEMENT
   codex-session account add work --from-native
   codex-session account list
+  codex-session account quota --format json
   codex-session account use work
   codex-session --account work exec "hi"
-  codex-session --account auto exec "hi"   (R2 warns; full selector lands R3)
+  codex-session --account auto exec "hi"
 
 ENV VARS
   CODEX_SESSION_GROUP          Override the resolved group-id.
   CODEX_SESSION_ACCOUNT        Override the resolved account.
   CODEX_SESSION_CHILD_BIN      Override the wrapped codex binary path.
   CODEX_SESSION_ACCOUNT_DEFAULT, CODEX_SESSION_ACCOUNT_PINNED,
-  CODEX_SESSION_ACCOUNT_REGISTRY_DIR  Account config overrides.
+  CODEX_SESSION_ACCOUNT_REGISTRY_DIR, CODEX_SESSION_ACCOUNT_QUOTA_TTL_SECS,
+  CODEX_SESSION_ACCOUNT_WEEKLY_FLOOR,
+  CODEX_SESSION_ACCOUNT_FIVE_HOUR_THRESHOLD  Account config overrides.
 
 SEE ALSO
   Run `codex --help` for codex's own verbs and flags.

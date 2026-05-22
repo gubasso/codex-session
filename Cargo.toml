@@ -37,6 +37,11 @@ libc = "0.2"
 rustix = { version = "1", features = ["process", "fs"] }
 signal-hook = "0.3"
 time = { version = "0.3", features = ["formatting", "parsing"] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "rustls-tls",
+    "json",
+] }
 
 [dev-dependencies]
 assert_cmd = "2"
@@ -46,6 +51,8 @@ insta = { version = "1", features = ["json"] }
 predicates = "3"
 tempfile = "3"
 filetime = "0.2"
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
 lto = "thin"

@@ -63,12 +63,15 @@ pub(crate) struct ProfileConfig {
     pub(crate) active: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct AccountConfig {
     pub(crate) default: Option<crate::services::account::AccountId>,
     pub(crate) pinned: Option<crate::services::account::AccountId>,
     pub(crate) registry_dir: Option<Utf8PathBuf>,
+    pub(crate) quota_ttl_secs: u64,
+    pub(crate) weekly_floor: f64,
+    pub(crate) five_hour_threshold: f64,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -169,6 +172,9 @@ struct FileAccountConfig {
     default: Option<String>,
     pinned: Option<String>,
     registry_dir: Option<Utf8PathBuf>,
+    quota_ttl_secs: Option<u64>,
+    weekly_floor: Option<f64>,
+    five_hour_threshold: Option<f64>,
 }
 
 impl CliOverrides {
@@ -224,6 +230,19 @@ impl Default for ProfileConfig {
             profiles_dir: Utf8PathBuf::new(),
             settings_dir: Utf8PathBuf::new(),
             active: None,
+        }
+    }
+}
+
+impl Default for AccountConfig {
+    fn default() -> Self {
+        Self {
+            default: None,
+            pinned: None,
+            registry_dir: None,
+            quota_ttl_secs: 30,
+            weekly_floor: 10.0,
+            five_hour_threshold: 50.0,
         }
     }
 }
@@ -397,6 +416,15 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
         if let Some(dir) = account.registry_dir {
             config.account.registry_dir = Some(dir);
         }
+        if let Some(value) = account.quota_ttl_secs {
+            config.account.quota_ttl_secs = value;
+        }
+        if let Some(value) = account.weekly_floor {
+            config.account.weekly_floor = value;
+        }
+        if let Some(value) = account.five_hour_threshold {
+            config.account.five_hour_threshold = value;
+        }
     }
 
     Ok(())
@@ -468,6 +496,18 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             }
             "ACCOUNT_REGISTRY_DIR" => {
                 config.account.registry_dir = Some(Utf8PathBuf::from(value));
+            }
+            "ACCOUNT_QUOTA_TTL_SECS" => {
+                config.account.quota_ttl_secs =
+                    parse_env_value::<u64>(key, value).map_err(ConfigError::from)?;
+            }
+            "ACCOUNT_WEEKLY_FLOOR" => {
+                config.account.weekly_floor =
+                    parse_env_value::<f64>(key, value).map_err(ConfigError::from)?;
+            }
+            "ACCOUNT_FIVE_HOUR_THRESHOLD" => {
+                config.account.five_hour_threshold =
+                    parse_env_value::<f64>(key, value).map_err(ConfigError::from)?;
             }
             _ => {}
         }
@@ -648,5 +688,13 @@ mod tests {
         let parsed: crate::services::account::AccountId = serde_json::from_str(value).unwrap();
         let encoded = serde_json::to_string(&parsed).unwrap();
         assert_eq!(encoded, value);
+    }
+
+    #[test]
+    fn account_config_defaults_include_quota_thresholds() {
+        let account = super::AccountConfig::default();
+        assert_eq!(account.quota_ttl_secs, 30);
+        assert!((account.weekly_floor - 10.0).abs() < f64::EPSILON);
+        assert!((account.five_hour_threshold - 50.0).abs() < f64::EPSILON);
     }
 }

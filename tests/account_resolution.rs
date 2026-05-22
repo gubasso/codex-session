@@ -3,7 +3,6 @@
 
 mod support;
 
-use predicates::prelude::*;
 use support::TestEnv;
 
 fn write_user_config(env: &TestEnv, body: &str) {
@@ -85,17 +84,18 @@ fn account_lru_overrides_config_pinned() {
 }
 
 #[test]
-fn account_auto_warns_in_r2() {
+fn account_auto_invokes_selector() {
     let env = TestEnv::new();
+    env.cmd()
+        .args(["account", "add", "auto"])
+        .assert()
+        .success();
     env.make_fake_codex();
     let output = env
         .cmd()
         .args(["--account", "auto", "exec"])
         .assert()
         .success()
-        .stderr(predicate::str::contains(
-            "auto selector requires Round 3, falling back to pinned/default",
-        ))
         .get_output()
         .stdout
         .clone();

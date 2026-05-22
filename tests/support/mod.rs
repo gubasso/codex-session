@@ -295,6 +295,37 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.named_account_root(name).join("auth.json")
     }
 
+    pub fn quota_cache_path(&self, name: &str) -> PathBuf {
+        self.state_session_root()
+            .join("cache")
+            .join("quota")
+            .join(format!("{name}.json"))
+    }
+
+    pub fn write_account_auth_seed(&self, name: &str, body: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let path = self.named_account_auth_seed(name);
+        Self::write_file(&path, body);
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms).unwrap();
+    }
+
+    pub fn write_group_auth(&self, account: &str, group: &str, body: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let path = self.named_group_dir(account, group).join("auth.json");
+        Self::write_file(&path, body);
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms).unwrap();
+    }
+
+    pub fn write_quota_cache(&self, name: &str, body: &str) {
+        Self::write_file(&self.quota_cache_path(name), body);
+    }
+
     pub fn default_group_dir(&self) -> PathBuf {
         let mut entries = self.session_dirs();
         entries.sort();

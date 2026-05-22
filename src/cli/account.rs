@@ -20,6 +20,8 @@ pub(crate) enum AccountCommand {
     Use(AccountUseArgs),
     /// Archive an account to accounts/.trash/.
     Remove(AccountRemoveArgs),
+    /// Read per-account quota from the cached or live wham/usage endpoint.
+    Quota(AccountQuotaArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -55,6 +57,19 @@ pub(crate) struct AccountUseArgs {
 pub(crate) struct AccountRemoveArgs {
     /// Account name to archive.
     pub(crate) name: AccountId,
+}
+
+#[derive(Debug, Clone, Copy, clap::Args)]
+pub(crate) struct AccountQuotaArgs {
+    /// Bypass cache and force a live fetch.
+    #[arg(long)]
+    pub(crate) live: bool,
+    /// Show all registered accounts.
+    #[arg(long)]
+    pub(crate) all: bool,
+    /// Output format for the reported quota.
+    #[arg(long, value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
 }
 
 /// Selector for the `--account` global flag: a name or the literal `auto`.

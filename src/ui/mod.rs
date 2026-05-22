@@ -360,6 +360,108 @@ impl Ui {
     }
 
     #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_quota(
+        &self,
+        view: &crate::commands::account::AccountQuotaEntryView,
+        format: crate::cli::OutputFormat,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match format {
+            crate::cli::OutputFormat::Text => {
+                let suffix = if view.active { " (active)" } else { "" };
+                match view.mode.as_str() {
+                    "oauth" => {
+                        writeln!(stdout, "account: {}{suffix}", view.account)?;
+                        if let Some(five_hour) = view.five_hour.as_ref() {
+                            writeln!(
+                                stdout,
+                                "five-hour:  {:.1}% left, resets in {}",
+                                five_hour.percent_left,
+                                human_duration_until(five_hour.reset_at_unix)
+                            )?;
+                        }
+                        if let Some(weekly) = view.weekly.as_ref() {
+                            writeln!(
+                                stdout,
+                                "weekly:     {:.1}% left, resets in {}",
+                                weekly.percent_left,
+                                human_duration_until(weekly.reset_at_unix)
+                            )?;
+                        }
+                    }
+                    "api-key" => {
+                        writeln!(stdout, "account: {} (api-key-mode)", view.account)?;
+                        writeln!(stdout, "quota:   not available (API-key auth)")?;
+                    }
+                    _ => {
+                        writeln!(stdout, "account: {}{}", view.account, suffix)?;
+                        writeln!(
+                            stdout,
+                            "quota:   error ({})",
+                            view.error.as_deref().unwrap_or("unknown")
+                        )?;
+                    }
+                }
+                writeln!(
+                    stdout,
+                    "fetched:    {} ({}, TTL {}s)",
+                    human_age(view.fetched_at_unix),
+                    fetched_label(view),
+                    view.ttl_secs
+                )
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_quota_many(
+        &self,
+        views: &[crate::commands::account::AccountQuotaEntryView],
+        format: crate::cli::OutputFormat,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match format {
+            crate::cli::OutputFormat::Text => {
+                if views.is_empty() {
+                    return writeln!(stdout, "(no accounts)");
+                }
+                for view in views {
+                    match view.mode.as_str() {
+                        "oauth" => {
+                            let percent = view.five_hour.as_ref().map_or_else(
+                                || "n/a".to_owned(),
+                                |window| format!("{:.1}%", window.percent_left),
+                            );
+                            writeln!(
+                                stdout,
+                                "{}: mode={} five-hour={} fetched={}{}",
+                                view.account,
+                                view.mode,
+                                percent,
+                                human_age(view.fetched_at_unix),
+                                if view.active { " active" } else { "" }
+                            )?;
+                        }
+                        _ => {
+                            writeln!(
+                                stdout,
+                                "{}: mode={} fetched={}{}",
+                                view.account,
+                                view.mode,
+                                human_age(view.fetched_at_unix),
+                                if view.active { " active" } else { "" }
+                            )?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, views),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
     pub(crate) fn write_profile_compose(
         &self,
         view: &crate::commands::profile_compose::ProfileComposeView,
@@ -393,10 +495,56 @@ const fn format_status(status: crate::commands::doctor::CheckStatus) -> &'static
     }
 }
 
-fn write_json_line(
+fn write_json_line<T: serde::Serialize + ?Sized>(
     mut stdout: impl std::io::Write,
-    value: &impl serde::Serialize,
+    value: &T,
 ) -> std::io::Result<()> {
     serde_json::to_writer_pretty(&mut stdout, value)?;
     writeln!(stdout)
+}
+
+const fn fetched_label(view: &crate::commands::account::AccountQuotaEntryView) -> &'static str {
+    if view.stale {
+        "stale"
+    } else if view.live {
+        "live"
+    } else {
+        "cached"
+    }
+}
+
+fn human_duration_until(reset_at_unix: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    let secs = reset_at_unix.saturating_sub(now);
+    human_duration_secs(secs)
+}
+
+fn human_age(fetched_at_unix: u64) -> String {
+    if fetched_at_unix == 0 {
+        return "unknown".to_owned();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    let secs = now.saturating_sub(fetched_at_unix);
+    format!("{} ago", human_duration_secs(secs))
+}
+
+fn human_duration_secs(secs: u64) -> String {
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3_600;
+    let minutes = (secs % 3_600) / 60;
+    let seconds = secs % 60;
+
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds}s")
+    } else {
+        format!("{seconds} s")
+    }
 }

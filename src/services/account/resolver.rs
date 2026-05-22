@@ -8,6 +8,7 @@ use super::{AccountError, AccountId, registry::Registry};
 pub(crate) enum AccountResolutionSource {
     Flag,
     Env,
+    Auto,
     Lru,
     ConfigPinned,
     Default,
@@ -24,6 +25,7 @@ pub(crate) const fn source_label(source: AccountResolutionSource) -> &'static st
     match source {
         AccountResolutionSource::Flag => "flag",
         AccountResolutionSource::Env => "env",
+        AccountResolutionSource::Auto => "auto",
         AccountResolutionSource::Lru => "lru",
         AccountResolutionSource::ConfigPinned => "config-pinned",
         AccountResolutionSource::Default => "default",
@@ -52,22 +54,33 @@ fn resolve_from_inputs(
                     source: AccountResolutionSource::Flag,
                 });
             }
-            AccountSelector::Auto => emit_auto_warning(ctx, "flag"),
+            AccountSelector::Auto => {
+                let id = super::selector::pick(ctx)?;
+                tracing::info!(op = "account.resolve", source = "auto", account = %id);
+                return Ok(ResolvedAccount {
+                    id,
+                    source: AccountResolutionSource::Auto,
+                });
+            }
         }
     }
 
     if let Some(raw) = env_account.filter(|s| !s.is_empty()) {
         if raw == "auto" {
-            emit_auto_warning(ctx, "env");
-        } else {
-            let id = AccountId::from_str(&raw)
-                .map_err(|reason| AccountError::InvalidName { value: raw, reason })?;
-            tracing::info!(op = "account.resolve", source = "env", account = %id);
+            let id = super::selector::pick(ctx)?;
+            tracing::info!(op = "account.resolve", source = "auto", account = %id);
             return Ok(ResolvedAccount {
                 id,
-                source: AccountResolutionSource::Env,
+                source: AccountResolutionSource::Auto,
             });
         }
+        let id = AccountId::from_str(&raw)
+            .map_err(|reason| AccountError::InvalidName { value: raw, reason })?;
+        tracing::info!(op = "account.resolve", source = "env", account = %id);
+        return Ok(ResolvedAccount {
+            id,
+            source: AccountResolutionSource::Env,
+        });
     }
 
     let registry = Registry::from_config(&ctx.config);
@@ -103,13 +116,6 @@ fn resolve_from_inputs(
     })
 }
 
-fn emit_auto_warning(ctx: &crate::context::AppContext, origin: &str) {
-    let _ = ctx
-        .ui
-        .write_warning("auto selector requires Round 3, falling back to pinned/default");
-    tracing::warn!(op = "account.resolve", outcome = "auto-fallback", origin);
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -142,7 +148,7 @@ mod tests {
             account: crate::config::AccountConfig {
                 default,
                 pinned,
-                registry_dir: None,
+                ..crate::config::AccountConfig::default()
             },
             sources: crate::config::ConfigSources::default(),
         };
@@ -210,17 +216,56 @@ mod tests {
     }
 
     #[test]
-    fn auto_falls_through() {
-        let ctx = test_ctx(
-            Some(crate::cli::account::AccountSelector::Auto),
-            Some("pinned".parse().unwrap()),
-            None,
-        );
+    fn auto_invokes_selector() {
+        let ctx = test_ctx(Some(crate::cli::account::AccountSelector::Auto), None, None);
+        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+        let id = "auto".parse().unwrap();
+        registry.add(&id, false, ctx.home_dir()).unwrap();
+        let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
+        std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
+        let cache_path = cache_dir.join("auto.json");
+        std::fs::write(
+            cache_path.as_std_path(),
+            r#"{
+    "fetched_at_unix": 4102444800,
+    "ttl_secs": 30,
+    "body": {
+        "kind": "ok",
+        "five_hour": { "percent_left": 80.0, "reset_at_unix": 0 },
+        "weekly": { "percent_left": 80.0, "reset_at_unix": 0 }
+    }
+}"#,
+        )
+        .unwrap();
         let resolved = resolve(&ctx).unwrap();
-        assert_eq!(resolved.id.as_str(), "pinned");
-        assert!(matches!(
-            resolved.source,
-            AccountResolutionSource::ConfigPinned
-        ));
+        assert_eq!(resolved.id.as_str(), "auto");
+        assert!(matches!(resolved.source, AccountResolutionSource::Auto));
+    }
+
+    #[test]
+    fn auto_env_invokes_selector() {
+        let ctx = test_ctx(None, None, None);
+        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+        let id = "autoenv".parse().unwrap();
+        registry.add(&id, false, ctx.home_dir()).unwrap();
+        let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
+        std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
+        let cache_path = cache_dir.join("autoenv.json");
+        std::fs::write(
+            cache_path.as_std_path(),
+            r#"{
+    "fetched_at_unix": 4102444800,
+    "ttl_secs": 30,
+    "body": {
+        "kind": "ok",
+        "five_hour": { "percent_left": 80.0, "reset_at_unix": 0 },
+        "weekly": { "percent_left": 80.0, "reset_at_unix": 0 }
+    }
+}"#,
+        )
+        .unwrap();
+        let resolved = resolve_from_inputs(&ctx, Some("auto".to_owned())).unwrap();
+        assert_eq!(resolved.id.as_str(), "autoenv");
+        assert!(matches!(resolved.source, AccountResolutionSource::Auto));
     }
 }

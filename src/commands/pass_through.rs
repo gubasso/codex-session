@@ -47,6 +47,7 @@ pub(crate) fn run(
     let session_dir = session.dir.clone();
     let cwd = current_cwd()?;
     let profile = ctx.config.profile.active.clone();
+    materialize_account_auth_seed(ctx, &session.account, &session_dir)?;
 
     let (env, baseline_projects) = if let Some(profile_name) = profile.as_deref() {
         let composition = crate::services::profile::compose(
@@ -157,6 +158,22 @@ fn run_child(
     child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
     let status = spawn_result?;
     finalize_child_status(status, &sig_guard)
+}
+
+fn materialize_account_auth_seed(
+    ctx: &crate::context::AppContext,
+    account: &crate::services::account::AccountId,
+    session_dir: &camino::Utf8Path,
+) -> Result<(), crate::error::AppError> {
+    let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+    let seed = registry.group_auth_seed_path(account);
+    let group_auth = session_dir.join("auth.json");
+    if group_auth.as_std_path().exists() || !seed.as_std_path().exists() {
+        return Ok(());
+    }
+    let bytes = crate::services::auth::secure_file_read(&seed)?;
+    crate::services::auth::secure_file_write_atomic(&group_auth, &bytes)?;
+    Ok(())
 }
 
 fn finalize_child_status(

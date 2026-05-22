@@ -50,6 +50,10 @@ fn doctor_json_shape() {
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(value["profile"], "default");
     assert_eq!(value["account"], "default");
+    assert_eq!(value["account-source"], "fallback");
+    assert_eq!(value["active-account"]["name"], "default");
+    assert_eq!(value["active-account"]["source"], "fallback");
+    assert!(value["accounts"].as_array().is_some());
     assert!(value.get("group-id").is_some());
     assert!(value.get("group-id-source").is_some());
     assert!(value.get("codex-home").is_some());

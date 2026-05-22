@@ -52,14 +52,14 @@ pub(crate) fn resolve_session_root(
 
 pub(crate) fn session_dir(
     root: &Utf8Path,
-    account: &str,
+    account: &crate::services::account::AccountId,
     group_id: &str,
 ) -> Result<Utf8PathBuf, crate::config::ConfigError> {
     let accounts = root.join("accounts");
     secure_dir(&accounts)?;
-    let account = accounts.join(account);
-    secure_dir(&account)?;
-    let groups = account.join("groups");
+    let account_dir = accounts.join(account.as_str());
+    secure_dir(&account_dir)?;
+    let groups = account_dir.join("groups");
     secure_dir(&groups)?;
     let group = groups.join(group_id);
     secure_dir(&group)?;
@@ -147,12 +147,12 @@ pub(crate) fn inspect_session_root(
 
 pub(crate) fn inspect_session_dir(
     root: &Utf8Path,
-    account: &str,
+    account: &crate::services::account::AccountId,
     group_id: &str,
 ) -> Result<InspectedSessionDir, crate::config::ConfigError> {
     let path = root
         .join("accounts")
-        .join(account)
+        .join(account.as_str())
         .join("groups")
         .join(group_id);
     let missing = !path.as_std_path().exists();

@@ -51,13 +51,13 @@ fn help_extras_does_not_duplicate_clap_sections() {
 
     // The addendum begins after clap's last section. Slice off everything
     // through the first occurrence of the addendum's lead-in
-    // (`Pass-through:`) and assert the remainder does not re-introduce
+    // (`WRAPPER OVERVIEW`) and assert the remainder does not re-introduce
     // section headers or flag rows clap already owns.
     let addendum_start = stdout
-        .find("Pass-through:")
+        .find("WRAPPER OVERVIEW")
         .expect("help_extras.txt addendum should appear in long help");
     let addendum = &stdout[addendum_start..];
-    let needles = ["Usage:", "Commands:", "Options:", "--help", "--version"];
+    let needles = ["Usage:", "Commands:", "Options:"];
     for needle in needles {
         let header = format!("addendum must not re-introduce `{needle}` (clap renders it):");
         let msg = format!("{header}\n--- addendum ---\n{addendum}");

@@ -201,6 +201,7 @@ mod tests {
                 runtime_dir: Some(base.join("runtime")),
             },
             log: crate::config::LogConfig::default(),
+            account: crate::config::AccountConfig::default(),
             sources: crate::config::ConfigSources::default(),
         };
         crate::context::AppContext::new(

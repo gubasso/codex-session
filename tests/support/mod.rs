@@ -267,12 +267,32 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.state_session_root().join("accounts/default")
     }
 
+    pub fn named_account_root(&self, name: &str) -> PathBuf {
+        self.state_session_root().join("accounts").join(name)
+    }
+
     pub fn groups_root(&self) -> PathBuf {
         self.account_root().join("groups")
     }
 
+    pub fn named_groups_root(&self, name: &str) -> PathBuf {
+        self.named_account_root(name).join("groups")
+    }
+
     pub fn group_dir(&self, name: &str) -> PathBuf {
         self.groups_root().join(name)
+    }
+
+    pub fn named_group_dir(&self, account: &str, group: &str) -> PathBuf {
+        self.named_groups_root(account).join(group)
+    }
+
+    pub fn last_account_path(&self) -> PathBuf {
+        self.state_session_root().join("state/last-account")
+    }
+
+    pub fn named_account_auth_seed(&self, name: &str) -> PathBuf {
+        self.named_account_root(name).join("auth.json")
     }
 
     pub fn default_group_dir(&self) -> PathBuf {

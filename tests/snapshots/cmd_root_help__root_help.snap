@@ -1,5 +1,6 @@
 ---
 source: tests/cmd_root_help.rs
+assertion_line: 46
 expression: normalized
 ---
 Wrapper around `codex` with profile-layered session composition.
@@ -13,6 +14,7 @@ Commands:
   config      Operate on config state managed by the wrapper
   profile     Inspect and compose wrapper-owned profiles
   doctor      Run full validation of the codex-session config setup
+  account     Manage codex-session accounts (multi-credential pool)
   help        Print this message or the help of the given subcommand(s)
 
 Options:
@@ -53,43 +55,46 @@ Options:
       --group <ID>
           Override the auto-derived group-id used for session-dir scoping
 
+      --account <NAME>
+          Select the account whose `CODEX_HOME` the child uses. Use `auto` for R3+ selector
+
       --dry-run
           Print the resolved child invocation and exit without running it
 
   -h, --help
           Print help (see a summary with '-h')
 
-Pass-through:
-  Bare invocation and unrecognized subcommands are forwarded to the
-  real `codex`. Use `--` to force pass-through of `-`-prefixed
-  arguments. Run `codex-session -- help` to see the real `codex` help.
+WRAPPER OVERVIEW
+  codex-session wraps `codex` with persistent CODEX_HOME, profile-layered
+  session composition, multi-account support, and quota-aware selection.
 
-Environment:
-  CODEX_SESSION_CHILD_BIN
-      Explicit path to the inner `codex` binary. Tried before
-      PATH lookup.
-  CODEX_SESSION_LOG_FILE
-      Explicit log file path. Overrides LOG_DIR.
-  CODEX_SESSION_LOG_DIR
-      Directory holding `codex-session.log`. Rotated daily as
-      `codex-session.log.<YYYY-MM-DD>`.
-  CODEX_SESSION_PROFILE
-      Active wrapper profile when `--profile` is absent.
-  CODEX_SESSION_REENTRY
-      Re-entry marker. Refuses to start when set to `1`.
-  RUST_LOG
-      Standard `tracing` filter; overrides -v.
-  NO_COLOR
-      Disable ANSI colors absolutely.
-  FORCE_COLOR
-      Force ANSI colors even when output is piped.
-  CLICOLOR=0
-      Disable ANSI colors on TTY output.
-  CLICOLOR_FORCE
-      Force ANSI colors even when output is piped.
+WRAPPER VERBS
+  version       Print wrapper and child version details.
+  completion    Generate a shell-completion script.
+  config        Operate on wrapper-owned config (subcommand: status).
+  profile       Inspect and compose wrapper-owned profiles.
+  doctor        Run full validation of the codex-session setup.
+  account       Manage codex-session accounts (subcommands: add, list,
+                current, use, remove).
 
-Examples:
-  codex-session version --format json
-  codex-session config status
-  codex-session --profile work profile show
-  codex-session --dry-run -- foo bar
+PASSTHROUGH
+  Any verb not listed above is forwarded verbatim to `codex` (e.g. exec,
+  apply, resume, fork, review, login, logout, mcp, plugin, ...). Use `--`
+  to disambiguate flags that would otherwise be claimed by the wrapper.
+
+ACCOUNT MANAGEMENT
+  codex-session account add work --from-native
+  codex-session account list
+  codex-session account use work
+  codex-session --account work exec "hi"
+  codex-session --account auto exec "hi"   (R2 warns; full selector lands R3)
+
+ENV VARS
+  CODEX_SESSION_GROUP          Override the resolved group-id.
+  CODEX_SESSION_ACCOUNT        Override the resolved account.
+  CODEX_SESSION_CHILD_BIN      Override the wrapped codex binary path.
+  CODEX_SESSION_ACCOUNT_DEFAULT, CODEX_SESSION_ACCOUNT_PINNED,
+  CODEX_SESSION_ACCOUNT_REGISTRY_DIR  Account config overrides.
+
+SEE ALSO
+  Run `codex --help` for codex's own verbs and flags.

@@ -4,12 +4,12 @@
 
 Each round is a **single coherent goal** sized to one prex round (Stage 1 + Stage 3 each ≤600 s Codex budget). Per-round sizing target: 4–8 numbered plan steps, 1–5 files touched per step, ~300–700 net LOC, ~5–15 new tests.
 
-| # | Name | Plan input | Difficulty | Mode | Est duration |
-|---|---|---|---|---|---|
-| R1 | Foundation: persistent CODEX_HOME + group-id fallback (bug fix) | [10-phase-foundation.md](10-phase-foundation.md) | Medium | `/prex -ar` | 25–35 min |
-| R2 | Multi-account top-level CLI + account-aware path resolution | [11-phase-multiaccount-cli.md](11-phase-multiaccount-cli.md) | Medium | `/prex -a` | 25–35 min |
-| R3 | Quota reader + scoring selector | [12-phase-quota-selector.md](12-phase-quota-selector.md) | High | `/prex -ar` | 30–45 min |
-| R4 | Reactive 429 failover + retry-with-rotation + AuthBridge cleanup | [13-phase-failover.md](13-phase-failover.md) | Medium-High | `/prex -ar` | 30–40 min |
+| # | Name | Plan input | Difficulty | Mode | Est duration | Status |
+|---|---|---|---|---|---|---|
+| R1 | Foundation: persistent CODEX_HOME + group-id fallback (bug fix) | [10-phase-foundation.md](10-phase-foundation.md) | Medium | `/prex -ar` | 25–35 min | ✅ Done |
+| R2 | Multi-account top-level CLI + account-aware path resolution | [11-phase-multiaccount-cli.md](11-phase-multiaccount-cli.md) | Medium | `/prex -a` | 25–35 min | ✅ Done |
+| R3 | Quota reader + scoring selector | [12-phase-quota-selector.md](12-phase-quota-selector.md) | High | `/prex -ar` | 30–45 min | ⏳ Pending |
+| R4 | Reactive 429 failover + retry-with-rotation + AuthBridge cleanup | [13-phase-failover.md](13-phase-failover.md) | Medium-High | `/prex -ar` | 30–40 min | ⏳ Pending |
 
 **Do not collapse rounds together.** Combining R2+R3 would exceed the 8-step plan-review threshold and overflow Stage 3's 600 s Codex budget. R3+R4 share concerns (selector + retry) but separating them keeps the prex Stage-4 review surface manageable.
 

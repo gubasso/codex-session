@@ -13,6 +13,7 @@ pub(crate) struct ConfigStatusView {
     pub(crate) manifest_path: Option<Utf8PathBuf>,
     pub(crate) layer_paths: Vec<LayerEntry>,
     pub(crate) account: String,
+    pub(crate) account_source: String,
     pub(crate) group_id: String,
     pub(crate) group_id_source: String,
     pub(crate) codex_home: Utf8PathBuf,
@@ -69,9 +70,10 @@ pub(crate) fn build_view(
         &ctx.config.paths.state_dir,
     )?;
     let resolved_group = crate::services::session::group_id::current(ctx)?;
+    let resolved_account = crate::services::account::resolver::resolve(ctx)?;
     let inspected_dir = crate::services::session::dir::inspect_session_dir(
         &root.path,
-        "default",
+        &resolved_account.id,
         resolved_group.id.as_str(),
     )?;
 
@@ -88,7 +90,9 @@ pub(crate) fn build_view(
         active_profile: ctx.config.profile.active.clone(),
         manifest_path,
         layer_paths,
-        account: "default".to_owned(),
+        account: resolved_account.id.to_string(),
+        account_source: crate::services::account::resolver::source_label(resolved_account.source)
+            .to_owned(),
         group_id: resolved_group.id.as_str().to_owned(),
         group_id_source: group_id_source_label(resolved_group.source).to_owned(),
         codex_home: inspected_dir.path,

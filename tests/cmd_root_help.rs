@@ -21,9 +21,13 @@ fn root_help_succeeds() {
         .stdout(predicate::str::contains("version"))
         .stdout(predicate::str::contains("completion"))
         .stdout(predicate::str::contains("config"))
+        .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("help"))
         .stdout(predicate::str::contains("CODEX_SESSION_CHILD_BIN"))
-        .stdout(predicate::str::contains("Use `--` to force pass-through"))
+        .stdout(predicate::str::contains("CODEX_SESSION_ACCOUNT"))
+        .stdout(predicate::str::contains(
+            "Any verb not listed above is forwarded verbatim",
+        ))
         .stderr("");
 }
 
@@ -155,7 +159,7 @@ fn root_short_help_is_shorter() {
     let short_stdout = String::from_utf8(short_out.stdout).unwrap();
     let long_stdout = String::from_utf8(long_out.stdout).unwrap();
 
-    for verb in ["version", "completion", "config", "help"] {
+    for verb in ["version", "completion", "config", "account", "help"] {
         assert!(
             short_stdout.contains(verb),
             "short help must include verb `{verb}`"

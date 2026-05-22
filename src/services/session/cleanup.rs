@@ -64,6 +64,43 @@ pub(crate) fn prune_stale_sessions(sessions_root: &Utf8Path, max_age: Duration) 
     }
 }
 
+pub(crate) fn prune_stale_sessions_all_accounts(accounts_root: &Utf8Path, max_age: Duration) {
+    let Ok(entries) = std::fs::read_dir(accounts_root.as_std_path()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+            continue;
+        };
+        if name == ".trash" {
+            continue;
+        }
+        // Refuse to descend through a symlinked account directory: that would
+        // let a hostile or careless setup redirect `prune_stale_sessions`
+        // (which recursively removes age-eligible children) into arbitrary
+        // paths outside the wrapper's session tree.
+        let account_path = entry.path();
+        let Ok(account_meta) = std::fs::symlink_metadata(&account_path) else {
+            continue;
+        };
+        if account_meta.file_type().is_symlink() || !account_meta.is_dir() {
+            continue;
+        }
+        let Ok(groups) = Utf8PathBuf::try_from(account_path.join("groups")) else {
+            continue;
+        };
+        // Same no-follow check on the `groups/` subdirectory itself before
+        // pruning beneath it.
+        let Ok(groups_meta) = std::fs::symlink_metadata(groups.as_std_path()) else {
+            continue;
+        };
+        if groups_meta.file_type().is_symlink() || !groups_meta.is_dir() {
+            continue;
+        }
+        prune_stale_sessions(&groups, max_age);
+    }
+}
+
 pub(crate) fn prune_legacy_pid_dirs(state_root: &Utf8Path, runtime_root: Option<&Utf8Path>) {
     let marker = legacy_prune_marker(state_root);
     if !should_run_legacy_prune(&marker) {

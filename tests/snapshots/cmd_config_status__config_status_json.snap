@@ -5,6 +5,7 @@ expression: value
 ---
 {
   "account": "default",
+  "account-source": "fallback",
   "active-profile": "default",
   "child-bin": "<TMP>/bin/codex",
   "codex-home": "<TMP>/state/codex-session/accounts/default/groups/stable",

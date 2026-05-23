@@ -11,7 +11,7 @@ Each round is a **single coherent goal** sized to one prex round (Stage 1 + Stag
 | R3 | Quota reader + scoring selector | [12-phase-quota-selector.md](12-phase-quota-selector.md) | High | `/prex -ar` | 30–45 min | ✅ Done |
 | R4 | Reactive 429 failover + retry-with-rotation + AuthBridge cleanup | [13-phase-failover.md](13-phase-failover.md) | Medium-High | `/prex -ar` | 30–40 min | ✅ Done (hardened by R4.5) |
 | R4.5 | Hardening: interactive-TUI tee fix + cross-cutting fixes from R4 deep review | [14-phase-r4-hardening.md](14-phase-r4-hardening.md) | Medium | `/prex -ar` | 25–35 min | ✅ Done |
-| R5 | Reintegrate Claude skills with the post-refactor wrapper API | [15-phase-skills-reintegration.md](15-phase-skills-reintegration.md) | Low | `/prex -ar` | 15–25 min | ⏳ Pending |
+| R5 | Reintegrate Claude skills with the post-refactor wrapper API | [15-phase-skills-reintegration.md](15-phase-skills-reintegration.md) | Low | `/prex -ar` | 15–25 min | ✅ Done |
 
 **Do not collapse rounds together.** Combining R2+R3 would exceed the 8-step plan-review threshold and overflow Stage 3's 600 s Codex budget. R3+R4 share concerns (selector + retry) but separating them keeps the prex Stage-4 review surface manageable. R4.5 must land before R5 because R5's smoke tests assume interactive `codex-session` works (B1 from the R4 review breaks that).
 

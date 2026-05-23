@@ -1,3 +1,7 @@
+> **COMPLETED 2026-05-23.** All skills migrated back to `codex-session exec` with
+> profile-based model pinning. Dotfiles commits: `fb60aed` (main migration),
+> `44278ea` (model pin fix gpt-5.4 -> gpt-5.3-codex).
+
 # Round 5 — Reintegrate Claude skills with the new `codex-session` wrapper API
 
 This file is the **prex input** for Round 5. Pass its contents verbatim to `/prex -ar` after the

@@ -23,8 +23,8 @@ fn dry_run_prints_invocation_session_and_codex_home_without_exec() {
         env.normalize_text(&String::from_utf8(assert.get_output().stdout.clone()).unwrap());
 
     assert!(
-        stdout.starts_with("binary: "),
-        "missing binary line: {stdout}"
+        stdout.starts_with("account: default\naccount-source: fallback\nbinary: "),
+        "missing account/binary header lines: {stdout}"
     );
     assert!(stdout.contains("argv:"));
     assert!(stdout.contains("[0] exec"));
@@ -41,6 +41,25 @@ fn dry_run_prints_invocation_session_and_codex_home_without_exec() {
 
     assert!(!env.argc_file.exists(), "child was unexpectedly exec'd");
     assert!(!env.argv_file.exists(), "child was unexpectedly exec'd");
+}
+
+#[test]
+fn dry_run_with_account_flag_shows_flag_context() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.cmd()
+        .args(["account", "add", "work"])
+        .assert()
+        .success();
+    let assert = env
+        .cmd()
+        .args(["--account", "work", "--dry-run", "exec", "hi"])
+        .assert()
+        .success();
+    let stdout =
+        env.normalize_text(&String::from_utf8(assert.get_output().stdout.clone()).unwrap());
+    assert!(stdout.contains("account: work"));
+    assert!(stdout.contains("account-source: flag"));
 }
 
 #[test]

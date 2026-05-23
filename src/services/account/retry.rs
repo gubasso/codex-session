@@ -9,6 +9,7 @@ use crate::error::AppError;
 
 use super::{AccountError, cooldown, failover, resolver};
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppError> {
     let max_retries = ctx.global.max_retries;
     // Rotation requires the user to have opted into auto-selection. Any
@@ -64,17 +65,22 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
     let mut last_account = None;
     for attempt in 0..=max_retries {
-        let account = match resolver::resolve(ctx) {
-            Ok(resolved) => resolved.id,
+        let resolved = match resolver::resolve(ctx) {
+            Ok(resolved) => resolved,
             Err(AppError::Account(AccountError::NoEligible)) if max_retries > 0 && attempt > 0 => {
                 break;
             }
             Err(err) => return Err(err),
         };
-        last_account = Some(account.clone());
+        last_account = Some(resolved.id.clone());
         let capture = max_retries > 0;
-        let result =
-            crate::commands::pass_through::run_once(ctx, argv, &account, &signal_session, capture)?;
+        let result = crate::commands::pass_through::run_once(
+            ctx,
+            argv,
+            &resolved,
+            &signal_session,
+            capture,
+        )?;
         let (exit_code, stdout_buf, stderr_buf) = result;
 
         // Scan stderr first — Codex emits rate-limit diagnostics there —
@@ -103,22 +109,27 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
             };
             tracing::info!(
                 op = "failover.match",
-                account = %account,
+                account = %resolved.id,
                 snippet = %matched.snippet,
                 line_no = matched.line_no,
                 pattern_index = matched.pattern_index,
                 pattern = failover::PATTERN_NAMES[matched.pattern_index],
                 attempt
             );
-            let account_root = registry.account_dir(&account);
+            let account_root = registry.account_dir(&resolved.id);
             cooldown::write(&account_root, &cooldown).map_err(AccountError::from)?;
             tracing::info!(
                 op = "cooldown.write",
-                account = %account,
+                account = %resolved.id,
                 reset_at_unix = cooldown.reset_at_unix,
                 reason = %cooldown.reason
             );
-            tracing::warn!(op = "account.switch", from = %account, attempt, reason = "429");
+            tracing::warn!(
+                op = "account.switch",
+                from = %resolved.id,
+                attempt,
+                reason = "429"
+            );
             continue;
         }
 
@@ -136,10 +147,10 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
 }
 
 fn single_attempt(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppError> {
-    let account = resolver::resolve(ctx)?.id;
+    let resolved = resolver::resolve(ctx)?;
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
     let (exit_code, _stdout_buf, _stderr_buf) =
-        crate::commands::pass_through::run_once(ctx, argv, &account, &signal_session, false)?;
+        crate::commands::pass_through::run_once(ctx, argv, &resolved, &signal_session, false)?;
     Ok(exit_code)
 }
 

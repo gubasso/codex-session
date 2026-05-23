@@ -68,6 +68,9 @@ pub(crate) struct DoctorAccountEntry {
     pub(crate) has_auth: bool,
     pub(crate) last_used_at_unix: Option<u64>,
     pub(crate) current: bool,
+    pub(crate) cooldown_active: bool,
+    pub(crate) cooldown_reset_at_unix: Option<u64>,
+    pub(crate) cooldown_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -143,28 +146,51 @@ fn build_report(
         }
     };
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     // Surface registry I/O errors as a `fail` check rather than silently
     // hiding them behind `unwrap_or_default()`.
     let accounts = match registry.list() {
-        Ok(entries) => entries
-            .into_iter()
-            .map(|entry| DoctorAccountEntry {
-                current: resolved_account
-                    .as_ref()
-                    .is_some_and(|active| active.id == entry.id),
-                has_auth: entry.has_auth,
-                last_used_at_unix: entry
-                    .last_used_at
-                    .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|value| value.as_secs()),
-                name: entry.id.to_string(),
-            })
-            .collect(),
+        Ok(entries) => {
+            let mut accs = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let cd = match crate::services::account::cooldown::read(&entry.dir) {
+                    Ok(cd) => cd,
+                    Err(err) => {
+                        checks.push(warn(
+                            format!("account.{}.cooldown.read", entry.id),
+                            err.to_string(),
+                        ));
+                        None
+                    }
+                };
+                accs.push(DoctorAccountEntry {
+                    current: resolved_account
+                        .as_ref()
+                        .is_some_and(|active| active.id == entry.id),
+                    has_auth: entry.has_auth,
+                    last_used_at_unix: entry
+                        .last_used_at
+                        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|value| value.as_secs()),
+                    name: entry.id.to_string(),
+                    cooldown_active: cd.as_ref().is_some_and(|c| {
+                        crate::services::account::cooldown::is_active(c, now_unix)
+                    }),
+                    cooldown_reset_at_unix: cd.as_ref().map(|c| c.reset_at_unix),
+                    cooldown_reason: cd.map(|c| c.reason),
+                });
+            }
+            accs
+        }
         Err(err) => {
             checks.push(fail("accounts.registry", err.to_string()));
             Vec::new()
         }
     };
+    let active_name = resolved_account.as_ref().map(|a| a.id.as_str());
+    checks.extend(check_account_health(&accounts, active_name));
 
     // 1. Active profile resolution + source.
     let active = ctx.config.profile.active.clone();
@@ -942,6 +968,16 @@ fn populate_next_steps(checks: &[CheckResult], next_steps: &mut Vec<String>) {
         let hint = hint_for(&check.name);
         next_steps.push(format!("{}: {}", check.name, hint));
     }
+    for check in checks.iter().filter(|c| c.status == CheckStatus::Warn) {
+        if is_actionable_warn(&check.name) {
+            let hint = hint_for(&check.name);
+            next_steps.push(format!("{}: {}", check.name, hint));
+        }
+    }
+}
+
+fn is_actionable_warn(name: &str) -> bool {
+    name == "account.cooldowns"
 }
 
 fn hint_for(name: &str) -> &'static str {
@@ -965,9 +1001,49 @@ fn hint_for(name: &str) -> &'static str {
         "set XDG_RUNTIME_DIR / XDG_STATE_HOME to a writable, owned directory"
     } else if name == "child.binary" {
         "set CODEX_SESSION_CHILD_BIN or install `codex` on PATH"
+    } else if name == "auth.native" {
+        "run `codex login` then `codex-session account add <name> --from-native`"
+    } else if name == "account.active.auth" {
+        "run `codex login` then `codex-session account add <name> --from-native` to seed auth"
+    } else if name == "account.cooldowns" {
+        "wait for cooldown to expire or run `codex-session account cooldown clear --all`"
+    } else if name == "session.account" {
+        "verify account exists with `codex-session account list` and check `--account` flag"
     } else {
         "see check detail"
     }
+}
+
+fn check_account_health(
+    accounts: &[DoctorAccountEntry],
+    active_name: Option<&str>,
+) -> Vec<CheckResult> {
+    let mut out = Vec::new();
+    if let Some(name) = active_name
+        && let Some(active) = accounts.iter().find(|a| a.name == name)
+        && !active.has_auth
+    {
+        out.push(fail(
+            "account.active.auth",
+            format!("active account '{name}' has no auth.json; codex will fail on first API call"),
+        ));
+    }
+    let cooled: Vec<&str> = accounts
+        .iter()
+        .filter(|a| a.cooldown_active)
+        .map(|a| a.name.as_str())
+        .collect();
+    if !cooled.is_empty() {
+        out.push(warn(
+            "account.cooldowns",
+            format!(
+                "{} account(s) in cooldown: {}",
+                cooled.len(),
+                cooled.join(", "),
+            ),
+        ));
+    }
+    out
 }
 
 fn summarize(checks: &[CheckResult]) -> CheckSummary {

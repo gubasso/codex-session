@@ -9,7 +9,7 @@ WRAPPER VERBS
   profile       Inspect and compose wrapper-owned profiles.
   doctor        Run full validation of the codex-session setup.
   account       Manage codex-session accounts (subcommands: add, list,
-                current, use, remove, quota).
+                current, use, remove, quota, cooldown).
 
 PASSTHROUGH
   Any verb not listed above is forwarded verbatim to `codex` (e.g. exec,

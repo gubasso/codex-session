@@ -22,6 +22,12 @@ fn exec_foo_bar_is_passed_through_to_codex() {
     );
     assert!(env.session_dir().join("config.toml").exists());
     assert!(env.session_dir().join("session-meta.json").exists());
+    let meta: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(env.session_dir().join("session-meta.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(meta["account"], "default");
+    assert_eq!(meta["account-source"], "fallback");
 }
 
 #[test]

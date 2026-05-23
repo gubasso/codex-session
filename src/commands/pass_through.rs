@@ -38,10 +38,19 @@ pub(crate) fn run(
 ) -> Result<i32, crate::error::AppError> {
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
     if ctx.global.dry_run {
-        let account = crate::services::account::resolver::resolve(ctx)?.id;
-        let prepared = prepare_invocation(ctx, argv, &account)?;
-        ctx.ui
-            .write_dry_run(&prepared.invocation.dry_run_report())?;
+        let resolved = crate::services::account::resolver::resolve(ctx)?;
+        let prepared = prepare_invocation(ctx, argv, &resolved)?;
+        let dry_ctx = crate::domain::child_invocation::DryRunContext {
+            account: resolved.id.to_string(),
+            account_source: crate::services::account::resolver::source_label(resolved.source)
+                .to_owned(),
+        };
+        ctx.ui.write_dry_run(
+            &crate::domain::child_invocation::dry_run_report_with_context(
+                &prepared.invocation,
+                Some(&dry_ctx),
+            ),
+        )?;
         tracing::info!(op = "pass-through", status = "ok", outcome = "dry-run");
         return Ok(0);
     }
@@ -66,17 +75,18 @@ pub(crate) fn run(
 pub(crate) fn run_once(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
-    account: &crate::services::account::AccountId,
+    resolved: &crate::services::account::resolver::ResolvedAccount,
     session: &SignalSession,
     capture: bool,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
+    let account = &resolved.id;
     tracing::info!(
         op = "pass-through.run-once",
         status = "start",
         argc = argv.len(),
         account = %account
     );
-    let prepared = prepare_invocation(ctx, argv, account)?;
+    let prepared = prepare_invocation(ctx, argv, resolved)?;
 
     let cache_settings = cache_settings_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
@@ -104,9 +114,9 @@ struct PreparedInvocation {
 fn prepare_invocation(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
-    account: &crate::services::account::AccountId,
+    resolved: &crate::services::account::resolver::ResolvedAccount,
 ) -> Result<PreparedInvocation, crate::error::AppError> {
-    let resolved = ctx.resolved_child().map_err(|err| match err {
+    let child_binary = ctx.resolved_child().map_err(|err| match err {
         crate::adapters::spawner::SpawnerError::NotFound {
             tried,
             path_searched,
@@ -136,6 +146,7 @@ fn prepare_invocation(
         &ctx.config.paths.state_dir,
     )?;
     let group_id = group.id.as_str().to_owned();
+    let account = &resolved.id;
     let session_dir = crate::services::session::dir::session_dir(&root.path, account, &group_id)?;
     let cwd = current_cwd()?;
     let profile = ctx.config.profile.active.clone();
@@ -161,6 +172,8 @@ fn prepare_invocation(
         profile.as_deref(),
         &group_id,
         cwd.as_ref(),
+        account.as_str(),
+        crate::services::account::resolver::source_label(resolved.source),
     );
     crate::services::session::meta::write(&session_dir, &meta)?;
 
@@ -181,7 +194,7 @@ fn prepare_invocation(
     }
 
     let inv = ChildInvocation {
-        binary: resolved.clone(),
+        binary: child_binary.clone(),
         args: argv.to_vec(),
         env: child_env,
     };

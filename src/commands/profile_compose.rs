@@ -38,14 +38,25 @@ pub(crate) fn run(
             },
         )?;
         crate::services::profile::write_session_artifacts(&composition, &session_dir)?;
-        let meta =
-            crate::services::session::meta::SessionMeta::new(Some(name), &group_id, cwd.as_ref());
+        let meta = crate::services::session::meta::SessionMeta::new(
+            Some(name),
+            &group_id,
+            cwd.as_ref(),
+            "(compose)",
+            "compose",
+        );
         crate::services::session::meta::write(&session_dir, &meta)?;
         let view = build_view(Some(name.to_owned()), false, group_id, session_dir);
         ctx.ui.write_profile_compose(&view)?;
     } else {
         crate::services::profile::write_stock_session_artifacts(&session_dir)?;
-        let meta = crate::services::session::meta::SessionMeta::new(None, &group_id, cwd.as_ref());
+        let meta = crate::services::session::meta::SessionMeta::new(
+            None,
+            &group_id,
+            cwd.as_ref(),
+            "(compose)",
+            "compose",
+        );
         crate::services::session::meta::write(&session_dir, &meta)?;
         let view = build_view(None, true, group_id, session_dir);
         ctx.ui.write_profile_compose(&view)?;

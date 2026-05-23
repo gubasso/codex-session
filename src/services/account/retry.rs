@@ -72,7 +72,9 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
             Err(err) => return Err(err),
         };
         last_account = Some(account.clone());
-        let result = crate::commands::pass_through::run_once(ctx, argv, &account, &signal_session)?;
+        let capture = max_retries > 0;
+        let result =
+            crate::commands::pass_through::run_once(ctx, argv, &account, &signal_session, capture)?;
         let (exit_code, stdout_buf, stderr_buf) = result;
 
         // Scan stderr first — Codex emits rate-limit diagnostics there —
@@ -137,7 +139,7 @@ fn single_attempt(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppError> 
     let account = resolver::resolve(ctx)?.id;
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
     let (exit_code, _stdout_buf, _stderr_buf) =
-        crate::commands::pass_through::run_once(ctx, argv, &account, &signal_session)?;
+        crate::commands::pass_through::run_once(ctx, argv, &account, &signal_session, false)?;
     Ok(exit_code)
 }
 

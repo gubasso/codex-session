@@ -87,6 +87,7 @@ impl LazySession {
 
 /// Session-scoped state shared by profile composition commands.
 pub(crate) struct SessionContext {
+    #[allow(dead_code)]
     pub(crate) account: crate::services::account::AccountId,
     #[allow(dead_code)]
     pub(crate) account_source: crate::services::account::resolver::AccountResolutionSource,

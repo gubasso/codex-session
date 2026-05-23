@@ -22,6 +22,8 @@ pub(crate) enum AccountCommand {
     Remove(AccountRemoveArgs),
     /// Read per-account quota from the cached or live wham/usage endpoint.
     Quota(AccountQuotaArgs),
+    /// Show or clear failover cooldown state.
+    Cooldown(AccountCooldownArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -70,6 +72,34 @@ pub(crate) struct AccountQuotaArgs {
     /// Output format for the reported quota.
     #[arg(long, value_enum, default_value_t = crate::cli::OutputFormat::Text)]
     pub(crate) format: crate::cli::OutputFormat,
+}
+
+#[derive(Debug, clap::Args)]
+pub(crate) struct AccountCooldownArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<AccountCooldownCommand>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum AccountCooldownCommand {
+    /// Show current cooldown state for one or all accounts.
+    Show(AccountCooldownShowArgs),
+    /// Clear cooldown for one account or all of them.
+    Clear(AccountCooldownClearArgs),
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct AccountCooldownShowArgs {
+    /// Emit machine-readable JSON instead of the text table.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct AccountCooldownClearArgs {
+    /// Clear cooldowns for every registered account; conflicts with --account.
+    #[arg(long)]
+    pub(crate) all: bool,
 }
 
 /// Selector for the `--account` global flag: a name or the literal `auto`.

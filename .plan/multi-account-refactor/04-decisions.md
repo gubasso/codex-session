@@ -163,7 +163,16 @@ Inline Rust implementation via `reqwest` blocking client. ~200 LOC + tests.
 
 ### Decision
 
-Copy caam's detector regex verbatim: `(?i)\b(429|rate[- ]limit|too many requests|quota exceeded|slow down)\b`. Cite the source URL in the code comment. Implement as a passive observer in `services/account/failover.rs` (R4): tee the child's stdout/stderr through unmodified; record matches.
+Copy caam's Codex detector patterns verbatim as a six-pattern set:
+
+- `(?i)rate.?limit`
+- `(?i)quota.?exceeded`
+- `\b429\b`
+- `(?i)too.?many.?requests`
+- `(?i)exceeded.*rate`
+- `(?i)slow.?down`
+
+Cite the source URL in the code comment. Implement as a passive observer in `services/account/failover.rs` (R4): tee the child's stdout/stderr through unmodified; record matches.
 
 ### Consequences
 
@@ -237,3 +246,68 @@ All new wrapper-owned subcommands live at the **top level**. `codex-session acco
 
 - `/home/gu/Projects/docs-n-notes/tech/programming/cli-design/06-cli-wrapper-design/process-and-posix.md` §5.1, §5.2, §5.3
 - [05-cli-design.md](05-cli-design.md) — full subcommand-tree design
+
+---
+
+## D9 — Tee-based stdio for `Spawner::spawn_and_wait_output`
+
+**Status:** Accepted.
+**Date:** 2026-05-22.
+**Supersedes:** the implicit decision behind R4's `spawn_and_wait_output`, which used `Stdio::piped()` + `child.wait_with_output()` and buffered all child output until exit.
+
+### Context
+
+R4 added `spawn_and_wait_output` so `failover::scan` could inspect captured child output for 429 patterns. The first implementation set `stdout`/`stderr` to `Stdio::piped()` and called `child.wait_with_output()`, deferring every byte to the parent terminal until the child exited.
+
+The R4 deep-review (Stage 4 of `/prex -ar`) flagged this as a blocker. Three compounding regressions:
+
+1. **Interactivity:** the bare `codex-session` invocation routes through `dispatch::run` → `pass_through::run` → `retry::run_with_retry` → `run_once`. With piped stdio, prompts, streaming responses, and live feedback are invisible until the Codex TUI quits — i.e. the primary user-facing path is broken.
+2. **TTY detection:** the child sees `stdout`/`stderr` as pipes (`isatty(fd) == 0`), disabling its TUI/color machinery.
+3. **Memory:** the captured `Vec<u8>` grows with the entire session's output; unbounded for long-lived runs.
+
+The pre-R4 path used inherited stdio with no capture, but that has no failover signal.
+
+### Decision
+
+`Spawner::spawn_and_wait_output` **tees** each pipe with a dedicated reader thread. Per-stream loop:
+
+```
+read 8 KiB chunk from child pipe
+    ├── write to parent's real stdout/stderr (live)
+    └── append to capture Vec<u8> (until MAX_CAPTURE_BYTES)
+```
+
+After `child.wait()` returns, the spawner joins the two reader threads (the kernel keeps pipe contents readable past the writer's death, so EOF is reached cleanly) and returns `ChildOutput { status, stdout: captured_stdout, stderr: captured_stderr }`.
+
+The tee helper lives in `src/ui/raw_passthrough.rs::tee_to_stdio`, NOT in `src/adapters/spawner.rs`, because the project's `lint-print` recipe forbids `std::io::stdout()` / `std::io::stderr()` calls outside `src/ui/**`, `src/error.rs`, `src/logging.rs`, and tests. The spawner calls into `tee_to_stdio` instead of taking the stdio lock directly.
+
+`MAX_CAPTURE_BYTES = 1 << 20` (1 MiB) caps the capture buffer. Live forwarding stays unbounded — only the capture half stops appending. The detector scans line-by-line, so truncation at a non-line boundary is safe (the next line just doesn't get matched). Failover decisions don't need to see the last megabyte of a long session.
+
+### Consequences
+
+- **Restored interactivity:** real-time output for every pass-through invocation, including the bare-`codex-session` TUI path.
+- **TTY trade-off remains:** the child still sees pipes (not a real TTY). This is the unavoidable cost of needing capture; the established workaround is `CODEX_FORCE_TTY=1` (or the equivalent env Codex exposes) when interactive TUI mode is wanted. Documented in `07-failover-spec.md`.
+- **Bounded memory:** capture stays under 1 MiB regardless of session length.
+- **Signal handling:** the existing `install_signal_forwarding` thread keeps working — the reader threads handle `BrokenPipe` as "stop forwarding, keep capturing" so a SIGINT'd child still produces a clean buffer.
+- **Lint surface unchanged:** the print-ownership whitelist does not gain `adapters/` (preserves a load-bearing invariant).
+
+### Alternatives considered
+
+- **Fast-path bypass when `max_retries == 0`:** keep the old inherited-stdio `spawn_and_wait` for the common path and only switch to piped when failover is opted in. **Rejected** — bifurcates the spawn path, so any future selector improvement that wants to scan output (e.g., quota-error detection beyond 429) would have to wire the same lifecycle twice. Consistent behavior across modes is worth the +30 LoC.
+- **Add `src/adapters/spawner.rs` to the print-ownership lint whitelist:** lets the spawner call `std::io::stdout()` directly. **Rejected** — erodes a load-bearing invariant; every future stdio call in the spawner becomes unflagged.
+- **Streaming detector that runs on each chunk:** would catch 429 mid-flight and let the wrapper kill the child early. **Out of scope** for R4.5 (and beyond) — post-wait scan is sufficient for the `codex exec` workload; long-lived TUI mid-flight 429 is an open follow-up.
+
+### Addendum (R4.5 review-loop round 4)
+
+- **PID-clear timing.** `spawn_and_wait_output` clears the shared `pid_sink` AtomicI32 to `0` immediately after `child.wait()` returns, *before* joining the tee threads. Without this, a signal delivered during the tee-thread drain window could be forwarded to a recycled PID. The caller (`pass_through::run_child`) still does a belt-and-suspenders second clear after the spawner returns.
+- **Detector input.** `pass_through::run_once` returns `(exit_code, stdout_buf, stderr_buf)` as three independent values; the retry harness runs `failover::scan` on stderr first (where Codex emits its rate-limit diagnostics) and falls back to stdout, instead of concatenating the two streams. Concatenation manufactured a synthetic line boundary that could match across a `stdout`-tail / `stderr`-head fragment (false positive) or reorder real interleavings out of match shape (false negative).
+
+### Addendum (R4.5 review-loop round 5)
+
+- **One signal-forwarder per wrapper invocation.** `commands/pass_through::SignalSession` owns the shared `Arc<AtomicI32>` for the live child PID plus the once-installed `SignalGuard`. `retry::run_with_retry` installs it once before the attempt loop; every attempt's `run_once`/`run_child` reuses the same guard. Installing a fresh forwarder per attempt would leak iterator threads whose stale `child_pid` Arcs (cleared to `0` after each reap) would take the "no child yet" branch on a later signal and call `emulate_default_handler(sig)`, terminating the wrapper instead of forwarding to the live child. `single_attempt` installs its own one-shot session.
+
+### References
+
+- R4 deep-review finding B1 — see `.plan/multi-account-refactor/14-phase-r4-hardening.md` (R4.5 prex input) for the full reasoning.
+- R4.5 implementation: `src/adapters/spawner.rs::spawn_and_wait_output`, `src/ui/raw_passthrough.rs::tee_to_stdio`, `src/services/account/failover.rs::MAX_CAPTURE_BYTES`.
+- [07-failover-spec.md](07-failover-spec.md) — updated detection-placement section.

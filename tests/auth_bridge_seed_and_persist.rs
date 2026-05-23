@@ -102,7 +102,3 @@ fn second_run_does_not_overwrite_existing_session_auth() {
         initial_payload
     );
 }
-
-#[test]
-#[ignore = "R4: AuthBridge watcher removed; one-shot import only in R1"]
-fn watcher_propagates_refresh_back_into_running_session() {}

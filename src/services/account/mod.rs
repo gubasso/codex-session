@@ -1,10 +1,13 @@
 //! Account namespace: id, registry, resolver, errors.
 
+pub(crate) mod cooldown;
 pub(crate) mod error;
+pub(crate) mod failover;
 pub(crate) mod id;
 pub(crate) mod quota;
 pub(crate) mod registry;
 pub(crate) mod resolver;
+pub(crate) mod retry;
 pub(crate) mod selector;
 
 pub(crate) use error::AccountError;

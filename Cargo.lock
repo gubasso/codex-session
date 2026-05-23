@@ -250,6 +250,7 @@ dependencies = [
  "insta",
  "libc",
  "predicates",
+ "regex",
  "reqwest",
  "rustix 1.1.4",
  "serde",

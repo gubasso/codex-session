@@ -1,0 +1,69 @@
+---
+source: tests/cmd_account_help.rs
+expression: normalized
+---
+Manage codex-session accounts (multi-credential pool)
+
+Usage: codex-session account [OPTIONS] <COMMAND>
+
+Commands:
+  add       Register a new account
+  list      List registered accounts
+  current   Print the currently active account and its source
+  use       Pin the active account (writes state/last-account)
+  remove    Archive an account to accounts/.trash/
+  quota     Read per-account quota from the cached or live wham/usage endpoint
+  cooldown  Show or clear failover cooldown state
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+  -v, --verbose...
+          Increase wrapper log verbosity (-v info, -vv debug, -vvv trace)
+
+      --log-stderr
+          Mirror wrapper logs to stderr in addition to the log file
+
+  -q, --quiet
+          Suppress non-error stderr output. The log file is unaffected
+
+      --silent
+          Suppress all stderr output including errors. The log file is unaffected
+
+      --log-format <FMT>
+          Format for the stderr log mirror (controls only the mirrored stderr log; the file sink is
+          always JSON)
+          
+          [possible values: json, pretty]
+
+  -V, --version
+          Print wrapper + child version and exit
+
+      --format <FMT>
+          Output format for `version`, `config status`, `profile list/show`, and `--version`
+
+          Possible values:
+          - text: Human-readable text output
+          - json: Machine-readable JSON output
+
+      --config <PATH>
+          Load wrapper config from this explicit path instead of the default user/project locations
+
+      --profile <NAME>
+          Select the wrapper profile before any passthrough child argv begins
+
+      --group <ID>
+          Override the auto-derived group-id used for session-dir scoping
+
+      --account <NAME>
+          Select the account whose `CODEX_HOME` the child uses. Use `auto` for R3+ selector
+
+      --max-retries <N>
+          Retry child invocations this many times after a detected 429
+          
+          [default: 0]
+
+      --dry-run
+          Print the resolved child invocation and exit without running it
+
+  -h, --help
+          Print help (see a summary with '-h')

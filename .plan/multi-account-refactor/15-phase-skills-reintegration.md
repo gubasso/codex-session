@@ -7,13 +7,17 @@ refactor (R1 → R4) has fully landed.
 
 ## Prerequisite
 
-Rounds 1, 2, 3, 4 have shipped. The wrapper now exposes:
+Rounds 1, 2, 3, 4, and 4.5 have shipped. The wrapper now exposes:
 
 - Stable, persistent `CODEX_HOME` at `<state>/accounts/<account>/groups/<group-id>/` (R1).
 - Top-level `account add|list|current|use|remove` subcommand + `--account <name>` global flag (R2).
 - `--account auto` proactive quota-aware selection (R3).
 - Reactive 429 failover, per-account cooldown, AuthBridge fully demoted to one-shot importer with
   no native write-back required (R4).
+- Tee-based stdio in `spawn_and_wait_output` so interactive `codex-session` (TUI) keeps live
+  output, plus the rest of the R4 deep-review fixes (kebab-case cooldown JSON, registry-aware
+  cooldown path, pinned-account retry short-circuit, etc.) — R4.5. Without this, the R5 smoke
+  tests against the bare-`codex-session` TUI cannot pass.
 
 At least one account is registered (`codex-session account add default`) and has a valid
 `auth.json` under `<state>/accounts/default/auth.json`. The native `~/.codex/auth.json` is no
@@ -91,7 +95,7 @@ This round is **strictly a dotfiles change**. No code changes in `codex-session`
     - Restore the **Guardrails** bullet that requires `codex-session exec`, never bare
       `codex exec`. Word it to match the post-R4 wrapper rationale (per-account isolation,
       profile composition, account-aware failover) rather than the pre-R1 reasons.
-    - Remove the link to `14-phase-skills-reintegration.md` once R5 is complete — replace it with
+    - Remove the link to `15-phase-skills-reintegration.md` once R5 is complete — replace it with
       a one-line history note in a `<!-- -->` comment at the bottom of the file documenting the
       migration date.
 
@@ -127,9 +131,9 @@ This round is **strictly a dotfiles change**. No code changes in `codex-session`
 
 9. **Remove the temporary phase from the in-flight plan.**
     - In `codex-session/.plan/multi-account-refactor/`, archive
-      `14-phase-skills-reintegration.md` (this file) by moving it to
+      `15-phase-skills-reintegration.md` (this file) by moving it to
       `99-execution-plan.md` as a completed-phases note, OR leave it in place but prepend a
-      `> COMPLETED <date>` banner. Pick whichever matches the project's house convention from R4.
+      `> COMPLETED <date>` banner. Pick whichever matches the project's house convention from R4 / R4.5.
     - Update `99-execution-plan.md` to mark this round as the final round of the refactor.
 
 ## Files touched (representative)
@@ -144,7 +148,7 @@ This round is **strictly a dotfiles change**. No code changes in `codex-session`
 - `~/.config/codex-session/profiles/skills.yaml` (NEW, if option A in step 2 is chosen)
 - `~/.config/codex-session/settings/<layer>.toml` (NEW or extended, if option A)
 - `codex-session/.plan/multi-account-refactor/99-execution-plan.md` (mark R5 complete)
-- `codex-session/.plan/multi-account-refactor/14-phase-skills-reintegration.md` (this file —
+- `codex-session/.plan/multi-account-refactor/15-phase-skills-reintegration.md` (this file —
   archived per step 9)
 
 **Net dotfiles diff estimate:** ~200–300 lines changed (mostly s/`codex exec`/`codex-session exec`/,

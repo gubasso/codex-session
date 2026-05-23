@@ -6,7 +6,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use super::{AccountError, AccountId, quota, registry::Registry};
+use super::{AccountError, AccountId, cooldown, quota, registry::Registry};
 
 const LONG_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
 
@@ -19,7 +19,7 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
 
     let mut candidates = Vec::with_capacity(accounts.len());
     for entry in accounts {
-        if cooldown_active(&registry, &entry.id) {
+        if cooldown_active(&registry, &entry.id)? {
             tracing::debug!(account = %entry.id, reason = "cooldown");
             continue;
         }
@@ -198,21 +198,10 @@ fn score_candidate(
     })
 }
 
-fn cooldown_active(registry: &Registry, account: &AccountId) -> bool {
-    let path = registry.account_dir(account).join("cooldown.json");
-    let Ok(bytes) = std::fs::read(path.as_std_path()) else {
-        return false;
-    };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return false;
-    };
-    let Some(reset_at_unix) = value
-        .get("reset_at_unix")
-        .and_then(serde_json::Value::as_u64)
-    else {
-        return false;
-    };
-    reset_at_unix > now_unix()
+fn cooldown_active(registry: &Registry, account: &AccountId) -> Result<bool, AccountError> {
+    let account_root = registry.account_dir(account);
+    Ok(cooldown::read(&account_root)?
+        .is_some_and(|cooldown| cooldown::is_active(&cooldown, now_unix())))
 }
 
 fn now_unix() -> u64 {
@@ -361,18 +350,24 @@ mod tests {
             crate::cli::GlobalArgs::default(),
             base.join("home"),
         );
-        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let id: crate::services::account::AccountId = "cool".parse().unwrap();
-        registry.add(&id, false, ctx.home_dir()).unwrap();
-        std::fs::write(
-            registry
-                .account_dir(&id)
-                .join("cooldown.json")
-                .as_std_path(),
-            r#"{"reset_at_unix": 4102444800}"#,
+        crate::services::account::registry::Registry::from_config(&ctx.config)
+            .add(&id, false, ctx.home_dir())
+            .unwrap();
+        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+        let account_root = registry.account_dir(&id);
+        std::fs::create_dir_all(account_root.as_std_path()).unwrap();
+        crate::services::account::cooldown::write(
+            &account_root,
+            &crate::services::account::cooldown::Cooldown {
+                reset_at_unix: 4_102_444_800,
+                reason: "429 detected".to_owned(),
+                last_429_at_unix: 4_102_444_500,
+                snippet_truncated: "HTTP 429 Too Many Requests".to_owned(),
+            },
         )
         .unwrap();
 
-        assert!(cooldown_active(&registry, &id));
+        assert!(cooldown_active(&registry, &id).unwrap());
     }
 }

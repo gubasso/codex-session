@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 #[test]
-fn auth_bridge_signal_persists_on_sigterm() {
+fn signal_forwarding_preserves_child_auth_write_on_sigterm() {
     let td = tempfile::tempdir().unwrap();
     let home = td.path().join("home");
     std::fs::create_dir_all(&home).unwrap();

@@ -49,7 +49,3 @@ chmod 600 "$CODEX_HOME/auth.json"
         "native auth should remain untouched"
     );
 }
-
-#[test]
-#[ignore = "R4: AuthBridge watcher removed; one-shot import only in R1"]
-fn watcher_propagates_first_login_to_concurrent_session() {}

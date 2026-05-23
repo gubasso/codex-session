@@ -27,11 +27,25 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error:
         Some(cli::Commands::Profile(args)) => run_profile(ctx, args).map(|()| 0),
         Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx, args),
         Some(cli::Commands::Account(args)) => commands::account::dispatch(ctx, args).map(|()| 0),
-        Some(cli::Commands::External(argv)) => commands::pass_through::run(ctx, &argv).map(|()| 0),
+        Some(cli::Commands::External(argv)) => {
+            commands::pass_through::run(ctx, &argv).map(child_exit_code)
+        }
         // No subcommand: forward to `codex` with an empty child argv
         // (launches the Codex TUI when `codex` is resolvable).
-        None => commands::pass_through::run(ctx, &[]).map(|()| 0),
+        None => commands::pass_through::run(ctx, &[]).map(child_exit_code),
     }
+}
+
+fn child_exit_code(code: i32) -> u8 {
+    u8::try_from(code).unwrap_or_else(|_| {
+        tracing::warn!(
+            op = "child.exit.clamped",
+            original = code,
+            clamped = u8::MAX,
+            "child exit code does not fit in u8; clamping to 255",
+        );
+        u8::MAX
+    })
 }
 
 fn run_config(

@@ -120,11 +120,8 @@ impl Registry {
             if native_auth.as_std_path().exists() {
                 let bytes = crate::services::auth::secure_file_read(&native_auth)
                     .map_err(map_auth_error)?;
-                crate::services::auth::secure_file_write_atomic(
-                    &self.group_auth_seed_path(name),
-                    &bytes,
-                )
-                .map_err(map_auth_error)?;
+                crate::adapters::fs::atomic_write(&self.group_auth_seed_path(name), &bytes)
+                    .map_err(map_fs_error)?;
             } else {
                 tracing::info!(
                     op = "account.add",
@@ -209,18 +206,15 @@ impl Registry {
         if let Some(parent) = self.last_account_path.parent() {
             crate::services::auth::ensure_owned_dir_0700(parent).map_err(map_auth_error)?;
         }
-        crate::services::auth::secure_file_write_atomic(
-            &self.last_account_path,
-            name.as_str().as_bytes(),
-        )
-        .map_err(map_auth_error)
+        crate::adapters::fs::atomic_write(&self.last_account_path, name.as_str().as_bytes())
+            .map_err(map_fs_error)
     }
 
     /// Validate that `<root>/<name>` is a real directory (not a symlink, not
     /// a non-directory). Returns `NotFound` for absent entries and
     /// `RegistryIo` for symlinked/non-directory entries so callers don't
     /// rely on a bare `.exists()` check that would accept either.
-    fn expect_account_dir(&self, name: &AccountId) -> Result<Utf8PathBuf, AccountError> {
+    pub(crate) fn expect_account_dir(&self, name: &AccountId) -> Result<Utf8PathBuf, AccountError> {
         let dir = self.account_dir(name);
         match std::fs::symlink_metadata(dir.as_std_path()) {
             Ok(metadata) => {
@@ -320,8 +314,7 @@ fn groups_last_used(account_dir: &Utf8Path) -> Result<Option<SystemTime>, Accoun
 
 fn map_auth_error(err: crate::services::auth::AuthError) -> AccountError {
     match err {
-        crate::services::auth::AuthError::Io { path, source }
-        | crate::services::auth::AuthError::LockFailed { path, source } => {
+        crate::services::auth::AuthError::Io { path, source } => {
             AccountError::RegistryIo { path, source }
         }
         crate::services::auth::AuthError::SymlinkRefused { path } => AccountError::RegistryIo {
@@ -336,9 +329,25 @@ fn map_auth_error(err: crate::services::auth::AuthError) -> AccountError {
             path,
             source: std::io::Error::other("bad ownership"),
         },
-        crate::services::auth::AuthError::JsonParse { path, source } => AccountError::RegistryIo {
+    }
+}
+
+fn map_fs_error(err: crate::adapters::fs::FsError) -> AccountError {
+    match err {
+        crate::adapters::fs::FsError::Io { path, source } => {
+            AccountError::RegistryIo { path, source }
+        }
+        crate::adapters::fs::FsError::SymlinkRefused { path } => AccountError::RegistryIo {
             path,
-            source: std::io::Error::new(std::io::ErrorKind::InvalidData, source.to_string()),
+            source: std::io::Error::other("symlink refused"),
+        },
+        crate::adapters::fs::FsError::HardlinkRefused { path } => AccountError::RegistryIo {
+            path,
+            source: std::io::Error::other("hardlink refused"),
+        },
+        crate::adapters::fs::FsError::BadOwnership { path, .. } => AccountError::RegistryIo {
+            path,
+            source: std::io::Error::other("bad ownership"),
         },
     }
 }

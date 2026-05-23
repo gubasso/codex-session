@@ -285,8 +285,8 @@ fn write_cache(path: &Utf8PathBuf, entry: &CacheEntry) -> Result<(), QuotaError>
     }
     let bytes = serde_json::to_vec_pretty(entry)
         .map_err(|err| QuotaError::Io(std::io::Error::other(err.to_string())))?;
-    crate::services::auth::secure_file_write_atomic(path, &bytes).map_err(|err| match err {
-        crate::services::auth::AuthError::Io { source, .. } => QuotaError::Io(source),
+    crate::adapters::fs::atomic_write(path, &bytes).map_err(|err| match err {
+        crate::adapters::fs::FsError::Io { source, .. } => QuotaError::Io(source),
         other => QuotaError::AuthMissing(other.to_string()),
     })
 }

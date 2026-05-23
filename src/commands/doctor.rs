@@ -776,7 +776,7 @@ fn check_auth_native(ctx: &crate::context::AppContext) -> CheckResult {
     // Render the `inspect_native_health` result. The OS-level predicates
     // live in `services::auth` so the bridge and doctor never disagree on
     // what counts as healthy.
-    use crate::services::auth::{AuthFileHealth, DirHealth, inspect_native_health};
+    use crate::services::auth_inspect::{AuthFileHealth, DirHealth, inspect_native_health};
 
     let health = inspect_native_health(ctx.home_dir());
 

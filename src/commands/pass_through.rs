@@ -48,19 +48,27 @@ pub(crate) fn run(
     crate::services::account::retry::run_with_retry(ctx, argv)
 }
 
-/// Run the child for one attempt. Returns the exit code plus the
-/// independently captured stdout and stderr buffers (each capped at
-/// `failover::MAX_CAPTURE_BYTES`). The two streams are returned separately
-/// so callers can run `failover::scan` on each without manufacturing a
-/// synthetic interleaving — concatenating them risks false-positive line
-/// boundaries (a partial line on stdout joined to a fragment on stderr)
-/// and false negatives (real interleaving reordered into a non-matching
-/// shape).
+/// Run the child for one attempt. Returns the exit code plus stdout and
+/// stderr buffers.
+///
+/// When `capture` is `true`, the child's streams are tee'd to the
+/// parent's real stdio **and** independently captured (each capped at
+/// `failover::MAX_CAPTURE_BYTES`). The two streams are returned
+/// separately so callers can run `failover::scan` on each without
+/// manufacturing a synthetic interleaving — concatenating them risks
+/// false-positive line boundaries (a partial line on stdout joined to a
+/// fragment on stderr) and false negatives (real interleaving reordered
+/// into a non-matching shape).
+///
+/// When `capture` is `false`, the child inherits the parent's stdio
+/// directly (no pipe, no tee overhead) and the returned buffers are
+/// empty.
 pub(crate) fn run_once(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
     account: &crate::services::account::AccountId,
     session: &SignalSession,
+    capture: bool,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
     tracing::info!(
         op = "pass-through.run-once",
@@ -72,7 +80,13 @@ pub(crate) fn run_once(
 
     let cache_settings = cache_settings_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
-    let result = run_child(ctx, &prepared.session_dir, prepared.invocation, session);
+    let result = run_child(
+        ctx,
+        &prepared.session_dir,
+        prepared.invocation,
+        session,
+        capture,
+    );
     persist_trust(
         &session_config,
         &cache_settings,
@@ -214,21 +228,28 @@ fn run_child(
     session_dir: &camino::Utf8Path,
     inv: ChildInvocation,
     session: &SignalSession,
+    capture: bool,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
     crate::services::auth::import_if_missing(session_dir, ctx.home_dir())?;
-    let spawn_result = ctx.spawner.spawn_and_wait_output(inv, &session.child_pid);
-    // `spawn_and_wait_output` already clears the PID immediately after
-    // `child.wait()` returns; this second store is belt-and-suspenders in
-    // case the spawner implementation changes. The shared
-    // `SignalSession::child_pid` is reused across retry attempts, so each
-    // attempt repopulates it on spawn and clears it on reap.
-    session
-        .child_pid
-        .store(0, std::sync::atomic::Ordering::SeqCst);
-    let output = spawn_result?;
 
-    let exit_code = finalize_child_status(output.status, &session.guard)?;
-    Ok((exit_code, output.stdout, output.stderr))
+    let (status, stdout, stderr) = if capture {
+        let spawn_result = ctx.spawner.spawn_and_wait_output(inv, &session.child_pid);
+        session
+            .child_pid
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        let output = spawn_result?;
+        (output.status, output.stdout, output.stderr)
+    } else {
+        let spawn_result = ctx.spawner.spawn_and_wait(inv, &session.child_pid);
+        session
+            .child_pid
+            .store(0, std::sync::atomic::Ordering::SeqCst);
+        let status = spawn_result?;
+        (status, Vec::new(), Vec::new())
+    };
+
+    let exit_code = finalize_child_status(status, &session.guard)?;
+    Ok((exit_code, stdout, stderr))
 }
 
 fn materialize_account_auth_seed(

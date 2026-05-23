@@ -53,7 +53,6 @@ pub(crate) trait Spawner {
     /// Mock spawners must also accept the sink (and write a non-zero
     /// value when they "spawn" so the signal thread treats their fake
     /// child as live). The coupling is intentional.
-    #[allow(dead_code)]
     fn spawn_and_wait(
         &self,
         inv: ChildInvocation,
@@ -257,7 +256,11 @@ impl Spawner for StdSpawner {
             i32::try_from(child.id()).unwrap_or(i32::MAX),
             Ordering::SeqCst,
         );
-        let status = child.wait().map_err(SpawnerError::Exec)?;
+        let status = child.wait().map_err(|e| {
+            pid_sink.store(0, Ordering::SeqCst);
+            SpawnerError::Exec(e)
+        })?;
+        pid_sink.store(0, Ordering::SeqCst);
         Ok(status)
     }
 

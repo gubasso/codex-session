@@ -54,6 +54,12 @@ fn doctor_json_shape() {
     assert_eq!(value["active-account"]["name"], "default");
     assert_eq!(value["active-account"]["source"], "fallback");
     assert!(value["accounts"].as_array().is_some());
+    let accounts = value["accounts"].as_array().unwrap();
+    for account in accounts {
+        assert_eq!(account["cooldown-active"], false);
+        assert!(account["cooldown-reset-at-unix"].is_null());
+        assert!(account["cooldown-reason"].is_null());
+    }
     assert!(value.get("group-id").is_some());
     assert!(value.get("group-id-source").is_some());
     assert!(value.get("codex-home").is_some());
@@ -69,6 +75,102 @@ fn doctor_json_shape() {
     assert!(names.contains(&"composition.default.dry-run"));
     assert!(names.contains(&"session.root"));
     assert!(names.contains(&"auth.native"));
+}
+
+#[test]
+fn doctor_json_reports_cooldown_active_account() {
+    let env = TestEnv::new();
+    install_minimal_profile(&env);
+    env.cmd()
+        .args(["account", "add", "work"])
+        .assert()
+        .success();
+    let cooldown_path = env.named_account_root("work").join("cooldown.json");
+    std::fs::create_dir_all(cooldown_path.parent().unwrap()).unwrap();
+    let cd_json = serde_json::json!({
+        "reset_at_unix": 4_102_444_800_u64,
+        "reason": "rate limited",
+        "last_429_at_unix": 1,
+        "snippet_truncated": "429"
+    });
+    std::fs::write(cooldown_path, cd_json.to_string()).unwrap();
+
+    let output = env
+        .cmd()
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let accounts = value["accounts"].as_array().unwrap();
+    assert!(
+        accounts
+            .iter()
+            .any(|a| a["name"] == "work" && a["cooldown-active"] == true)
+    );
+}
+
+#[test]
+fn doctor_fails_when_active_account_missing_auth() {
+    let env = TestEnv::new();
+    install_minimal_profile(&env);
+    env.cmd()
+        .args(["account", "add", "work"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["account", "use", "work"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(
+        env.cmd()
+            .arg("doctor")
+            .assert()
+            .code(1)
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap();
+
+    assert!(stdout.contains("account.active.auth"));
+    assert!(stdout.contains("FAIL"));
+    assert!(stdout.contains("account.active.auth: run `codex login`"));
+}
+
+#[test]
+fn doctor_warn_cooldown_appears_in_next_steps() {
+    let env = TestEnv::new();
+    install_minimal_profile(&env);
+    env.cmd()
+        .args(["account", "add", "work"])
+        .assert()
+        .success();
+    let cooldown_path = env.named_account_root("work").join("cooldown.json");
+    std::fs::create_dir_all(cooldown_path.parent().unwrap()).unwrap();
+    let cd_json = serde_json::json!({
+        "reset_at_unix": 4_102_444_800_u64,
+        "reason": "rate limited",
+        "last_429_at_unix": 1,
+        "snippet_truncated": "429"
+    });
+    std::fs::write(cooldown_path, cd_json.to_string()).unwrap();
+
+    let stdout = String::from_utf8(
+        env.cmd()
+            .arg("doctor")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap();
+    assert!(stdout.contains("account.cooldowns"));
+    assert!(stdout.contains("account.cooldowns: wait for cooldown to expire"));
 }
 
 #[test]

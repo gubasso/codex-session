@@ -237,15 +237,26 @@ impl Ui {
                     writeln!(stdout, "  (none)")?;
                 } else {
                     for account in &report.accounts {
+                        let cooldown_str = if account.cooldown_active {
+                            format!(
+                                "cooldown=active(reset_at={})",
+                                account
+                                    .cooldown_reset_at_unix
+                                    .map_or_else(|| "?".to_owned(), |v| v.to_string())
+                            )
+                        } else {
+                            "cooldown=none".to_owned()
+                        };
                         writeln!(
                             stdout,
-                            "  {} current={} has_auth={} last_used_at_unix={}",
+                            "  {} current={} has_auth={} last_used_at_unix={} {}",
                             account.name,
                             account.current,
                             account.has_auth,
                             account
                                 .last_used_at_unix
-                                .map_or_else(|| "(none)".to_owned(), |value| value.to_string())
+                                .map_or_else(|| "(none)".to_owned(), |value| value.to_string()),
+                            cooldown_str,
                         )?;
                     }
                 }

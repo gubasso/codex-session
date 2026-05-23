@@ -18,6 +18,7 @@ fn doctor_reports_accounts_section() {
         .args(["account", "add", "work"])
         .assert()
         .success();
+    env.write_account_auth_seed("work", r#"{"tokens":{"access_token":"test-token"}}"#);
     env.cmd()
         .args(["account", "use", "work"])
         .assert()

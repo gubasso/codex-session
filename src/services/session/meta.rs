@@ -16,15 +16,25 @@ pub(crate) struct SessionMeta<'a> {
     pub(crate) group_id: &'a str,
     pub(crate) cwd: &'a Utf8Path,
     pub(crate) started_at: String,
+    pub(crate) account: &'a str,
+    pub(crate) account_source: &'a str,
 }
 
 impl<'a> SessionMeta<'a> {
-    pub(crate) fn new(profile: Option<&'a str>, group_id: &'a str, cwd: &'a Utf8Path) -> Self {
+    pub(crate) fn new(
+        profile: Option<&'a str>,
+        group_id: &'a str,
+        cwd: &'a Utf8Path,
+        account: &'a str,
+        account_source: &'a str,
+    ) -> Self {
         Self {
             profile,
             group_id,
             cwd,
             started_at: started_at_now(),
+            account,
+            account_source,
         }
     }
 }

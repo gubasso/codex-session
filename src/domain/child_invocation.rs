@@ -151,3 +151,21 @@ impl ChildInvocation {
         out
     }
 }
+
+pub(crate) struct DryRunContext {
+    pub(crate) account: String,
+    pub(crate) account_source: String,
+}
+
+pub(crate) fn dry_run_report_with_context(
+    inv: &ChildInvocation,
+    context: Option<&DryRunContext>,
+) -> String {
+    let mut out = String::new();
+    if let Some(ctx) = context {
+        let _ = writeln!(out, "account: {}", ctx.account);
+        let _ = writeln!(out, "account-source: {}", ctx.account_source);
+    }
+    out.push_str(&inv.dry_run_report());
+    out
+}

@@ -96,8 +96,8 @@ fn bare_invocation_forwards_to_codex_with_empty_argv() {
         env.normalize_text(&String::from_utf8(assert.get_output().stdout.clone()).unwrap());
 
     assert!(
-        stdout.starts_with("binary: "),
-        "dry-run report must start with `binary: `: {stdout}"
+        stdout.starts_with("account: default\naccount-source: fallback\nbinary: "),
+        "dry-run report must start with account context and `binary: `: {stdout}"
     );
     assert!(
         stdout.contains("argv:\n"),

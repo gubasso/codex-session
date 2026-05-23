@@ -12,12 +12,86 @@ use std::sync::atomic::AtomicI32;
 use crate::adapters::spawner::Spawner as _;
 use crate::domain::child_invocation::{ChildEnv, ChildInvocation};
 
+/// Pairs the shared child-PID slot with the once-installed signal-forwarding
+/// guard. Created once per wrapper invocation by the entry point and reused
+/// across every retry attempt — installing a fresh forwarder per attempt
+/// would leak iterator threads whose stale `child_pid` Arcs (now `0`) would
+/// take the no-child branch on a later signal and terminate the wrapper.
+pub(crate) struct SignalSession {
+    pub(crate) child_pid: Arc<AtomicI32>,
+    pub(crate) guard: crate::adapters::spawner::SignalGuard,
+}
+
+impl SignalSession {
+    pub(crate) fn install() -> Result<Self, crate::error::AppError> {
+        let child_pid = Arc::new(AtomicI32::new(0));
+        let guard = crate::adapters::spawner::install_signal_forwarding(Arc::clone(&child_pid))
+            .map_err(crate::error::AppError::Io)?;
+        Ok(Self { child_pid, guard })
+    }
+}
+
 /// Run the non-`self` path.
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
-) -> Result<(), crate::error::AppError> {
+) -> Result<i32, crate::error::AppError> {
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
+    if ctx.global.dry_run {
+        let account = crate::services::account::resolver::resolve(ctx)?.id;
+        let prepared = prepare_invocation(ctx, argv, &account)?;
+        ctx.ui
+            .write_dry_run(&prepared.invocation.dry_run_report())?;
+        tracing::info!(op = "pass-through", status = "ok", outcome = "dry-run");
+        return Ok(0);
+    }
+    crate::services::account::retry::run_with_retry(ctx, argv)
+}
+
+/// Run the child for one attempt. Returns the exit code plus the
+/// independently captured stdout and stderr buffers (each capped at
+/// `failover::MAX_CAPTURE_BYTES`). The two streams are returned separately
+/// so callers can run `failover::scan` on each without manufacturing a
+/// synthetic interleaving — concatenating them risks false-positive line
+/// boundaries (a partial line on stdout joined to a fragment on stderr)
+/// and false negatives (real interleaving reordered into a non-matching
+/// shape).
+pub(crate) fn run_once(
+    ctx: &crate::context::AppContext,
+    argv: &[std::ffi::OsString],
+    account: &crate::services::account::AccountId,
+    session: &SignalSession,
+) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
+    tracing::info!(
+        op = "pass-through.run-once",
+        status = "start",
+        argc = argv.len(),
+        account = %account
+    );
+    let prepared = prepare_invocation(ctx, argv, account)?;
+
+    let cache_settings = cache_settings_target(ctx);
+    let session_config = prepared.session_dir.join("config.toml");
+    let result = run_child(ctx, &prepared.session_dir, prepared.invocation, session);
+    persist_trust(
+        &session_config,
+        &cache_settings,
+        prepared.baseline_projects.as_ref(),
+    );
+    result
+}
+
+struct PreparedInvocation {
+    invocation: ChildInvocation,
+    session_dir: camino::Utf8PathBuf,
+    baseline_projects: Option<toml::Table>,
+}
+
+fn prepare_invocation(
+    ctx: &crate::context::AppContext,
+    argv: &[std::ffi::OsString],
+    account: &crate::services::account::AccountId,
+) -> Result<PreparedInvocation, crate::error::AppError> {
     let resolved = ctx.resolved_child().map_err(|err| match err {
         crate::adapters::spawner::SpawnerError::NotFound {
             tried,
@@ -42,12 +116,16 @@ pub(crate) fn run(
         }
     })?;
 
-    let session = ctx.session()?;
-    let group_id = session.group_id.as_str().to_owned();
-    let session_dir = session.dir.clone();
+    let group = crate::services::session::group_id::current(ctx)?;
+    let root = crate::services::session::dir::resolve_session_root(
+        ctx.config.paths.runtime_dir.as_deref(),
+        &ctx.config.paths.state_dir,
+    )?;
+    let group_id = group.id.as_str().to_owned();
+    let session_dir = crate::services::session::dir::session_dir(&root.path, account, &group_id)?;
     let cwd = current_cwd()?;
     let profile = ctx.config.profile.active.clone();
-    materialize_account_auth_seed(ctx, &session.account, &session_dir)?;
+    materialize_account_auth_seed(ctx, account, &session_dir)?;
 
     let (env, baseline_projects) = if let Some(profile_name) = profile.as_deref() {
         let composition = crate::services::profile::compose(
@@ -94,23 +172,11 @@ pub(crate) fn run(
         env: child_env,
     };
 
-    if ctx.global.dry_run {
-        ctx.ui.write_dry_run(&inv.dry_run_report())?;
-        tracing::info!(op = "pass-through", status = "ok", outcome = "dry-run");
-        return Ok(());
-    }
-
-    // Run codex, then sync any trust decisions it persisted into our
-    // session-scoped CODEX_HOME back to the machine-local cache layer.
-    // The sync runs on both clean and non-zero exits — the user may have
-    // confirmed trust before a later unrelated failure. Log-and-swallow on
-    // sync errors mirrors the auth.persist contract (and upstream codex's
-    // own PR #17595 policy).
-    let cache_settings = cache_settings_target(ctx);
-    let session_config = session_dir.join("config.toml");
-    let result = run_child(ctx, &session_dir, inv);
-    persist_trust(&session_config, &cache_settings, baseline_projects.as_ref());
-    result
+    Ok(PreparedInvocation {
+        invocation: inv,
+        session_dir,
+        baseline_projects,
+    })
 }
 
 fn persist_trust(
@@ -147,17 +213,22 @@ fn run_child(
     ctx: &crate::context::AppContext,
     session_dir: &camino::Utf8Path,
     inv: ChildInvocation,
-) -> Result<(), crate::error::AppError> {
-    let child_pid = Arc::new(AtomicI32::new(0));
-    let sig_guard = crate::services::auth::signal::install(Arc::clone(&child_pid))
-        .map_err(crate::error::AppError::Io)?;
+    session: &SignalSession,
+) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
     crate::services::auth::import_if_missing(session_dir, ctx.home_dir())?;
-    let spawn_result = ctx.spawner.spawn_and_wait(inv, &child_pid);
-    // Clear the child PID after wait so any later-arriving signal cannot
-    // be forwarded to a recycled PID.
-    child_pid.store(0, std::sync::atomic::Ordering::SeqCst);
-    let status = spawn_result?;
-    finalize_child_status(status, &sig_guard)
+    let spawn_result = ctx.spawner.spawn_and_wait_output(inv, &session.child_pid);
+    // `spawn_and_wait_output` already clears the PID immediately after
+    // `child.wait()` returns; this second store is belt-and-suspenders in
+    // case the spawner implementation changes. The shared
+    // `SignalSession::child_pid` is reused across retry attempts, so each
+    // attempt repopulates it on spawn and clears it on reap.
+    session
+        .child_pid
+        .store(0, std::sync::atomic::Ordering::SeqCst);
+    let output = spawn_result?;
+
+    let exit_code = finalize_child_status(output.status, &session.guard)?;
+    Ok((exit_code, output.stdout, output.stderr))
 }
 
 fn materialize_account_auth_seed(
@@ -172,28 +243,29 @@ fn materialize_account_auth_seed(
         return Ok(());
     }
     let bytes = crate::services::auth::secure_file_read(&seed)?;
-    crate::services::auth::secure_file_write_atomic(&group_auth, &bytes)?;
+    crate::adapters::fs::atomic_write(&group_auth, &bytes)
+        .map_err(crate::services::auth::AuthError::from)?;
     Ok(())
 }
 
 fn finalize_child_status(
     status: std::process::ExitStatus,
-    sig_guard: &crate::services::auth::signal::SignalGuard,
-) -> Result<(), crate::error::AppError> {
+    sig_guard: &crate::adapters::spawner::SignalGuard,
+) -> Result<i32, crate::error::AppError> {
     match status.code() {
         // Child exited cleanly. If the wrapper itself observed a fatal
         // signal (e.g. user pressed Ctrl-C and the child trapped it),
         // surface it with conventional shell semantics (exit 128+sig).
         // The kernel never reported a signal on the child, so this is
         // the only chance we have to propagate the user's intent.
-        Some(0) => sig_guard.observed_signal().map_or(Ok(()), |signal| {
+        Some(0) => sig_guard.observed_signal().map_or(Ok(0), |signal| {
             let synthetic =
                 <std::process::ExitStatus as std::os::unix::process::ExitStatusExt>::from_raw(
                     signal,
                 );
             Err(crate::error::AppError::ChildSignaled(synthetic))
         }),
-        Some(code) => Err(crate::error::AppError::ChildExitNonZero(code)),
+        Some(code) => Ok(code),
         // Child died of a signal. Prefer the kernel-reported status — it
         // names the exact signal the child took (which may differ from
         // the signal the wrapper observed, e.g. when the child SIGSEGV'd

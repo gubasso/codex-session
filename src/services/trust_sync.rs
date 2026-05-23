@@ -21,9 +21,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::services::auth::{
-    AuthError, ensure_owned_dir_0700, secure_file_read, secure_file_write_atomic,
-};
+use crate::services::auth::{AuthError, ensure_owned_dir_0700, secure_file_read};
 
 /// Result of a single post-flight sync attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,29 +100,37 @@ impl TrustSyncError {
 }
 
 impl TrustSyncError {
-    fn from_auth(err: AuthError, fallback_path: &Utf8Path) -> Self {
+    fn from_auth(err: AuthError, _fallback_path: &Utf8Path) -> Self {
         // Map auth's hardened-IO variants to our equivalents. Preserves the
-        // path the auth primitive reported on (which may be the lockfile,
-        // the cache settings file, or its parent directory).
+        // path the auth primitive reported on (the cache settings file or its
+        // parent directory).
         let owned = err.path().to_path_buf();
         match err {
             AuthError::SymlinkRefused { .. } => Self::SymlinkRefused { path: owned },
             AuthError::HardlinkRefused { .. } => Self::HardlinkRefused { path: owned },
             AuthError::BadOwnership { .. } => Self::BadOwnership { path: owned },
-            AuthError::LockFailed { source, .. } => Self::LockFailed {
-                path: owned,
-                source,
-            },
             AuthError::Io { source, .. } => Self::Io {
                 path: owned,
                 source,
             },
-            // Auth's JsonParse cannot fire on our code path (we don't ask
-            // auth to parse JSON), but keep the fallback path for safety.
-            AuthError::JsonParse { source, .. } => Self::Io {
-                path: fallback_path.to_path_buf(),
-                source: std::io::Error::new(std::io::ErrorKind::InvalidData, source),
-            },
+        }
+    }
+
+    fn from_fs(err: crate::adapters::fs::FsError, fallback_path: &Utf8Path) -> Self {
+        match err {
+            crate::adapters::fs::FsError::SymlinkRefused { path } => Self::SymlinkRefused { path },
+            crate::adapters::fs::FsError::HardlinkRefused { path } => {
+                Self::HardlinkRefused { path }
+            }
+            crate::adapters::fs::FsError::BadOwnership { path, .. } => Self::BadOwnership { path },
+            crate::adapters::fs::FsError::Io { path, source } => {
+                let path = if path.as_str().is_empty() {
+                    fallback_path.to_path_buf()
+                } else {
+                    path
+                };
+                Self::Io { path, source }
+            }
         }
     }
 }
@@ -194,8 +200,8 @@ pub(crate) fn persist_projects(
                     source,
                 }
             })?;
-            secure_file_write_atomic(cache_settings, serialized.as_bytes())
-                .map_err(|e| TrustSyncError::from_auth(e, cache_settings))?;
+            crate::adapters::fs::atomic_write(cache_settings, serialized.as_bytes())
+                .map_err(|e| TrustSyncError::from_fs(e, cache_settings))?;
             Ok(Some(counts))
         },
     )?;

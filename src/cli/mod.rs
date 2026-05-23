@@ -88,6 +88,10 @@ pub(crate) struct GlobalArgs {
     #[arg(long, value_name = "NAME", global = true)]
     pub(crate) account: Option<crate::cli::account::AccountSelector>,
 
+    /// Retry child invocations this many times after a detected 429.
+    #[arg(long, value_name = "N", global = true, default_value_t = 0)]
+    pub(crate) max_retries: u32,
+
     /// Print the resolved child invocation and exit without running it.
     #[arg(long, global = true)]
     pub(crate) dry_run: bool,

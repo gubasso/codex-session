@@ -1,6 +1,5 @@
 ---
 source: tests/cmd_root_help.rs
-assertion_line: 46
 expression: normalized
 ---
 Wrapper around `codex` with profile-layered session composition.
@@ -57,6 +56,11 @@ Options:
 
       --account <NAME>
           Select the account whose `CODEX_HOME` the child uses. Use `auto` for R3+ selector
+
+      --max-retries <N>
+          Retry child invocations this many times after a detected 429
+          
+          [default: 0]
 
       --dry-run
           Print the resolved child invocation and exit without running it

@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 
-use super::id::AccountId;
+use super::{cooldown::CooldownError, id::AccountId};
 
 #[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +29,9 @@ pub(crate) enum AccountError {
 
     #[error("quota parse failed: {detail}")]
     QuotaParse { detail: String },
+
+    #[error(transparent)]
+    Cooldown(#[from] CooldownError),
 }
 
 impl AccountError {
@@ -41,6 +44,7 @@ impl AccountError {
             Self::NoEligible => "account-no-eligible",
             Self::QuotaFetch { .. } => "account-quota-fetch",
             Self::QuotaParse { .. } => "account-quota-parse",
+            Self::Cooldown { .. } => "account-cooldown",
         }
     }
 
@@ -49,6 +53,17 @@ impl AccountError {
             Self::NotFound { path, .. }
             | Self::AlreadyExists { path, .. }
             | Self::RegistryIo { path, .. } => Some(path.as_path()),
+            Self::Cooldown(err) => match err {
+                CooldownError::Fs(
+                    crate::adapters::fs::FsError::Io { path, .. }
+                    | crate::adapters::fs::FsError::SymlinkRefused { path }
+                    | crate::adapters::fs::FsError::HardlinkRefused { path }
+                    | crate::adapters::fs::FsError::BadOwnership { path, .. },
+                )
+                | CooldownError::Decode { path, .. }
+                | CooldownError::Encode { path, .. }
+                | CooldownError::Io { path, .. } => Some(path.as_path()),
+            },
             Self::InvalidName { .. }
             | Self::NoEligible
             | Self::QuotaFetch { .. }

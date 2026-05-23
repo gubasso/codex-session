@@ -43,6 +43,7 @@ pub(crate) enum AppError {
     ChildExec(#[source] std::io::Error),
 
     /// Child exited with a non-zero status.
+    #[allow(dead_code)]
     #[error("child exited with status {0}")]
     ChildExitNonZero(i32),
 
@@ -150,7 +151,8 @@ impl AppError {
                 crate::services::account::AccountError::NoEligible => 75,
                 crate::services::account::AccountError::QuotaFetch { .. } => 69,
                 crate::services::account::AccountError::QuotaParse { .. } => 65,
-                crate::services::account::AccountError::RegistryIo { .. } => 74,
+                crate::services::account::AccountError::RegistryIo { .. }
+                | crate::services::account::AccountError::Cooldown { .. } => 74,
             },
             Self::ChildRecursion { .. } | Self::Other(_) => 70,
             Self::Auth(_) => 75,
@@ -412,14 +414,6 @@ fn auth_error_detail(err: &crate::services::auth::AuthError) -> ErrorDetail {
             what: "auth: bad ownership or permissions on auth.json".to_owned(),
             why_line: "the file must be owned by you and mode 0600".to_owned(),
         },
-        AuthError::LockFailed { source, .. } => ErrorDetail {
-            what: "auth: failed to acquire auth.json lock".to_owned(),
-            why_line: source.to_string(),
-        },
-        AuthError::JsonParse { source, .. } => ErrorDetail {
-            what: "auth: malformed auth.json".to_owned(),
-            why_line: source.to_string(),
-        },
     }
 }
 
@@ -454,6 +448,10 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
         AccountError::QuotaParse { detail } => ErrorDetail {
             what: "account: quota parse failed".to_owned(),
             why_line: detail.clone(),
+        },
+        AccountError::Cooldown(err) => ErrorDetail {
+            what: "account: cooldown state failed".to_owned(),
+            why_line: err.to_string(),
         },
     }
 }
@@ -579,15 +577,14 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             | ConfigError::EnvKeyInvalid { .. }
             | ConfigError::AccountConfigParse { .. },
         )
-        | AppError::Auth(
-            AuthError::Io { .. } | AuthError::LockFailed { .. } | AuthError::JsonParse { .. },
-        )
+        | AppError::Auth(AuthError::Io { .. })
         | AppError::Account(
             crate::services::account::AccountError::InvalidName { .. }
             | crate::services::account::AccountError::RegistryIo { .. }
             | crate::services::account::AccountError::NoEligible
             | crate::services::account::AccountError::QuotaFetch { .. }
-            | crate::services::account::AccountError::QuotaParse { .. },
+            | crate::services::account::AccountError::QuotaParse { .. }
+            | crate::services::account::AccountError::Cooldown { .. },
         )
         | AppError::Usage(_)
         | AppError::ChildExec(_)

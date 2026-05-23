@@ -11,6 +11,7 @@
 use std::io::Write as _;
 
 pub(crate) mod color;
+pub(crate) mod raw_passthrough;
 
 /// UI renderer.
 pub(crate) struct Ui;
@@ -458,6 +459,44 @@ impl Ui {
                 Ok(())
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, views),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_cooldowns(
+        &self,
+        view: &crate::commands::account::AccountCooldownView,
+        format: crate::cli::OutputFormat,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match format {
+            crate::cli::OutputFormat::Text => {
+                if view.entries.is_empty() {
+                    return writeln!(stdout, "(no accounts)");
+                }
+                writeln!(stdout, "ACCOUNT     STATUS       RESETS         REASON")?;
+                for entry in &view.entries {
+                    let status = if entry.cooled_down {
+                        "cooled-down"
+                    } else {
+                        "eligible"
+                    };
+                    let resets = entry
+                        .reset_at_unix
+                        .map_or_else(|| "—".to_owned(), human_duration_until);
+                    let reason = entry
+                        .reason
+                        .as_ref()
+                        .map_or_else(|| "—".to_owned(), |reason| format!("{reason:?}"));
+                    writeln!(
+                        stdout,
+                        "{:<11} {:<12} {:<14} {}",
+                        entry.account, status, resets, reason
+                    )?;
+                }
+                Ok(())
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, &view.entries),
         }
     }
 

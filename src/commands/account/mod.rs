@@ -1,6 +1,7 @@
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 pub(crate) mod add;
+pub(crate) mod cooldown;
 pub(crate) mod current;
 pub(crate) mod list;
 pub(crate) mod quota;
@@ -61,6 +62,22 @@ pub(crate) struct AccountQuotaEntryView {
     pub(crate) weekly: Option<AccountQuotaWindowView>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct AccountCooldownView {
+    pub(crate) entries: Vec<AccountCooldownEntryView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountCooldownEntryView {
+    pub(crate) account: String,
+    pub(crate) cooled_down: bool,
+    pub(crate) reset_at_unix: Option<u64>,
+    pub(crate) reset_in_seconds: Option<u64>,
+    pub(crate) reason: Option<String>,
+    pub(crate) last_429_at_unix: Option<u64>,
+}
+
 pub(crate) fn dispatch(
     ctx: &crate::context::AppContext,
     args: crate::cli::account::AccountArgs,
@@ -74,6 +91,7 @@ pub(crate) fn dispatch(
         AccountCommand::Use(args) => use_::run(ctx, &args),
         AccountCommand::Remove(args) => remove::run(ctx, &args),
         AccountCommand::Quota(args) => quota::run(ctx, args),
+        AccountCommand::Cooldown(args) => cooldown::run(ctx, args),
     }
 }
 

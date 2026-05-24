@@ -8,8 +8,9 @@ use support::{TestEnv, fixture_path};
 #[test]
 fn pinned_retry_warns_and_reuses_same_account() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
 

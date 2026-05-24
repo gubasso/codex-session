@@ -1002,9 +1002,9 @@ fn hint_for(name: &str) -> &'static str {
     } else if name == "child.binary" {
         "set CODEX_SESSION_CHILD_BIN or install `codex` on PATH"
     } else if name == "auth.native" {
-        "run `codex login` then `codex-session account add <name> --from-native`"
+        "run `codex-session account add <name>` to create and authenticate an account"
     } else if name == "account.active.auth" {
-        "run `codex login` then `codex-session account add <name> --from-native` to seed auth"
+        "run `codex-session account refresh` to re-authenticate"
     } else if name == "account.cooldowns" {
         "wait for cooldown to expire or run `codex-session account cooldown clear --all`"
     } else if name == "session.account" {

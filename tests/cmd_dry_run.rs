@@ -47,8 +47,9 @@ fn dry_run_prints_invocation_session_and_codex_home_without_exec() {
 fn dry_run_with_account_flag_shows_flag_context() {
     let env = TestEnv::new();
     env.make_fake_codex();
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     let assert = env

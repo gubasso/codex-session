@@ -30,6 +30,17 @@ pub(crate) enum AccountError {
     #[error("quota parse failed: {detail}")]
     QuotaParse { detail: String },
 
+    #[error("requires an interactive terminal for {action}")]
+    NonInteractive { action: String },
+
+    #[error("codex login failed: {detail}")]
+    LoginFailed { detail: String },
+
+    #[error(
+        "no native auth found at ~/.codex/auth.json; run `codex login` first or omit --from-current"
+    )]
+    NativeAuthMissing,
+
     #[error(transparent)]
     Cooldown(#[from] CooldownError),
 }
@@ -44,6 +55,9 @@ impl AccountError {
             Self::NoEligible => "account-no-eligible",
             Self::QuotaFetch { .. } => "account-quota-fetch",
             Self::QuotaParse { .. } => "account-quota-parse",
+            Self::NonInteractive { .. } => "account-non-interactive",
+            Self::LoginFailed { .. } => "account-login-failed",
+            Self::NativeAuthMissing => "account-native-auth-missing",
             Self::Cooldown { .. } => "account-cooldown",
         }
     }
@@ -67,7 +81,10 @@ impl AccountError {
             Self::InvalidName { .. }
             | Self::NoEligible
             | Self::QuotaFetch { .. }
-            | Self::QuotaParse { .. } => None,
+            | Self::QuotaParse { .. }
+            | Self::NonInteractive { .. }
+            | Self::LoginFailed { .. }
+            | Self::NativeAuthMissing => None,
         }
     }
 }

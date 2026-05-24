@@ -112,6 +112,10 @@ cargo run -- config show-local --format json
 # Show what would be exec'd, without actually launching codex
 cargo run -- --dry-run some passthrough args
 cargo run -- --dry-run -- --flag-starting-with-dash
+cargo run -- account add work --from-native
+cargo run -- account list --format json
+cargo run -- account use work
+cargo run -- --account auto --max-retries 2 --group stable
 
 # Real interactive codex session via the wrapper (release build is snappier)
 cargo run --release -- <codex args>
@@ -212,6 +216,13 @@ Environment variables consumed by the wrapper (full list in
 `README.md`):
 
 - `CODEX_SESSION_CHILD_BIN`
+- `CODEX_SESSION_ACCOUNT`, `CODEX_SESSION_GROUP`
+- `CODEX_SESSION_ACCOUNT_DEFAULT`, `CODEX_SESSION_ACCOUNT_PINNED`
+- `CODEX_SESSION_ACCOUNT_REGISTRY_DIR`
+- `CODEX_SESSION_ACCOUNT_QUOTA_TTL_SECS`
+- `CODEX_SESSION_ACCOUNT_WEEKLY_FLOOR`
+- `CODEX_SESSION_ACCOUNT_FIVE_HOUR_THRESHOLD`
+- `CODEX_SESSION_WHAM_USAGE_URL`
 - `CODEX_SESSION_LOG_FILE`, `CODEX_SESSION_LOG_DIR`
 - `CODEX_SESSION_REENTRY`
 - `NO_COLOR`, `FORCE_COLOR`
@@ -257,7 +268,7 @@ src/
   commands/     # runtime-shape: dispatch + per-verb command modules
   config/       # XDG layering via figment (cli > env > project > user > defaults)
   domain/       # plain data types shared across layers
-  services/     # business logic (merge, child invocation, …)
+  services/     # business logic (merge, child invocation, account resolver/retry/failover, …)
   adapters/     # IO boundaries (filesystem, process spawn, env)
   ui/           # the ONLY place allowed to write to stdout/stderr
   context.rs    # AppContext — wires services + config + IO together

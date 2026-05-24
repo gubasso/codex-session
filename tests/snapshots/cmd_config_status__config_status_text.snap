@@ -10,6 +10,8 @@ account-source: fallback
 group-id:       stable
 group-id-source: flag
 codex_home:     <TMP>/state/codex-session/accounts/default/groups/stable
+accounts:       0 (0 in cooldown)
+active-auth:    true
 session-root:   <TMP>/state/codex-session
 session-source: state
 child-bin:      <TMP>/bin/codex

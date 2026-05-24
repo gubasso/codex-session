@@ -73,6 +73,13 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
             Err(err) => return Err(err),
         };
         last_account = Some(resolved.id.clone());
+        tracing::info!(
+            op = "retry.attempt",
+            attempt,
+            max_retries,
+            account = %resolved.id,
+            account_source = resolver::source_label(resolved.source),
+        );
         let capture = max_retries > 0;
         let result = crate::commands::pass_through::run_once(
             ctx,

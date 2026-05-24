@@ -1,7 +1,8 @@
 ---
 source: tests/cmd_version.rs
-assertion_line: 22
+assertion_line: 23
 expression: stdout
 ---
 codex-session 0.1.0
 codex <TMP>/bin/codex codex 1.2.3
+account:         default (source: fallback)

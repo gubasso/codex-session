@@ -28,7 +28,7 @@ fn symlinked_entrypoint_still_resolves_project_root_and_prints_version() {
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         format!(
-            "codex-session {}\ncodex (unresolved)\n",
+            "codex-session {}\ncodex (unresolved)\naccount:         default (source: fallback)\n",
             env!("CARGO_PKG_VERSION")
         )
     );
@@ -57,7 +57,7 @@ fn symlinked_launcher_still_prints_version() {
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         format!(
-            "codex-session {}\ncodex (unresolved)\n",
+            "codex-session {}\ncodex (unresolved)\naccount:         default (source: fallback)\n",
             env!("CARGO_PKG_VERSION")
         )
     );

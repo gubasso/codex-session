@@ -78,9 +78,11 @@ fn root_version_succeeds() {
         .assert()
         .success()
         .stdout(
-            predicate::str::is_match(
-                "^codex-session \\d+\\.\\d+\\.\\d+\\ncodex \\(unresolved\\)\\n$",
-            )
+            predicate::str::is_match(concat!(
+                r"^codex-session \d+\.\d+\.\d+\n",
+                r"codex \(unresolved\)\n",
+                r"account:\s+default \(source: fallback\)\n$",
+            ))
             .unwrap(),
         )
         .stderr("");

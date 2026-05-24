@@ -26,11 +26,21 @@ Wrapper-owned verbs:
 - `codex-session profile show [NAME] [--format text|json]`
 - `codex-session profile compose [NAME]`
 - `codex-session doctor [--all-profiles] [--show-env]`
+- `codex-session account add <NAME> [--from-native]`
+- `codex-session account list [--format text|json]`
+- `codex-session account current`
+- `codex-session account use <NAME>`
+- `codex-session account remove <NAME>`
+- `codex-session account quota [--all] [--live] [--format text|json]`
+- `codex-session account cooldown show|clear [--all] [--account NAME]`
 
 Wrapper-owned global flags:
 
 - `--profile <NAME>` selects the wrapper profile before pass-through begins.
 - `--dry-run` prints the resolved child invocation, including `CODEX_HOME`.
+- `--account <NAME|auto>` selects account routing behavior.
+- `--max-retries <N>` enables retry/failover attempts (used with `--account auto`).
+- `--group <ID>` pins the session group-id.
 
 Anything else — including bare `codex-session` with no subcommand — is
 forwarded verbatim to the real `codex`. Bare invocation execs `codex`
@@ -49,7 +59,7 @@ $XDG_CONFIG_HOME/codex-session/
 
 $XDG_CACHE_HOME/codex-session/settings.toml
 
-$XDG_RUNTIME_DIR/codex-session/sessions/<terminal-id>/
+$XDG_RUNTIME_DIR/codex-session/accounts/<account>/groups/<group-id>/
   config.toml
   .codex-session-compose.json
   session-meta.json
@@ -59,6 +69,39 @@ Profile manifests list ordered `settings-layers`. Each layer is parsed from
 `settings/<name>.toml`, deep-merged in order, stripped of its optional `[env]`
 table, then written into the session directory. Stock mode still creates a
 session directory with an empty `config.toml`.
+
+## Multi-Account Management
+
+Examples:
+
+```bash
+codex-session account add work --from-native
+codex-session account add personal
+codex-session account use work
+codex-session --account auto --max-retries 2 --group stable
+codex-session account cooldown show --all --format json
+```
+
+Account layout:
+
+```text
+$XDG_STATE_HOME/codex-session/
+  accounts/
+    <account>/
+      auth.json
+      cooldown.json
+      groups/
+        <group-id>/
+          config.toml
+          .codex-session-compose.json
+          session-meta.json
+```
+
+Failover usage:
+
+- Set `--account auto` (or `CODEX_SESSION_ACCOUNT=auto`) to rotate accounts on retry.
+- Use `--max-retries <N>` to cap retry attempts before returning `75` (all accounts exhausted).
+- Cooldowns are tracked per account via `cooldown.json` and skipped until reset.
 
 ## Skills
 
@@ -85,8 +128,17 @@ Reference: <https://developers.openai.com/codex/skills>
 
 - `CODEX_SESSION_CHILD_BIN`: explicit path to the wrapped `codex` binary.
 - `CODEX_SESSION_PROFILE`: active wrapper profile when CLI `--profile` is absent.
+- `CODEX_SESSION_ACCOUNT`: active account override (`<name>` or `auto`).
+- `CODEX_SESSION_GROUP`: session group-id override.
 - `CODEX_SESSION_LOG_FILE`: directory hint for wrapper log rotation.
 - `CODEX_SESSION_LOG_DIR`: legacy directory hint when `LOG_FILE` is unset.
+- `CODEX_SESSION_ACCOUNT_DEFAULT`: default account id override.
+- `CODEX_SESSION_ACCOUNT_PINNED`: pinned account id override.
+- `CODEX_SESSION_ACCOUNT_REGISTRY_DIR`: custom account registry root.
+- `CODEX_SESSION_ACCOUNT_QUOTA_TTL_SECS`: quota cache TTL override.
+- `CODEX_SESSION_ACCOUNT_WEEKLY_FLOOR`: quota floor override.
+- `CODEX_SESSION_ACCOUNT_FIVE_HOUR_THRESHOLD`: quota threshold override.
+- `CODEX_SESSION_WHAM_USAGE_URL`: usage endpoint override for account quota probing.
 - `CODEX_SESSION_REENTRY`: wrapper-set recursion guard.
 - `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`, `RUST_LOG`.
 
@@ -99,9 +151,12 @@ environment. Profile `[env]` tables may not reintroduce them.
 | --- | --- |
 | `0` | Success |
 | `64` | Usage / clap parse failure |
+| `65` | Data error |
 | `66` | Missing required input |
+| `69` | Service unavailable |
 | `70` | Internal software error |
 | `74` | Generic I/O failure or exec handoff failure |
+| `75` | All accounts exhausted (failover) |
 | `77` | Permission denied |
 | `78` | Configuration error |
 | `126` | Child resolved but is not executable |

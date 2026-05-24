@@ -1,8 +1,11 @@
 ---
 source: tests/cmd_version.rs
+assertion_line: 88
 expression: value
 ---
 {
+  "account": "default",
+  "account-source": "fallback",
   "child-path": "<TMP>/bin/codex",
   "child-version": "codex 1.2.3",
   "wrapper-version": "0.1.0"

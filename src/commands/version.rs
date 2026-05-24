@@ -16,6 +16,8 @@ pub(crate) struct VersionView {
     pub(crate) child_path: Option<String>,
     /// Child version line when it can be probed.
     pub(crate) child_version: Option<String>,
+    pub(crate) account: Option<String>,
+    pub(crate) account_source: Option<String>,
 }
 
 /// Print the wrapper version.
@@ -32,11 +34,15 @@ pub(crate) fn run(
 
 pub(crate) fn build_view(ctx: &crate::context::AppContext) -> VersionView {
     let child_path = ctx.resolved_child().ok().cloned();
+    let resolved = crate::services::account::resolver::resolve(ctx).ok();
     VersionView {
         wrapper_version: crate::domain::version::current().to_owned(),
         child_version: child_path
             .as_deref()
             .and_then(|path| ctx.spawner.child_version_line(path)),
         child_path: child_path.map(|path| path.to_string()),
+        account: resolved.as_ref().map(|r| r.id.to_string()),
+        account_source: resolved
+            .map(|r| crate::services::account::resolver::source_label(r.source).to_owned()),
     }
 }

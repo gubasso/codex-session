@@ -95,6 +95,42 @@ fn account_list_excludes_trash() {
 }
 
 #[test]
+fn account_remove_warns_on_active_account() {
+    let env = TestEnv::new();
+    env.cmd()
+        .args(["account", "add", "throwaway"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["account", "use", "throwaway"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["account", "remove", "throwaway"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("current active account"));
+}
+
+#[test]
+fn account_remove_warns_on_recent_sessions() {
+    let env = TestEnv::new();
+    env.cmd()
+        .args(["account", "add", "recent"])
+        .assert()
+        .success();
+    let groups = env.named_groups_root("recent");
+    std::fs::create_dir_all(groups.join("test-group")).unwrap();
+    env.cmd()
+        .args(["account", "remove", "recent"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "session group(s) used in the last 24h",
+        ));
+}
+
+#[test]
 fn account_use_pins_lru() {
     let env = TestEnv::new();
     env.cmd()

@@ -83,5 +83,7 @@ fn version_json_snapshot() {
         .clone();
     let mut value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     env.normalize_json(&mut value);
+    assert!(value.get("account").is_some());
+    assert!(value.get("account-source").is_some());
     assert_json_snapshot!("version_json", value);
 }

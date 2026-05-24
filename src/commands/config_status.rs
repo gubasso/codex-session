@@ -17,6 +17,9 @@ pub(crate) struct ConfigStatusView {
     pub(crate) group_id: String,
     pub(crate) group_id_source: String,
     pub(crate) codex_home: Utf8PathBuf,
+    pub(crate) accounts_count: usize,
+    pub(crate) active_account_has_auth: bool,
+    pub(crate) accounts_in_cooldown: usize,
     pub(crate) session_root: Utf8PathBuf,
     pub(crate) session_root_source: String,
     pub(crate) child_bin: Option<Utf8PathBuf>,
@@ -85,6 +88,26 @@ pub(crate) fn build_view(
         || (None, Vec::new()),
         |active_profile| profile_layers_or_error(ctx, active_profile),
     );
+    let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+    let account_list = registry.list().unwrap_or_default();
+    let accounts_count = account_list.len();
+    let active_account_has_auth = account_list
+        .iter()
+        .find(|a| a.id == resolved_account.id)
+        .is_none_or(|a| a.has_auth);
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let accounts_in_cooldown = account_list
+        .iter()
+        .filter(|a| {
+            let root = registry.account_dir(&a.id);
+            crate::services::account::cooldown::read(&root)
+                .ok()
+                .flatten()
+                .is_some_and(|cd| crate::services::account::cooldown::is_active(&cd, now_unix))
+        })
+        .count();
 
     Ok(ConfigStatusView {
         active_profile: ctx.config.profile.active.clone(),
@@ -96,6 +119,9 @@ pub(crate) fn build_view(
         group_id: resolved_group.id.as_str().to_owned(),
         group_id_source: group_id_source_label(resolved_group.source).to_owned(),
         codex_home: inspected_dir.path,
+        accounts_count,
+        active_account_has_auth,
+        accounts_in_cooldown,
         session_root: root.path,
         session_root_source: match root.source {
             crate::services::session::dir::SessionRootSource::Runtime => "runtime".to_owned(),

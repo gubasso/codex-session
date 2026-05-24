@@ -62,7 +62,12 @@ impl Ui {
                     (Some(path), Some(version)) => writeln!(stdout, "codex {path} {version}"),
                     (Some(path), None) => writeln!(stdout, "codex {path} (unknown)"),
                     (None, _) => writeln!(stdout, "codex (unresolved)"),
+                }?;
+                if let Some(ref account) = view.account {
+                    let source = view.account_source.as_deref().unwrap_or("unknown");
+                    writeln!(stdout, "account:         {account} (source: {source})")?;
                 }
+                Ok(())
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
         }
@@ -94,6 +99,12 @@ impl Ui {
                 writeln!(stdout, "group-id:       {}", view.group_id)?;
                 writeln!(stdout, "group-id-source: {}", view.group_id_source)?;
                 writeln!(stdout, "codex_home:     {}", view.codex_home)?;
+                writeln!(
+                    stdout,
+                    "accounts:       {} ({} in cooldown)",
+                    view.accounts_count, view.accounts_in_cooldown
+                )?;
+                writeln!(stdout, "active-auth:    {}", view.active_account_has_auth)?;
                 writeln!(stdout, "session-root:   {}", view.session_root)?;
                 writeln!(stdout, "session-source: {}", view.session_root_source)?;
                 writeln!(

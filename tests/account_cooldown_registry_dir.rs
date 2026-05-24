@@ -10,10 +10,11 @@ use support::{TestEnv, fixture_path};
 fn cooldown_honors_custom_registry_dir() {
     let env = TestEnv::new();
     let custom_registry = env.state_session_root().join("custom-accounts");
+    env.write_native_auth("{\"token\":\"test\"}\n");
 
     env.cmd()
         .env("CODEX_SESSION_ACCOUNT_REGISTRY_DIR", &custom_registry)
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
 

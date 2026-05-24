@@ -13,7 +13,6 @@ pub(crate) fn run(
         &crate::commands::account::AccountMutationView {
             name: args.name.to_string(),
             path: registry.account_dir(&args.name),
-            archived_to: None,
         },
     )?;
     Ok(())

@@ -14,8 +14,9 @@ fn doctor_reports_accounts_section() {
         &[("base", "[model]\ndefault = \"gpt-5\"\n")],
     );
     env.make_fake_codex_printing_stdout("ignored");
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.write_account_auth_seed("work", r#"{"tokens":{"access_token":"test-token"}}"#);

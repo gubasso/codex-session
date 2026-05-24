@@ -78,9 +78,6 @@ impl Registry {
             let Some(name) = path.file_name() else {
                 continue;
             };
-            if name == ".trash" {
-                continue;
-            }
             let Ok(id) = name.parse::<AccountId>() else {
                 continue;
             };
@@ -99,7 +96,7 @@ impl Registry {
     pub(crate) fn add(
         &self,
         name: &AccountId,
-        from_native: bool,
+        from_current: bool,
         native_home: &Utf8Path,
     ) -> Result<AccountEntry, AccountError> {
         crate::services::auth::ensure_owned_dir_0700(&self.root).map_err(map_auth_error)?;
@@ -115,19 +112,22 @@ impl Registry {
         crate::services::auth::ensure_owned_dir_0700(&dir.join("groups"))
             .map_err(map_auth_error)?;
 
-        if from_native {
+        if from_current {
             let native_auth = native_home.join(".codex").join("auth.json");
             if native_auth.as_std_path().exists() {
-                let bytes = crate::services::auth::secure_file_read(&native_auth)
-                    .map_err(map_auth_error)?;
-                crate::adapters::fs::atomic_write(&self.group_auth_seed_path(name), &bytes)
-                    .map_err(map_fs_error)?;
+                let copy_result = crate::services::auth::secure_file_read(&native_auth)
+                    .map_err(map_auth_error)
+                    .and_then(|bytes| {
+                        crate::adapters::fs::atomic_write(&self.group_auth_seed_path(name), &bytes)
+                            .map_err(map_fs_error)
+                    });
+                if let Err(err) = copy_result {
+                    let _ = std::fs::remove_dir_all(dir.as_std_path());
+                    return Err(err);
+                }
             } else {
-                tracing::info!(
-                    op = "account.add",
-                    outcome = "skip-no-native-auth",
-                    path = %native_auth
-                );
+                let _ = std::fs::remove_dir_all(dir.as_std_path());
+                return Err(AccountError::NativeAuthMissing);
             }
         }
 
@@ -139,19 +139,11 @@ impl Registry {
         })
     }
 
-    pub(crate) fn remove(&self, name: &AccountId) -> Result<Utf8PathBuf, AccountError> {
+    pub(crate) fn remove(&self, name: &AccountId) -> Result<(), AccountError> {
         let dir = self.expect_account_dir(name)?;
-        let trash = self.root.join(".trash");
-        crate::services::auth::ensure_owned_dir_0700(&trash).map_err(map_auth_error)?;
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_secs());
-        let archived = trash.join(format!("{}-{ts}", name.as_str()));
-        std::fs::rename(dir.as_std_path(), archived.as_std_path()).map_err(|source| {
-            AccountError::RegistryIo {
-                path: archived.clone(),
-                source,
-            }
+        std::fs::remove_dir_all(dir.as_std_path()).map_err(|source| AccountError::RegistryIo {
+            path: dir.clone(),
+            source,
         })?;
 
         // Propagate `current()` errors instead of swallowing them via
@@ -170,7 +162,61 @@ impl Registry {
                 }
             }
         }
-        Ok(archived)
+        Ok(())
+    }
+
+    pub(crate) fn delete_group_auths(&self, name: &AccountId) -> Result<(), AccountError> {
+        let account_dir = self.expect_account_dir(name)?;
+        let groups = account_dir.join("groups");
+        let entries = match std::fs::read_dir(groups.as_std_path()) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(AccountError::RegistryIo {
+                    path: groups,
+                    source,
+                });
+            }
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(source) => {
+                    tracing::warn!(
+                        op = "account.delete_group_auths",
+                        outcome = "entry-read-failed",
+                        account = %name,
+                        error = %source
+                    );
+                    continue;
+                }
+            };
+            let Ok(path) = Utf8PathBuf::try_from(entry.path()) else {
+                continue;
+            };
+            let Ok(metadata) = std::fs::symlink_metadata(path.as_std_path()) else {
+                continue;
+            };
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                continue;
+            }
+
+            let auth_path = path.join("auth.json");
+            if !auth_path.exists() {
+                continue;
+            }
+            if let Err(source) = std::fs::remove_file(auth_path.as_std_path()) {
+                tracing::warn!(
+                    op = "account.delete_group_auths",
+                    outcome = "delete-failed",
+                    account = %name,
+                    path = %auth_path,
+                    error = %source
+                );
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn current(&self) -> Result<Option<AccountId>, AccountError> {
@@ -380,17 +426,14 @@ mod tests {
         }
     }
 
-    fn native_home() -> camino::Utf8PathBuf {
-        let temp = tempfile::tempdir().unwrap();
-        camino::Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap()
-    }
-
     #[test]
     fn add_creates_dir() {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        registry.add(&id, false, native_home().as_path()).unwrap();
+        let native_home = tempfile::tempdir().unwrap();
+        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
+        registry.add(&id, false, native_home.as_path()).unwrap();
         assert!(registry.account_dir(&id).is_dir());
     }
 
@@ -399,21 +442,24 @@ mod tests {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        registry.add(&id, false, native_home().as_path()).unwrap();
+        let native_home = tempfile::tempdir().unwrap();
+        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
+        registry.add(&id, false, native_home.as_path()).unwrap();
         assert!(matches!(
-            registry.add(&id, false, native_home().as_path()),
+            registry.add(&id, false, native_home.as_path()),
             Err(super::AccountError::AlreadyExists { .. })
         ));
     }
 
     #[test]
-    fn remove_archives_to_trash() {
+    fn remove_deletes_permanently() {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        registry.add(&id, false, native_home().as_path()).unwrap();
-        let archived = registry.remove(&id).unwrap();
-        assert!(archived.is_dir());
+        let native_home = tempfile::tempdir().unwrap();
+        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
+        registry.add(&id, false, native_home.as_path()).unwrap();
+        registry.remove(&id).unwrap();
         assert!(!registry.account_dir(&id).exists());
     }
 
@@ -422,10 +468,25 @@ mod tests {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        registry.add(&id, false, native_home().as_path()).unwrap();
+        let native_home = tempfile::tempdir().unwrap();
+        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
+        registry.add(&id, false, native_home.as_path()).unwrap();
         registry.set_current(&id).unwrap();
         registry.remove(&id).unwrap();
         assert_eq!(registry.current().unwrap(), None);
+    }
+
+    #[test]
+    fn add_from_current_fails_without_native_auth() {
+        let config = test_config();
+        let registry = Registry::from_config(&config);
+        let id: AccountId = "work".parse().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let home = camino::Utf8PathBuf::try_from(home.path().to_path_buf()).unwrap();
+        assert!(matches!(
+            registry.add(&id, true, home.as_path()),
+            Err(super::AccountError::NativeAuthMissing)
+        ));
     }
 
     #[test]

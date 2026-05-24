@@ -6,23 +6,12 @@ mod support;
 use predicates::prelude::*;
 use support::TestEnv;
 
-fn write_native_auth(env: &TestEnv, body: &str) {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    let native_dir = env.home.join(".codex");
-    std::fs::create_dir_all(&native_dir).unwrap();
-    let path = native_dir.join("auth.json");
-    std::fs::write(&path, body).unwrap();
-    let mut perms = std::fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o600);
-    std::fs::set_permissions(path, perms).unwrap();
-}
-
 #[test]
 fn account_add_creates_dir() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success()
         .stdout(predicate::str::contains("account added: work"));
@@ -31,11 +20,11 @@ fn account_add_creates_dir() {
 }
 
 #[test]
-fn account_add_from_native_copies_auth() {
+fn account_add_from_current_copies_auth() {
     let env = TestEnv::new();
-    write_native_auth(&env, "{\"token\":\"abc\"}\n");
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "work", "--from-native"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     assert_eq!(
@@ -47,44 +36,44 @@ fn account_add_from_native_copies_auth() {
 #[test]
 fn account_add_rejects_duplicate() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .failure()
         .code(78);
 }
 
 #[test]
-fn account_remove_archives_to_trash() {
+fn account_remove_deletes_permanently() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "remove", "work"])
+        .args(["account", "remove", "work", "--yes"])
         .assert()
         .success()
         .stdout(predicate::str::contains("account removed: work"));
     assert!(!env.named_account_root("work").exists());
-    let trash = env.state_session_root().join("accounts/.trash");
-    let entries: Vec<_> = std::fs::read_dir(trash).unwrap().collect();
-    assert_eq!(entries.len(), 1);
 }
 
 #[test]
 fn account_list_excludes_trash() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "remove", "work"])
+        .args(["account", "remove", "work", "--yes"])
         .assert()
         .success();
     env.cmd()
@@ -97,8 +86,9 @@ fn account_list_excludes_trash() {
 #[test]
 fn account_remove_warns_on_active_account() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "throwaway"])
+        .args(["account", "add", "throwaway", "--from-current"])
         .assert()
         .success();
     env.cmd()
@@ -106,7 +96,7 @@ fn account_remove_warns_on_active_account() {
         .assert()
         .success();
     env.cmd()
-        .args(["account", "remove", "throwaway"])
+        .args(["account", "remove", "throwaway", "--yes"])
         .assert()
         .success()
         .stderr(predicate::str::contains("current active account"));
@@ -115,14 +105,15 @@ fn account_remove_warns_on_active_account() {
 #[test]
 fn account_remove_warns_on_recent_sessions() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "recent"])
+        .args(["account", "add", "recent", "--from-current"])
         .assert()
         .success();
     let groups = env.named_groups_root("recent");
     std::fs::create_dir_all(groups.join("test-group")).unwrap();
     env.cmd()
-        .args(["account", "remove", "recent"])
+        .args(["account", "remove", "recent", "--yes"])
         .assert()
         .success()
         .stderr(predicate::str::contains(
@@ -133,8 +124,9 @@ fn account_remove_warns_on_recent_sessions() {
 #[test]
 fn account_use_pins_lru() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "add", "personal"])
+        .args(["account", "add", "personal", "--from-current"])
         .assert()
         .success();
     env.cmd()
@@ -151,4 +143,29 @@ fn account_use_pins_lru() {
         .success()
         .stdout(predicate::str::contains("\"name\": \"personal\""))
         .stdout(predicate::str::contains("\"source\": \"lru\""));
+}
+
+#[test]
+fn account_add_from_current_fails_when_native_missing() {
+    let env = TestEnv::new();
+    env.cmd()
+        .args(["account", "add", "work", "--from-current"])
+        .assert()
+        .failure()
+        .code(66);
+}
+
+#[test]
+fn account_remove_non_interactive_requires_yes() {
+    let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"abc\"}\n");
+    env.cmd()
+        .args(["account", "add", "work", "--from-current"])
+        .assert()
+        .success();
+    env.cmd()
+        .args(["account", "remove", "work"])
+        .assert()
+        .failure()
+        .code(64);
 }

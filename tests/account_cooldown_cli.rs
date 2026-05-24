@@ -23,12 +23,13 @@ fn write_cooldown(env: &TestEnv, account: &str) {
 #[test]
 fn cooldown_show_alias_and_json_work() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "add", "personal"])
+        .args(["account", "add", "personal", "--from-current"])
         .assert()
         .success();
     write_cooldown(&env, "work");
@@ -81,12 +82,13 @@ fn cooldown_show_alias_and_json_work() {
 #[test]
 fn cooldown_show_account_filter_and_clear_modes_work() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "add", "personal"])
+        .args(["account", "add", "personal", "--from-current"])
         .assert()
         .success();
     write_cooldown(&env, "work");

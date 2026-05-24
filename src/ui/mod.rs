@@ -38,6 +38,13 @@ impl Ui {
     }
 
     #[allow(clippy::unused_self)]
+    pub(crate) fn write_prompt(&self, body: &str) -> std::io::Result<()> {
+        let mut stderr = std::io::stderr().lock();
+        stderr.write_all(body.as_bytes())?;
+        stderr.flush()
+    }
+
+    #[allow(clippy::unused_self)]
     pub(crate) fn write_warning(&self, body: &str) -> std::io::Result<()> {
         let mut stderr = std::io::stderr().lock();
         stderr.write_all(body.as_bytes())?;
@@ -376,9 +383,6 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         writeln!(stdout, "account {verb}: {}", view.name)?;
         writeln!(stdout, "path: {}", view.path)?;
-        if let Some(archived_to) = view.archived_to.as_ref() {
-            writeln!(stdout, "archived-to: {archived_to}")?;
-        }
         Ok(())
     }
 

@@ -18,8 +18,10 @@ pub(crate) enum AccountCommand {
     Current(AccountCurrentArgs),
     /// Pin the active account (writes state/last-account).
     Use(AccountUseArgs),
-    /// Archive an account to accounts/.trash/.
+    /// Remove an account permanently.
     Remove(AccountRemoveArgs),
+    /// Refresh an account's root auth.json from the native codex login.
+    Refresh(AccountRefreshArgs),
     /// Read per-account quota from the cached or live wham/usage endpoint.
     Quota(AccountQuotaArgs),
     /// Show or clear failover cooldown state.
@@ -32,7 +34,7 @@ pub(crate) struct AccountAddArgs {
     pub(crate) name: AccountId,
     /// Seed ~/.codex/auth.json into the new account's seed file.
     #[arg(long)]
-    pub(crate) from_native: bool,
+    pub(crate) from_current: bool,
 }
 
 #[derive(Debug, Clone, Copy, clap::Args)]
@@ -57,8 +59,17 @@ pub(crate) struct AccountUseArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 pub(crate) struct AccountRemoveArgs {
-    /// Account name to archive.
+    /// Account name to remove permanently.
     pub(crate) name: AccountId,
+    /// Skip interactive confirmation.
+    #[arg(long)]
+    pub(crate) yes: bool,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub(crate) struct AccountRefreshArgs {
+    /// Account name to refresh. Defaults to the current account if omitted.
+    pub(crate) name: Option<AccountId>,
 }
 
 #[derive(Debug, Clone, Copy, clap::Args)]

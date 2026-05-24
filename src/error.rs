@@ -145,12 +145,15 @@ impl AppError {
                 .and_then(|signal| u8::try_from(128 + signal).ok())
                 .unwrap_or(70),
             Self::Account(err) => match err {
-                crate::services::account::AccountError::InvalidName { .. } => 64,
+                crate::services::account::AccountError::InvalidName { .. }
+                | crate::services::account::AccountError::NonInteractive { .. } => 64,
                 crate::services::account::AccountError::NotFound { .. }
                 | crate::services::account::AccountError::AlreadyExists { .. } => 78,
-                crate::services::account::AccountError::NoEligible => 75,
+                crate::services::account::AccountError::NoEligible
+                | crate::services::account::AccountError::LoginFailed { .. } => 75,
                 crate::services::account::AccountError::QuotaFetch { .. } => 69,
                 crate::services::account::AccountError::QuotaParse { .. } => 65,
+                crate::services::account::AccountError::NativeAuthMissing => 66,
                 crate::services::account::AccountError::RegistryIo { .. }
                 | crate::services::account::AccountError::Cooldown { .. } => 74,
             },
@@ -449,6 +452,20 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             what: "account: quota parse failed".to_owned(),
             why_line: detail.clone(),
         },
+        AccountError::NonInteractive { action } => ErrorDetail {
+            what: "account: interactive terminal required".to_owned(),
+            why_line: action.clone(),
+        },
+        AccountError::LoginFailed { detail } => ErrorDetail {
+            what: "account: authentication failed".to_owned(),
+            why_line: detail.clone(),
+        },
+        AccountError::NativeAuthMissing => ErrorDetail {
+            what: "account: no native auth.json found".to_owned(),
+            why_line:
+                "~/.codex/auth.json does not exist; run `codex login` first or omit --from-current"
+                    .to_owned(),
+        },
         AccountError::Cooldown(err) => ErrorDetail {
             what: "account: cooldown state failed".to_owned(),
             why_line: err.to_string(),
@@ -559,6 +576,15 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         }
         AppError::Account(crate::services::account::AccountError::AlreadyExists { .. }) => {
             Some("choose a different account name or remove the existing account first")
+        }
+        AppError::Account(crate::services::account::AccountError::NonInteractive { .. }) => {
+            Some("use --from-current (add) or --yes (remove) for non-interactive use")
+        }
+        AppError::Account(crate::services::account::AccountError::LoginFailed { .. }) => {
+            Some("retry interactively or check your network/credentials")
+        }
+        AppError::Account(crate::services::account::AccountError::NativeAuthMissing) => {
+            Some("run `codex login` first to create ~/.codex/auth.json")
         }
         AppError::Config(
             ConfigError::NoXdg

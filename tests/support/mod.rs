@@ -302,6 +302,18 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
             .join(format!("{name}.json"))
     }
 
+    pub fn write_native_auth(&self, body: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let native_dir = self.home.join(".codex");
+        std::fs::create_dir_all(&native_dir).unwrap();
+        let path = native_dir.join("auth.json");
+        std::fs::write(&path, body).unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms).unwrap();
+    }
+
     pub fn write_account_auth_seed(&self, name: &str, body: &str) {
         use std::os::unix::fs::PermissionsExt as _;
 

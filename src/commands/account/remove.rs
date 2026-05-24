@@ -1,6 +1,8 @@
 //! `account remove` command.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
+use std::io::IsTerminal as _;
+
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
     args: &crate::cli::account::AccountRemoveArgs,
@@ -37,14 +39,30 @@ pub(crate) fn run(
             ))?;
         }
     }
-    let archived_to = registry.remove(&args.name)?;
+    if !args.yes && !std::io::stdin().is_terminal() {
+        return Err(crate::services::account::AccountError::NonInteractive {
+            action: "account remove".to_owned(),
+        }
+        .into());
+    }
+    if !args.yes {
+        ctx.ui.write_prompt(&format!(
+            "remove account '{}' permanently? [y/N]: ",
+            args.name
+        ))?;
+        let mut answer = String::new();
+        std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut answer)?;
+        if !matches!(answer.trim(), "y" | "Y" | "yes" | "YES" | "Yes") {
+            return Ok(());
+        }
+    }
+    registry.remove(&args.name)?;
     tracing::info!(op = "account.remove", outcome = "ok", account = %args.name);
     ctx.ui.write_account_mutation(
         "removed",
         &crate::commands::account::AccountMutationView {
             name: args.name.to_string(),
             path,
-            archived_to: Some(archived_to),
         },
     )?;
     Ok(())

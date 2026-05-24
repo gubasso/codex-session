@@ -63,12 +63,13 @@ fn config_status_json_snapshot() {
 fn config_status_shows_cooldown_count() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("ignored");
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "acct-a"])
+        .args(["account", "add", "acct-a", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "add", "acct-b"])
+        .args(["account", "add", "acct-b", "--from-current"])
         .assert()
         .success();
     let cooldown_path = env.named_account_root("acct-a").join("cooldown.json");

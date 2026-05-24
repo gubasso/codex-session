@@ -81,8 +81,9 @@ fn doctor_json_shape() {
 fn doctor_json_reports_cooldown_active_account() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     let cooldown_path = env.named_account_root("work").join("cooldown.json");
@@ -116,14 +117,16 @@ fn doctor_json_reports_cooldown_active_account() {
 fn doctor_fails_when_active_account_missing_auth() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
         .args(["account", "use", "work"])
         .assert()
         .success();
+    std::fs::remove_file(env.named_account_auth_seed("work")).unwrap();
 
     let stdout = String::from_utf8(
         env.cmd()
@@ -138,15 +141,16 @@ fn doctor_fails_when_active_account_missing_auth() {
 
     assert!(stdout.contains("account.active.auth"));
     assert!(stdout.contains("FAIL"));
-    assert!(stdout.contains("account.active.auth: run `codex login`"));
+    assert!(stdout.contains("account.active.auth: run `codex-session account refresh`"));
 }
 
 #[test]
 fn doctor_warn_cooldown_appears_in_next_steps() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     let cooldown_path = env.named_account_root("work").join("cooldown.json");

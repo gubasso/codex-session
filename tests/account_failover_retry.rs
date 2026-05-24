@@ -39,12 +39,13 @@ fn latest_log_file(dir: &std::path::Path) -> std::path::PathBuf {
 #[test]
 fn auto_retry_rotates_accounts_and_writes_cooldown() {
     let env = TestEnv::new();
+    env.write_native_auth("{\"token\":\"test\"}\n");
     env.cmd()
-        .args(["account", "add", "work"])
+        .args(["account", "add", "work", "--from-current"])
         .assert()
         .success();
     env.cmd()
-        .args(["account", "add", "personal"])
+        .args(["account", "add", "personal", "--from-current"])
         .assert()
         .success();
     env.write_quota_cache("work", &quota_cache(90.0, 90.0));

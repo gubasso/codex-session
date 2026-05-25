@@ -1,11 +1,14 @@
 //! Auth gate — ensures an account is resolved and authenticated before launch.
 //!
-//! Every decision and action is narrated to stderr so the user always knows
-//! which account was selected, why, and what is about to happen.
+//! Also provides `run_login` / `run_logout` for `codex-session login` and
+//! `codex-session logout` — these are managed by the gate (not raw
+//! pass-throughs) so that every auth operation is account-aware and narrated.
+//!
+//! Auth validity is determined by seed-file existence only. There is no
+//! server-side token probe; see `docs/auth-gate-spec.md` §2.3 for rationale.
 #![allow(clippy::result_large_err)]
 
 use std::io::IsTerminal as _;
-use std::time::Duration;
 
 use super::{
     AccountError, AccountId,
@@ -15,8 +18,6 @@ use super::{
 
 use crate::context::AppContext;
 use crate::error::AppError;
-
-const AUTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub(crate) enum AccountState {
@@ -53,18 +54,6 @@ pub(crate) fn assess(ctx: &AppContext) -> Result<AccountState, AppError> {
             Ok(_) => {
                 let seed_path = registry.group_auth_seed_path(&resolved.id);
                 if !seed_path.as_std_path().exists() {
-                    return Ok(AccountState::AuthMissing {
-                        account: resolved.id,
-                    });
-                }
-                if !probe_token(&seed_path) {
-                    tracing::warn!(
-                        op = "gate.assess",
-                        outcome = "token-revoked",
-                        account = %resolved.id,
-                        "auth seed exists but token was rejected by the server; \
-                        treating as auth-missing"
-                    );
                     return Ok(AccountState::AuthMissing {
                         account: resolved.id,
                     });
@@ -383,69 +372,197 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
     Ok(())
 }
 
-/// Lightweight server-side token validation.
-///
-/// Reads the account seed, extracts the OAuth access token, and makes a
-/// single HTTP request. Returns `false` only when the server explicitly
-/// rejects the token (401/403). Network errors, timeouts, non-OAuth auth
-/// (API keys), or unparseable files all return `true` (fail-open) so the
-/// gate never blocks offline users or unusual auth setups.
-fn probe_token(seed_path: &camino::Utf8Path) -> bool {
-    let Ok(bytes) = std::fs::read(seed_path.as_std_path()) else {
-        return true;
-    };
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-        return true;
-    };
-    let Some(access_token) = value
-        .get("tokens")
-        .and_then(|t| t.get("access_token"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|s| !s.is_empty())
-    else {
-        return true;
-    };
+pub(crate) fn run_login(ctx: &AppContext) -> Result<i32, AppError> {
+    let state = assess(ctx)?;
+    let interactive = std::io::stdin().is_terminal();
 
-    let probe_url = std::env::var("CODEX_SESSION_AUTH_PROBE_URL")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "https://chatgpt.com/backend-api/me".to_owned());
-
-    let Ok(client) = reqwest::blocking::Client::builder()
-        .connect_timeout(AUTH_PROBE_TIMEOUT)
-        .timeout(AUTH_PROBE_TIMEOUT)
-        .build()
-    else {
-        return true;
-    };
-
-    match client
-        .get(&probe_url)
-        .header(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {access_token}"),
-        )
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(reqwest::header::ORIGIN, "https://chatgpt.com")
-        .header(reqwest::header::REFERER, "https://chatgpt.com/")
-        .header(reqwest::header::USER_AGENT, "Mozilla/5.0")
-        .send()
-    {
-        Ok(resp) => {
-            let status = resp.status().as_u16();
-            if status == 401 || status == 403 {
-                tracing::info!(op = "gate.probe", status, "server rejected auth token");
-                return false;
+    match state {
+        AccountState::NoAccounts => {
+            if !interactive {
+                return Err(AccountError::NoAccounts.into());
             }
-            true
-        }
-        Err(err) => {
-            tracing::debug!(
-                op = "gate.probe", error = %err, "probe request failed; assuming valid",
+            narrate(
+                ctx,
+                "no accounts registered. Setting up your first account for login.",
             );
-            true
+            let account_id = prompt_account_name()?;
+            narrate(
+                ctx,
+                &format!("creating account '{account_id}' and starting authentication..."),
+            );
+            do_add_account(ctx, &account_id)?;
+            narrate(
+                ctx,
+                &format!("account '{account_id}' is now authenticated."),
+            );
+            Ok(0)
+        }
+        AccountState::NoneSelected { accounts } => {
+            if !interactive {
+                return Err(AccountError::NoneSelected.into());
+            }
+            narrate(
+                ctx,
+                &format!(
+                    "{} account(s) found but none is selected. Please choose one to log in.",
+                    accounts.len(),
+                ),
+            );
+            login_resolve_none_selected(ctx, &accounts)?;
+            Ok(0)
+        }
+        AccountState::AuthMissing { account } => {
+            narrate(ctx, &format!("re-authenticating account '{account}'..."));
+            do_refresh_auth(ctx, &account)?;
+            narrate(ctx, &format!("account '{account}' is now authenticated."));
+            Ok(0)
+        }
+        AccountState::Ready(resolved) => {
+            narrate(
+                ctx,
+                &format!(
+                    "refreshing authentication for account '{}' (source: {})...",
+                    resolved.id,
+                    source_label(resolved.source),
+                ),
+            );
+            do_refresh_auth(ctx, &resolved.id)?;
+            narrate(
+                ctx,
+                &format!("account '{}' is now authenticated.", resolved.id),
+            );
+            Ok(0)
         }
     }
+}
+
+pub(crate) fn run_logout(ctx: &AppContext) -> Result<i32, AppError> {
+    let state = assess(ctx)?;
+    let interactive = std::io::stdin().is_terminal();
+
+    match state {
+        AccountState::NoAccounts => {
+            narrate(ctx, "no accounts registered — nothing to log out.");
+            Ok(0)
+        }
+        AccountState::NoneSelected { accounts } => {
+            if !interactive {
+                return Err(AccountError::NoneSelected.into());
+            }
+            narrate(
+                ctx,
+                &format!(
+                    "{} account(s) found but none is selected. Please choose one to log out.",
+                    accounts.len(),
+                ),
+            );
+            let account_id = logout_resolve_none_selected(&accounts)?;
+            do_logout(ctx, &account_id)?;
+            narrate(ctx, &format!("account '{account_id}' is now logged out."));
+            Ok(0)
+        }
+        AccountState::AuthMissing { account } => {
+            narrate(
+                ctx,
+                &format!("account '{account}' has no valid authentication — already logged out."),
+            );
+            let registry = Registry::from_config(&ctx.config);
+            let _ = registry.delete_auth_seed(&account);
+            Ok(0)
+        }
+        AccountState::Ready(resolved) => {
+            narrate(
+                ctx,
+                &format!(
+                    "logging out account '{}' (source: {})...",
+                    resolved.id,
+                    source_label(resolved.source),
+                ),
+            );
+            do_logout(ctx, &resolved.id)?;
+            narrate(
+                ctx,
+                &format!("account '{}' is now logged out.", resolved.id),
+            );
+            Ok(0)
+        }
+    }
+}
+
+fn login_resolve_none_selected(
+    ctx: &AppContext,
+    accounts: &[AccountEntry],
+) -> Result<AccountId, AppError> {
+    let selected = prompt_select_account(accounts)?;
+    match selected {
+        AccountSelection::Existing(account_id) => {
+            let registry = Registry::from_config(&ctx.config);
+            registry.set_current(&account_id)?;
+            narrate(
+                ctx,
+                &format!("selected account '{account_id}' — authenticating..."),
+            );
+            do_refresh_auth(ctx, &account_id)?;
+            narrate(
+                ctx,
+                &format!("account '{account_id}' is now authenticated."),
+            );
+            Ok(account_id)
+        }
+        AccountSelection::AddNew => {
+            let account_id = prompt_account_name()?;
+            narrate(
+                ctx,
+                &format!("creating account '{account_id}' and starting authentication..."),
+            );
+            do_add_account(ctx, &account_id)?;
+            narrate(
+                ctx,
+                &format!("account '{account_id}' is now authenticated."),
+            );
+            Ok(account_id)
+        }
+    }
+}
+
+fn logout_resolve_none_selected(accounts: &[AccountEntry]) -> Result<AccountId, AppError> {
+    let options: Vec<String> = accounts
+        .iter()
+        .map(|a| {
+            let auth_status = if a.has_auth {
+                "authenticated"
+            } else {
+                "no auth"
+            };
+            format!("{} ({auth_status})", a.id)
+        })
+        .collect();
+
+    let choice = inquire::Select::new("Select an account to log out:", options.clone())
+        .prompt()
+        .map_err(|err| AccountError::NonInteractive {
+            action: format!("logout account selection: {err}"),
+        })?;
+
+    let index = options.iter().position(|o| o == &choice).unwrap_or(0);
+    Ok(accounts[index].id.clone())
+}
+
+fn do_logout(ctx: &AppContext, account: &AccountId) -> Result<(), AppError> {
+    narrate(ctx, "running native codex logout...");
+    let _ = crate::commands::account::spawn_child(ctx, ["logout"]).inspect_err(|err| {
+        tracing::warn!(
+            op = "gate.logout",
+            outcome = "native-logout-failed-non-fatal",
+            account = %account,
+            error = %err
+        );
+    });
+
+    let registry = Registry::from_config(&ctx.config);
+    registry.delete_auth_seed(account)?;
+    registry.delete_group_auths(account)?;
+    Ok(())
 }
 
 fn narrate(ctx: &AppContext, msg: &str) {

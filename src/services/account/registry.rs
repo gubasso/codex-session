@@ -141,6 +141,15 @@ impl Registry {
         Ok(())
     }
 
+    pub(crate) fn delete_auth_seed(&self, name: &AccountId) -> Result<(), AccountError> {
+        let seed = self.group_auth_seed_path(name);
+        match std::fs::remove_file(seed.as_std_path()) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(AccountError::RegistryIo { path: seed, source }),
+        }
+    }
+
     pub(crate) fn delete_group_auths(&self, name: &AccountId) -> Result<(), AccountError> {
         let account_dir = self.expect_account_dir(name)?;
         let groups = account_dir.join("groups");

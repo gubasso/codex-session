@@ -140,8 +140,7 @@ impl TestEnv {
                 .env("XDG_CONFIG_HOME", &self.config_home)
                 .env("XDG_STATE_HOME", &self.state_home)
                 .env("XDG_RUNTIME_DIR", &self.runtime)
-                .env("PATH", path)
-                .env("CODEX_SESSION_AUTH_PROBE_URL", "http://127.0.0.1:1"),
+                .env("PATH", path),
         );
         cmd
     }
@@ -156,7 +155,6 @@ impl TestEnv {
             .env("XDG_STATE_HOME", &self.state_home)
             .env("XDG_RUNTIME_DIR", &self.runtime)
             .env("PATH", path)
-            .env("CODEX_SESSION_AUTH_PROBE_URL", "http://127.0.0.1:1")
             .env_remove("NO_COLOR")
             .env_remove("FORCE_COLOR")
             .env_remove("CLICOLOR")

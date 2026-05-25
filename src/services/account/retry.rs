@@ -14,10 +14,10 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
     let max_retries = ctx.global.max_retries;
     // Rotation requires the user to have opted into auto-selection. Any
     // single-account path (--account <name>, CODEX_SESSION_ACCOUNT=<name>,
-    // state/last-account, config.account.{pinned,default}, fallback) would
-    // re-resolve the same account on every retry, burning attempts and
-    // writing pointless cooldown state. Short-circuit them all by inspecting
-    // the resolved source on the first attempt.
+    // state/last-account, config.account.pinned) would re-resolve the same
+    // account on every retry, burning attempts and writing pointless
+    // cooldown state. Short-circuit them all by inspecting the resolved
+    // source on the first attempt.
     let pinned_name = match ctx.global.account.as_ref() {
         Some(AccountSelector::Named(name)) => Some(name.clone()),
         _ => None,

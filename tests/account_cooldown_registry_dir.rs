@@ -10,13 +10,19 @@ use support::{TestEnv, fixture_path};
 fn cooldown_honors_custom_registry_dir() {
     let env = TestEnv::new();
     let custom_registry = env.state_session_root().join("custom-accounts");
-    env.write_native_auth("{\"token\":\"test\"}\n");
 
-    env.cmd()
-        .env("CODEX_SESSION_ACCOUNT_REGISTRY_DIR", &custom_registry)
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
+    // Seed the account directly into the custom registry directory.
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let account_dir = custom_registry.join("work");
+        let groups_dir = account_dir.join("groups");
+        std::fs::create_dir_all(&groups_dir).unwrap();
+        std::fs::set_permissions(&account_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&groups_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let auth_path = account_dir.join("auth.json");
+        std::fs::write(&auth_path, "{\"token\":\"test\"}\n").unwrap();
+        std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
 
     env.cmd()
         .env("CODEX_SESSION_ACCOUNT_REGISTRY_DIR", &custom_registry)

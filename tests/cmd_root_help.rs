@@ -81,7 +81,7 @@ fn root_version_succeeds() {
             predicate::str::is_match(concat!(
                 r"^codex-session \d+\.\d+\.\d+\n",
                 r"codex \(unresolved\)\n",
-                r"account:\s+default \(source: fallback\)\n$",
+                r"account:\s+default \(source: lru\)\n$",
             ))
             .unwrap(),
         )
@@ -98,7 +98,7 @@ fn bare_invocation_forwards_to_codex_with_empty_argv() {
         env.normalize_text(&String::from_utf8(assert.get_output().stdout.clone()).unwrap());
 
     assert!(
-        stdout.starts_with("account: default\naccount-source: fallback\nbinary: "),
+        stdout.starts_with("account: default\naccount-source: lru\nbinary: "),
         "dry-run report must start with account context and `binary: `: {stdout}"
     );
     assert!(

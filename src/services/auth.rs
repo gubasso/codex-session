@@ -60,41 +60,6 @@ impl From<crate::adapters::fs::FsError> for AuthError {
     }
 }
 
-pub(crate) fn import_if_missing(
-    group_dir: &Utf8Path,
-    native_home: &Utf8Path,
-) -> Result<(), AuthError> {
-    let group_auth = group_dir.join("auth.json");
-    if group_auth.exists() {
-        tracing::debug!(
-            op = "auth.import",
-            outcome = "skip-present",
-            path = %group_auth
-        );
-        return Ok(());
-    }
-
-    let native_auth = native_home.join(".codex").join("auth.json");
-    if !native_auth.exists() {
-        tracing::debug!(
-            op = "auth.import",
-            outcome = "skip-no-native",
-            path = %native_auth
-        );
-        return Ok(());
-    }
-
-    let bytes = secure_file_read(&native_auth)?;
-    crate::adapters::fs::atomic_write(&group_auth, &bytes)?;
-    tracing::info!(
-        op = "auth.import",
-        outcome = "imported",
-        from = %native_auth,
-        to = %group_auth
-    );
-    Ok(())
-}
-
 pub(crate) fn ensure_owned_dir_0700(path: &Utf8Path) -> Result<(), AuthError> {
     if std::fs::symlink_metadata(path.as_std_path()).is_ok_and(|meta| meta.file_type().is_symlink())
     {

@@ -22,16 +22,9 @@ fn write_cooldown(env: &TestEnv, account: &str) {
 
 #[test]
 fn cooldown_show_alias_and_json_work() {
-    let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "personal", "--from-current"])
-        .assert()
-        .success();
+    let env = TestEnv::new_empty();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
     write_cooldown(&env, "work");
 
     let alias = env
@@ -82,15 +75,8 @@ fn cooldown_show_alias_and_json_work() {
 #[test]
 fn cooldown_show_account_filter_and_clear_modes_work() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "personal", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
     write_cooldown(&env, "work");
     write_cooldown(&env, "personal");
 

@@ -36,10 +36,28 @@ pub(crate) enum AccountError {
     #[error("codex login failed: {detail}")]
     LoginFailed { detail: String },
 
-    #[error(
-        "no native auth found at ~/.codex/auth.json; run `codex login` first or omit --from-current"
-    )]
+    #[error("no native auth found at ~/.codex/auth.json; run `codex login` first")]
     NativeAuthMissing,
+
+    #[error(
+        "no account could be resolved; \
+        run `codex-session account add <name>` or pass --account <name>"
+    )]
+    NoneResolved,
+
+    #[error(
+        "account `{name}` has no valid authentication; run `codex-session account refresh {name}`"
+    )]
+    AuthMissing { name: AccountId },
+
+    #[error("no accounts registered; run `codex-session account add <name>`")]
+    NoAccounts,
+
+    #[error(
+        "accounts exist but none is selected; \
+        run `codex-session account use <name>` or pass --account <name>"
+    )]
+    NoneSelected,
 
     #[error(transparent)]
     Cooldown(#[from] CooldownError),
@@ -58,6 +76,10 @@ impl AccountError {
             Self::NonInteractive { .. } => "account-non-interactive",
             Self::LoginFailed { .. } => "account-login-failed",
             Self::NativeAuthMissing => "account-native-auth-missing",
+            Self::NoneResolved => "account-none-resolved",
+            Self::AuthMissing { .. } => "account-auth-missing",
+            Self::NoAccounts => "account-no-accounts",
+            Self::NoneSelected => "account-none-selected",
             Self::Cooldown { .. } => "account-cooldown",
         }
     }
@@ -84,7 +106,11 @@ impl AccountError {
             | Self::QuotaParse { .. }
             | Self::NonInteractive { .. }
             | Self::LoginFailed { .. }
-            | Self::NativeAuthMissing => None,
+            | Self::NativeAuthMissing
+            | Self::NoneResolved
+            | Self::AuthMissing { .. }
+            | Self::NoAccounts
+            | Self::NoneSelected => None,
         }
     }
 }

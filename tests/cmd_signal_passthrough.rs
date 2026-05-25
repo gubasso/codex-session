@@ -1,11 +1,42 @@
 #![allow(clippy::unwrap_used)]
 #![allow(missing_docs)]
 
+mod support;
+
+use std::os::unix::fs::PermissionsExt as _;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+/// Seed a "default" account under the given state home so the auth gate
+/// does not block pass-through execution.
+fn seed_default_account(state_home: &std::path::Path, home: &std::path::Path) {
+    let account_dir = state_home.join("codex-session/accounts/default");
+    let groups_dir = account_dir.join("groups");
+    std::fs::create_dir_all(&groups_dir).unwrap();
+    std::fs::set_permissions(&account_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&groups_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let auth_body = "{\"token\":\"default\"}\n";
+    let auth_path = account_dir.join("auth.json");
+    std::fs::write(&auth_path, auth_body).unwrap();
+    std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let last_account = state_home.join("codex-session/state/last-account");
+    std::fs::create_dir_all(last_account.parent().unwrap()).unwrap();
+    std::fs::write(&last_account, "default").unwrap();
+    let native_dir = home.join(".codex");
+    std::fs::create_dir_all(&native_dir).unwrap();
+    let native_auth = native_dir.join("auth.json");
+    std::fs::write(&native_auth, auth_body).unwrap();
+    std::fs::set_permissions(&native_auth, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
 fn run_signal_test(sig: i32, expected_code: i32) {
     let td = tempfile::tempdir().unwrap();
+    let home = td.path().join("home");
+    let state_home = td.path().join("state");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&state_home).unwrap();
+    seed_default_account(&state_home, &home);
+
     let bin = assert_cmd::cargo::cargo_bin("codex-session");
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sleep.sh");
     let pid_file = td.path().join("child.pid");
@@ -25,7 +56,8 @@ fn run_signal_test(sig: i32, expected_code: i32) {
         .arg(&bin)
         .arg(&pid_file)
         .env_clear()
-        .env("HOME", td.path())
+        .env("HOME", &home)
+        .env("XDG_STATE_HOME", &state_home)
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("CODEX_SESSION_CHILD_BIN", &fixture)
         .stdout(Stdio::null())

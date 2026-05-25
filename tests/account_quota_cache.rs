@@ -17,12 +17,7 @@ const fn oauth_auth() -> &'static str {
 }
 
 fn add_account(env: &TestEnv, name: &str) {
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", name, "--from-current"])
-        .assert()
-        .success();
-    env.write_account_auth_seed(name, oauth_auth());
+    env.seed_account(name, oauth_auth());
 }
 
 const fn payload() -> &'static str {

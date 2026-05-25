@@ -21,6 +21,7 @@ fn install_minimal_profile(env: &TestEnv) {
 fn doctor_happy_path_exits_zero() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
+    env.seed_account("work", "{\"token\":\"test\"}\n");
 
     env.cmd()
         .arg("doctor")
@@ -38,6 +39,7 @@ fn doctor_happy_path_exits_zero() {
 fn doctor_json_shape() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
+    env.seed_account("work", "{\"token\":\"test\"}\n");
 
     let output = env
         .cmd()
@@ -49,10 +51,10 @@ fn doctor_json_shape() {
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(value["profile"], "default");
-    assert_eq!(value["account"], "default");
-    assert_eq!(value["account-source"], "fallback");
-    assert_eq!(value["active-account"]["name"], "default");
-    assert_eq!(value["active-account"]["source"], "fallback");
+    assert_eq!(value["account"], "work");
+    assert_eq!(value["account-source"], "lru");
+    assert_eq!(value["active-account"]["name"], "work");
+    assert_eq!(value["active-account"]["source"], "lru");
     assert!(value["accounts"].as_array().is_some());
     let accounts = value["accounts"].as_array().unwrap();
     for account in accounts {
@@ -81,11 +83,7 @@ fn doctor_json_shape() {
 fn doctor_json_reports_cooldown_active_account() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
     let cooldown_path = env.named_account_root("work").join("cooldown.json");
     std::fs::create_dir_all(cooldown_path.parent().unwrap()).unwrap();
     let cd_json = serde_json::json!({
@@ -117,11 +115,7 @@ fn doctor_json_reports_cooldown_active_account() {
 fn doctor_fails_when_active_account_missing_auth() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
     env.cmd()
         .args(["account", "use", "work"])
         .assert()
@@ -148,11 +142,7 @@ fn doctor_fails_when_active_account_missing_auth() {
 fn doctor_warn_cooldown_appears_in_next_steps() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
     let cooldown_path = env.named_account_root("work").join("cooldown.json");
     std::fs::create_dir_all(cooldown_path.parent().unwrap()).unwrap();
     let cd_json = serde_json::json!({
@@ -305,7 +295,7 @@ fn doctor_all_profiles_aggregates() {
 
 #[test]
 fn doctor_reports_state_when_session_root_not_yet_initialized() {
-    let env = TestEnv::new();
+    let env = TestEnv::new_empty();
     install_minimal_profile(&env);
 
     let runtime_session_root = env.runtime.join("codex-session");
@@ -314,11 +304,13 @@ fn doctor_reports_state_when_session_root_not_yet_initialized() {
         "test precondition: runtime session root must not exist yet"
     );
 
+    // With no accounts, doctor now reports a FAIL for session.account,
+    // so exit code is 1. The assertions below only concern session.root.
     let stdout = String::from_utf8(
         env.cmd()
             .arg("doctor")
             .assert()
-            .success()
+            .code(1)
             .get_output()
             .stdout
             .clone(),
@@ -415,6 +407,7 @@ fn doctor_show_env_redacts_secrets() {
 fn doctor_reports_missing_native_auth_as_ok() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
+    let _ = std::fs::remove_dir_all(env.home.join(".codex"));
 
     env.cmd()
         .arg("doctor")
@@ -429,6 +422,7 @@ fn doctor_fails_on_symlinked_native_auth() {
     let env = TestEnv::new();
     install_minimal_profile(&env);
     let native_dir = env.home.join(".codex");
+    let _ = std::fs::remove_dir_all(&native_dir);
     std::fs::create_dir_all(&native_dir).unwrap();
     std::fs::set_permissions(&native_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     let sentinel = env.home.join("sentinel-auth.json");

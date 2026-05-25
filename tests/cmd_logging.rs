@@ -47,14 +47,14 @@ fn error_path_writes_structured_json_log_file() {
 #[test]
 fn version_parse_error_does_not_boot_logging_before_config_load() {
     let env = TestEnv::new();
-    let state_home = env.tmp.path().join("state");
+    let alt_state = env.tmp.path().join("alt-state");
 
     // Phase 08 routes clap parse failures directly through `AppError::Usage`
     // without re-loading config or installing tracing. Parse failures should
     // still exit 64, but they must not create the log directory.
     let output = env
         .cmd()
-        .env("XDG_STATE_HOME", &state_home)
+        .env("XDG_STATE_HOME", &alt_state)
         .args(["version", "junk"])
         .assert()
         .code(64)
@@ -62,17 +62,17 @@ fn version_parse_error_does_not_boot_logging_before_config_load() {
         .clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("unexpected argument 'junk' found"));
-    assert!(!state_home.join("codex-session").exists());
+    assert!(!alt_state.join("codex-session").exists());
 }
 
 #[test]
 fn version_parse_error_uses_plain_clap_stderr_even_with_verbose_flags() {
     let env = TestEnv::new();
-    let state_home = env.tmp.path().join("state");
+    let alt_state = env.tmp.path().join("alt-state");
 
     let output = env
         .cmd()
-        .env("XDG_STATE_HOME", &state_home)
+        .env("XDG_STATE_HOME", &alt_state)
         .args(["-v", "--log-stderr", "version", "junk"])
         .assert()
         .code(64)
@@ -87,17 +87,17 @@ fn version_parse_error_uses_plain_clap_stderr_even_with_verbose_flags() {
         !stderr.contains("command.error"),
         "parse failures must not install the structured stderr mirror: {stderr}"
     );
-    assert!(!state_home.join("codex-session").exists());
+    assert!(!alt_state.join("codex-session").exists());
 }
 
 #[test]
 fn version_parse_error_after_verb_still_skips_logging_setup() {
     let env = TestEnv::new();
-    let state_home = env.tmp.path().join("state");
+    let alt_state = env.tmp.path().join("alt-state");
 
     let output = env
         .cmd()
-        .env("XDG_STATE_HOME", &state_home)
+        .env("XDG_STATE_HOME", &alt_state)
         .args(["version", "--log-stderr", "-v", "junk"])
         .assert()
         .code(64)
@@ -108,17 +108,17 @@ fn version_parse_error_after_verb_still_skips_logging_setup() {
         stderr.contains("unexpected argument 'junk' found"),
         "parse error must still render via clap; got: {stderr}"
     );
-    assert!(!state_home.join("codex-session").exists());
+    assert!(!alt_state.join("codex-session").exists());
 }
 
 #[test]
 fn version_parse_error_with_stacked_verbose_cluster_skips_logging_setup() {
     let env = TestEnv::new();
-    let state_home = env.tmp.path().join("state");
+    let alt_state = env.tmp.path().join("alt-state");
 
     let output = env
         .cmd()
-        .env("XDG_STATE_HOME", &state_home)
+        .env("XDG_STATE_HOME", &alt_state)
         .args(["version", "-vvvv", "junk"])
         .assert()
         .code(64)
@@ -129,7 +129,7 @@ fn version_parse_error_with_stacked_verbose_cluster_skips_logging_setup() {
         stderr.contains("unexpected argument 'junk' found"),
         "parse error must still render via clap; got: {stderr}"
     );
-    assert!(!state_home.join("codex-session").exists());
+    assert!(!alt_state.join("codex-session").exists());
 }
 
 #[test]
@@ -239,11 +239,11 @@ fn log_stderr_alone_mirrors_warnings() {
 #[test]
 fn parse_failure_does_not_honor_silent_before_config_load() {
     let env = TestEnv::new();
-    let state_home = env.tmp.path().join("state");
+    let alt_state = env.tmp.path().join("alt-state");
 
     let output = env
         .cmd()
-        .env("XDG_STATE_HOME", &state_home)
+        .env("XDG_STATE_HOME", &alt_state)
         .args(["--silent", "version", "junk"])
         .assert()
         .code(64)
@@ -251,5 +251,5 @@ fn parse_failure_does_not_honor_silent_before_config_load() {
         .clone();
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("unexpected argument 'junk' found"));
-    assert!(!state_home.join("codex-session").exists());
+    assert!(!alt_state.join("codex-session").exists());
 }

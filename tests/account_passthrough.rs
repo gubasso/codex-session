@@ -8,6 +8,7 @@ use support::{TestEnv, fixture_path};
 #[test]
 fn passthrough_routes_to_named_account_path() {
     let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
     let output = env
         .cmd()
         .env("CODEX_SESSION_CHILD_BIN", fixture_path("echo-env.sh"))

@@ -6,15 +6,16 @@ pub(crate) fn run(
     args: crate::cli::account::AccountListArgs,
 ) -> Result<(), crate::error::AppError> {
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
-    // Propagate resolution errors so an invalid CODEX_SESSION_ACCOUNT (or a
-    // malformed `state/last-account`) surfaces with the documented exit code
-    // (`account_invalid_env_exits_64`), rather than being silently dropped
-    // by `.ok()` and showing an incomplete list.
-    let resolved = crate::services::account::resolver::resolve(ctx)?;
-    let active = Some(crate::commands::account::AccountCurrentView {
-        name: resolved.id.to_string(),
-        source: crate::services::account::resolver::source_label(resolved.source).to_owned(),
-    });
+    let active = match crate::services::account::resolver::resolve(ctx) {
+        Ok(resolved) => Some(crate::commands::account::AccountCurrentView {
+            name: resolved.id.to_string(),
+            source: crate::services::account::resolver::source_label(resolved.source).to_owned(),
+        }),
+        Err(crate::error::AppError::Account(
+            crate::services::account::AccountError::NoneResolved,
+        )) => None,
+        Err(err) => return Err(err),
+    };
     let active_name = active.as_ref().map(|value| value.name.as_str());
     let entries = registry
         .list()?

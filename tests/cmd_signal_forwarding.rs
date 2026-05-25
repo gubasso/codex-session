@@ -5,6 +5,28 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+/// Seed a "default" account under the given state home so the auth gate
+/// does not block pass-through execution.
+fn seed_default_account(state_home: &std::path::Path, home: &std::path::Path) {
+    let account_dir = state_home.join("codex-session/accounts/default");
+    let groups_dir = account_dir.join("groups");
+    std::fs::create_dir_all(&groups_dir).unwrap();
+    std::fs::set_permissions(&account_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&groups_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let auth_body = "{\"token\":\"default\"}\n";
+    let auth_path = account_dir.join("auth.json");
+    std::fs::write(&auth_path, auth_body).unwrap();
+    std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let last_account = state_home.join("codex-session/state/last-account");
+    std::fs::create_dir_all(last_account.parent().unwrap()).unwrap();
+    std::fs::write(&last_account, "default").unwrap();
+    let native_dir = home.join(".codex");
+    std::fs::create_dir_all(&native_dir).unwrap();
+    let native_auth = native_dir.join("auth.json");
+    std::fs::write(&native_auth, auth_body).unwrap();
+    std::fs::set_permissions(&native_auth, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
 #[test]
 fn signal_forwarding_preserves_child_auth_write_on_sigterm() {
     let td = tempfile::tempdir().unwrap();
@@ -18,6 +40,7 @@ fn signal_forwarding_preserves_child_auth_write_on_sigterm() {
     std::fs::create_dir_all(&xdg_config).unwrap();
     std::fs::create_dir_all(&xdg_state).unwrap();
     std::fs::create_dir_all(&xdg_runtime).unwrap();
+    seed_default_account(&xdg_state, &home);
 
     let fixture = td.path().join("child.sh");
     let ready_flag = td.path().join("child-ready");

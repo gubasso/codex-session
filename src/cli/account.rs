@@ -32,9 +32,6 @@ pub(crate) enum AccountCommand {
 pub(crate) struct AccountAddArgs {
     /// Account name (regex `[a-z0-9][a-z0-9_-]{0,31}`).
     pub(crate) name: AccountId,
-    /// Seed ~/.codex/auth.json into the new account's seed file.
-    #[arg(long)]
-    pub(crate) from_current: bool,
 }
 
 #[derive(Debug, Clone, Copy, clap::Args)]

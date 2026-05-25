@@ -93,12 +93,7 @@ impl Registry {
         Ok(accounts)
     }
 
-    pub(crate) fn add(
-        &self,
-        name: &AccountId,
-        from_current: bool,
-        native_home: &Utf8Path,
-    ) -> Result<AccountEntry, AccountError> {
+    pub(crate) fn add(&self, name: &AccountId) -> Result<AccountEntry, AccountError> {
         crate::services::auth::ensure_owned_dir_0700(&self.root).map_err(map_auth_error)?;
         let dir = self.account_dir(name);
         if dir.as_std_path().exists() {
@@ -111,25 +106,6 @@ impl Registry {
         crate::services::auth::ensure_owned_dir_0700(&dir).map_err(map_auth_error)?;
         crate::services::auth::ensure_owned_dir_0700(&dir.join("groups"))
             .map_err(map_auth_error)?;
-
-        if from_current {
-            let native_auth = native_home.join(".codex").join("auth.json");
-            if native_auth.as_std_path().exists() {
-                let copy_result = crate::services::auth::secure_file_read(&native_auth)
-                    .map_err(map_auth_error)
-                    .and_then(|bytes| {
-                        crate::adapters::fs::atomic_write(&self.group_auth_seed_path(name), &bytes)
-                            .map_err(map_fs_error)
-                    });
-                if let Err(err) = copy_result {
-                    let _ = std::fs::remove_dir_all(dir.as_std_path());
-                    return Err(err);
-                }
-            } else {
-                let _ = std::fs::remove_dir_all(dir.as_std_path());
-                return Err(AccountError::NativeAuthMissing);
-            }
-        }
 
         Ok(AccountEntry {
             id: name.clone(),
@@ -431,9 +407,7 @@ mod tests {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        let native_home = tempfile::tempdir().unwrap();
-        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
-        registry.add(&id, false, native_home.as_path()).unwrap();
+        registry.add(&id).unwrap();
         assert!(registry.account_dir(&id).is_dir());
     }
 
@@ -442,11 +416,9 @@ mod tests {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        let native_home = tempfile::tempdir().unwrap();
-        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
-        registry.add(&id, false, native_home.as_path()).unwrap();
+        registry.add(&id).unwrap();
         assert!(matches!(
-            registry.add(&id, false, native_home.as_path()),
+            registry.add(&id),
             Err(super::AccountError::AlreadyExists { .. })
         ));
     }
@@ -456,9 +428,7 @@ mod tests {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        let native_home = tempfile::tempdir().unwrap();
-        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
-        registry.add(&id, false, native_home.as_path()).unwrap();
+        registry.add(&id).unwrap();
         registry.remove(&id).unwrap();
         assert!(!registry.account_dir(&id).exists());
     }
@@ -468,25 +438,10 @@ mod tests {
         let config = test_config();
         let registry = Registry::from_config(&config);
         let id: AccountId = "work".parse().unwrap();
-        let native_home = tempfile::tempdir().unwrap();
-        let native_home = camino::Utf8PathBuf::try_from(native_home.path().to_path_buf()).unwrap();
-        registry.add(&id, false, native_home.as_path()).unwrap();
+        registry.add(&id).unwrap();
         registry.set_current(&id).unwrap();
         registry.remove(&id).unwrap();
         assert_eq!(registry.current().unwrap(), None);
-    }
-
-    #[test]
-    fn add_from_current_fails_without_native_auth() {
-        let config = test_config();
-        let registry = Registry::from_config(&config);
-        let id: AccountId = "work".parse().unwrap();
-        let home = tempfile::tempdir().unwrap();
-        let home = camino::Utf8PathBuf::try_from(home.path().to_path_buf()).unwrap();
-        assert!(matches!(
-            registry.add(&id, true, home.as_path()),
-            Err(super::AccountError::NativeAuthMissing)
-        ));
     }
 
     #[test]

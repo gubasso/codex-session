@@ -25,12 +25,6 @@ impl std::fmt::Display for AccountId {
     }
 }
 
-impl Default for AccountId {
-    fn default() -> Self {
-        Self("default".to_owned())
-    }
-}
-
 impl FromStr for AccountId {
     type Err = String;
 
@@ -107,10 +101,5 @@ mod tests {
         ] {
             assert!(AccountId::from_str(value).is_err(), "{value}");
         }
-    }
-
-    #[test]
-    fn default_is_default() {
-        assert_eq!(AccountId::default().as_str(), "default");
     }
 }

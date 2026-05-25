@@ -5,8 +5,8 @@ expression: value
 ---
 {
   "account": "default",
-  "account-source": "fallback",
-  "accounts-count": 0,
+  "account-source": "lru",
+  "accounts-count": 1,
   "accounts-in-cooldown": 0,
   "active-account-has-auth": true,
   "active-profile": "default",

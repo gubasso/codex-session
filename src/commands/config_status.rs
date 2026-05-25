@@ -73,12 +73,25 @@ pub(crate) fn build_view(
         &ctx.config.paths.state_dir,
     )?;
     let resolved_group = crate::services::session::group_id::current(ctx)?;
-    let resolved_account = crate::services::account::resolver::resolve(ctx)?;
-    let inspected_dir = crate::services::session::dir::inspect_session_dir(
-        &root.path,
-        &resolved_account.id,
-        resolved_group.id.as_str(),
-    )?;
+    let resolved_account = match crate::services::account::resolver::resolve(ctx) {
+        Ok(resolved) => Some(resolved),
+        Err(crate::error::AppError::Account(
+            crate::services::account::AccountError::NoneResolved,
+        )) => None,
+        Err(err) => return Err(err),
+    };
+    let inspected_dir = if let Some(ref ra) = resolved_account {
+        crate::services::session::dir::inspect_session_dir(
+            &root.path,
+            &ra.id,
+            resolved_group.id.as_str(),
+        )?
+    } else {
+        crate::services::session::dir::InspectedSessionDir {
+            path: root.path.clone(),
+            missing: true,
+        }
+    };
 
     // `config status` is an introspection command: even if the active profile
     // is missing or its manifest is malformed, still report what we resolved
@@ -91,10 +104,12 @@ pub(crate) fn build_view(
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
     let account_list = registry.list().unwrap_or_default();
     let accounts_count = account_list.len();
-    let active_account_has_auth = account_list
-        .iter()
-        .find(|a| a.id == resolved_account.id)
-        .is_none_or(|a| a.has_auth);
+    let active_account_has_auth = resolved_account.as_ref().is_none_or(|ra| {
+        account_list
+            .iter()
+            .find(|a| a.id == ra.id)
+            .is_none_or(|a| a.has_auth)
+    });
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -113,9 +128,13 @@ pub(crate) fn build_view(
         active_profile: ctx.config.profile.active.clone(),
         manifest_path,
         layer_paths,
-        account: resolved_account.id.to_string(),
-        account_source: crate::services::account::resolver::source_label(resolved_account.source)
-            .to_owned(),
+        account: resolved_account
+            .as_ref()
+            .map_or_else(|| "(no account)".to_owned(), |ra| ra.id.to_string()),
+        account_source: resolved_account.as_ref().map_or_else(
+            || "none".to_owned(),
+            |ra| crate::services::account::resolver::source_label(ra.source).to_owned(),
+        ),
         group_id: resolved_group.id.as_str().to_owned(),
         group_id_source: group_id_source_label(resolved_group.source).to_owned(),
         codex_home: inspected_dir.path,

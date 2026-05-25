@@ -71,6 +71,7 @@ pub(crate) struct AccountConfig {
     pub(crate) quota_ttl_secs: u64,
     pub(crate) weekly_floor: f64,
     pub(crate) five_hour_threshold: f64,
+    pub(crate) five_hour_weight: f64,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
@@ -173,6 +174,7 @@ struct FileAccountConfig {
     quota_ttl_secs: Option<u64>,
     weekly_floor: Option<f64>,
     five_hour_threshold: Option<f64>,
+    five_hour_weight: Option<f64>,
 }
 
 impl CliOverrides {
@@ -240,6 +242,7 @@ impl Default for AccountConfig {
             quota_ttl_secs: 30,
             weekly_floor: 10.0,
             five_hour_threshold: 50.0,
+            five_hour_weight: 0.70,
         }
     }
 }
@@ -419,6 +422,9 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
         if let Some(value) = account.five_hour_threshold {
             config.account.five_hour_threshold = value;
         }
+        if let Some(value) = account.five_hour_weight {
+            config.account.five_hour_weight = value;
+        }
     }
 
     Ok(())
@@ -498,6 +504,10 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             }
             "ACCOUNT_FIVE_HOUR_THRESHOLD" => {
                 config.account.five_hour_threshold =
+                    parse_env_value::<f64>(key, value).map_err(ConfigError::from)?;
+            }
+            "ACCOUNT_FIVE_HOUR_WEIGHT" => {
+                config.account.five_hour_weight =
                     parse_env_value::<f64>(key, value).map_err(ConfigError::from)?;
             }
             _ => {}
@@ -687,5 +697,6 @@ mod tests {
         assert_eq!(account.quota_ttl_secs, 30);
         assert!((account.weekly_floor - 10.0).abs() < f64::EPSILON);
         assert!((account.five_hour_threshold - 50.0).abs() < f64::EPSILON);
+        assert!((account.five_hour_weight - 0.70).abs() < f64::EPSILON);
     }
 }

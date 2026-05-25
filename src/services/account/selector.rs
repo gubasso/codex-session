@@ -55,6 +55,7 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
         now,
         ctx.config.account.five_hour_threshold,
         ctx.config.account.weekly_floor,
+        ctx.config.account.five_hour_weight,
     )?;
 
     registry.set_current(&picked.id)?;
@@ -94,12 +95,18 @@ fn pick_from_candidates(
     now: SystemTime,
     five_hour_threshold: f64,
     weekly_floor: f64,
+    five_hour_weight: f64,
 ) -> Result<ScoredCandidate, AccountError> {
     let mut best: Option<ScoredCandidate> = None;
 
     for candidate in candidates {
-        let Some(scored) = score_candidate(candidate, now, five_hour_threshold, weekly_floor)
-        else {
+        let Some(scored) = score_candidate(
+            candidate,
+            now,
+            five_hour_threshold,
+            weekly_floor,
+            five_hour_weight,
+        ) else {
             tracing::debug!(account = %candidate.id, reason = "threshold");
             continue;
         };
@@ -140,6 +147,7 @@ fn score_candidate(
     now: SystemTime,
     five_hour_threshold: f64,
     weekly_floor: f64,
+    five_hour_weight: f64,
 ) -> Option<ScoredCandidate> {
     let health_bonus: f64 = 100.0;
     let penalty: f64 = 0.0;
@@ -160,26 +168,35 @@ fn score_candidate(
         0.0
     };
 
-    let (avail_score, weekly_pressure_penalty, tie_five_hour, eligible) =
+    let (avail_score, weekly_pressure, fh_pressure, tie_five_hour, eligible) =
         match &candidate.quota_state {
             QuotaState::Known(quota) => {
                 let eligible = quota.five_hour.percent_left > five_hour_threshold
                     && quota.weekly.percent_left > weekly_floor;
-                let avail_score =
-                    f64::midpoint(quota.five_hour.percent_left, quota.weekly.percent_left) - 50.0;
-                let weekly_pressure_penalty = if quota.weekly.percent_left < 20.0 {
+                let weekly_weight = 1.0 - five_hour_weight;
+                let avail_score = five_hour_weight.mul_add(
+                    quota.five_hour.percent_left,
+                    weekly_weight * quota.weekly.percent_left,
+                ) - 50.0;
+                let weekly_pressure = if quota.weekly.percent_left < 20.0 {
                     -30.0
+                } else {
+                    0.0
+                };
+                let fh_pressure = if quota.five_hour.percent_left < 15.0 {
+                    -25.0
                 } else {
                     0.0
                 };
                 (
                     avail_score,
-                    weekly_pressure_penalty,
+                    weekly_pressure,
+                    fh_pressure,
                     Some(quota.five_hour.percent_left),
                     eligible,
                 )
             }
-            QuotaState::ApiKeyMode | QuotaState::Unknown => (0.0, 0.0, None, true),
+            QuotaState::ApiKeyMode | QuotaState::Unknown => (0.0, 0.0, 0.0, None, true),
         };
 
     if !eligible {
@@ -193,7 +210,8 @@ fn score_candidate(
             + plan_bonus
             + recency
             + avail_score
-            + weekly_pressure_penalty,
+            + weekly_pressure
+            + fh_pressure,
         tie_five_hour,
     })
 }
@@ -254,7 +272,7 @@ mod tests {
             candidate("low", known(60.0, 60.0), None, None, 0),
             candidate("high", known(90.0, 80.0), None, None, 0),
         ];
-        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap();
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "high");
     }
 
@@ -262,7 +280,7 @@ mod tests {
     fn below_threshold_is_excluded() {
         let now = std::time::SystemTime::now();
         let candidates = vec![candidate("low", known(49.0, 80.0), None, None, 0)];
-        let err = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap_err();
+        let err = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap_err();
         assert!(matches!(
             err,
             crate::services::account::AccountError::NoEligible
@@ -276,7 +294,7 @@ mod tests {
             candidate("one", known(40.0, 80.0), None, None, 0),
             candidate("two", known(80.0, 5.0), None, None, 0),
         ];
-        let err = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap_err();
+        let err = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap_err();
         assert!(matches!(
             err,
             crate::services::account::AccountError::NoEligible
@@ -287,7 +305,7 @@ mod tests {
     fn api_key_mode_is_eligible_without_quota_gate() {
         let now = std::time::SystemTime::now();
         let candidates = vec![candidate("api", QuotaState::ApiKeyMode, None, None, 0)];
-        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap();
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "api");
     }
 
@@ -299,7 +317,7 @@ mod tests {
             candidate("fav", known(80.0, 80.0), None, Some(&lru), 0),
             candidate("other", known(70.0, 70.0), None, Some(&lru), 0),
         ];
-        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap();
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "other");
     }
 
@@ -311,7 +329,7 @@ mod tests {
             candidate("idle", known(60.0, 60.0), Some(idle), None, 0),
             candidate("fresh", known(70.0, 70.0), None, None, 0),
         ];
-        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap();
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "idle");
     }
 
@@ -319,8 +337,30 @@ mod tests {
     fn quota_error_like_unknown_keeps_account_eligible() {
         let now = std::time::SystemTime::now();
         let candidates = vec![candidate("unknown", QuotaState::Unknown, None, None, 0)];
-        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0).unwrap();
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "unknown");
+    }
+
+    #[test]
+    fn weighted_scoring_prefers_higher_five_hour_quota() {
+        let now = std::time::SystemTime::now();
+        let candidates = vec![
+            candidate("a", known(45.0, 95.0), None, None, 0),
+            candidate("b", known(75.0, 65.0), None, None, 0),
+        ];
+        let picked = pick_from_candidates(&candidates, now, 0.0, 0.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "b");
+    }
+
+    #[test]
+    fn five_hour_pressure_penalty_below_15_percent() {
+        let now = std::time::SystemTime::now();
+        let candidates = vec![
+            candidate("low5h", known(14.0, 80.0), None, None, 0),
+            candidate("ok5h", known(55.0, 55.0), None, None, 0),
+        ];
+        let picked = pick_from_candidates(&candidates, now, 0.0, 0.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "ok5h");
     }
 
     #[test]

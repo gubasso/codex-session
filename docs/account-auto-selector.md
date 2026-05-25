@@ -57,6 +57,7 @@ total = health_bonus
       + recency
       + avail_score
       + weekly_pressure_penalty
+      + five_hour_pressure_penalty
 ```
 
 ### health_bonus = +100.0
@@ -104,26 +105,34 @@ are fully replenished. It is the freshest option available. The +20 reward says
 nearly-empty account. +20 is a nice nudge but won't override a genuinely
 low-quota account.
 
-### avail_score = midpoint(five_hour%, weekly%) - 50.0
+### avail_score = five_hour_weight × five_hour% + (1 - five_hour_weight) × weekly% - 50.0
 
-This averages the two quota percentages and subtracts 50.
+This computes a weighted average of the two quota percentages and subtracts 50.
+The default weight is **0.70** for the 5-hour window and **0.30** for weekly.
 
-**Why the midpoint?** You have two quota windows (5-hour and weekly) and both
-matter. If one is at 90% and the other is at 20%, the account isn't truly
-healthy. The midpoint captures "mixed health" better than looking at just one
-number.
+**Why weighted instead of a simple midpoint?** The 5-hour window is the
+practical bottleneck — it drains fast and resets every 5 hours, while the weekly
+quota rarely runs out. Giving both windows equal weight masks this asymmetry and
+can cause the selector to pick an account with low immediate headroom just
+because its weekly looks good. The 70/30 split reflects the ~34× higher reset
+frequency of the 5-hour window.
 
 **Why subtract 50?** To center the score around zero. An account with average
-health (50% on both windows) contributes 0.0 — neither a boost nor a drag.
-Accounts above average go positive, below average go negative.
+health contributes ~0.0 — neither a boost nor a drag. Accounts above average go
+positive, below average go negative.
 
-Example values:
+Example values (at default 0.70 weight):
 
-| 5-hour | Weekly | Midpoint | avail_score |
+| 5-hour | Weekly | Weighted avg | avail_score |
 |---|---|---|---|
-| 90% | 80% | 85% | +35.0 |
-| 60% | 50% | 55% | +5.0 |
-| 55% | 15% | 35% | -15.0 |
+| 90% | 80% | 87% | +37.0 |
+| 60% | 50% | 57% | +7.0 |
+| 45% | 95% | 60% | +10.0 |
+| 75% | 65% | 72% | +22.0 |
+
+Note: with equal-weight midpoint, 45/95 and 75/65 would both score +20.0 — a
+tie. The weighted formula correctly prefers 75/65 (+22.0 vs +10.0) because its
+5-hour headroom is much higher.
 
 Accounts in API-key mode or with unknown quota get 0.0 (neutral).
 
@@ -141,6 +150,25 @@ unless all alternatives are worse.
 **Why 20%?** Below 20% weekly means 80%+ of the week's allowance is consumed
 with potentially days remaining. That is a strong signal to preserve what's left.
 
+### five_hour_pressure_penalty (0 or -25)
+
+If the 5-hour quota drops below 15%, an extra -25 is applied.
+
+This is the 5-hour analogue of the weekly pressure penalty. When the 5-hour
+window is nearly exhausted, avail_score's weighted formula already penalizes
+it more than before (70% weight), but a hard penalty adds urgency at the
+critical threshold.
+
+**Why -25 instead of -30?** The weighted avail_score already amplifies the
+impact of a low 5-hour percentage. Stacking an equally aggressive penalty would
+be excessive. -25 is enough to decisively steer away from the account without
+over-penalizing.
+
+**Why 15%?** Slightly lower than the weekly threshold (20%) because avail_score
+already weights 5-hour more heavily. By the time 5-hour drops to 15%, the
+weighted avail_score has already been dragging the account down; the pressure
+penalty is the final push.
+
 ## Tie-breaking
 
 When two accounts end up with the same total score, ties are broken in order:
@@ -157,14 +185,15 @@ Three accounts, all eligible after filtering:
 | health_bonus | +100 | +100 | +100 |
 | plan_bonus | +20 | +0 | +30 |
 | recency | -30 (just used) | 0 | +20 (idle > 7d) |
-| avail_score | mid(80,60)-50 = +20 | mid(70,50)-50 = +10 | mid(90,85)-50 = +37.5 |
+| avail_score | 0.7×80+0.3×60-50 = +24 | 0.7×70+0.3×50-50 = +14 | 0.7×90+0.3×85-50 = +38.5 |
 | weekly_pressure | 0 | 0 | 0 |
-| **Total** | **110** | **110** | **187.5** |
+| five_hour_pressure | 0 | 0 | 0 |
+| **Total** | **114** | **114** | **188.5** |
 
 Account C wins by a wide margin: it has been resting (recency +20), it has the
-best plan (plan +30), and it has the most quota available (avail +37.5).
+best plan (plan +30), and it has the most quota available (avail +38.5).
 
-A and B tie at 110. Tie-breaker: A has 80% five-hour quota vs B's 70%, so A
+A and B tie at 114. Tie-breaker: A has 80% five-hour quota vs B's 70%, so A
 takes second place.
 
 Final ranking: **C > A > B**.
@@ -178,12 +207,16 @@ The scoring system asks five questions about each account:
 3. **"Were you just used?"** — recency: spread the load, don't hammer one
   account.
 4. **"How full is your tank?"** — avail_score: prefer accounts with more
-  remaining quota.
-5. **"Are you dangerously low?"** — weekly_pressure: emergency avoidance.
+  remaining quota, weighted 70/30 toward 5-hour headroom.
+5. **"Are you dangerously low on weekly?"** — weekly_pressure: emergency weekly
+  avoidance.
+6. **"Are you dangerously low on 5-hour?"** — five_hour_pressure: emergency
+  5-hour avoidance.
 
 Each question addresses a different failure mode: capacity limits, quota
-exhaustion, rate-limiting, and weekly burnout. Together they produce a balanced
-rotation that keeps all accounts healthy over time.
+exhaustion, rate-limiting, weekly burnout, and imminent 5-hour exhaustion.
+Together they produce a balanced rotation that keeps all accounts healthy over
+time.
 
 ## Cooldown and retry failover
 
@@ -207,3 +240,4 @@ Defaults in `src/config/mod.rs` (`AccountConfig`):
 | `quota_ttl_secs` | 30 | Cache quota lookups for 30 seconds |
 | `weekly_floor` | 10.0 | Minimum weekly quota % to be eligible |
 | `five_hour_threshold` | 50.0 | Minimum 5-hour quota % to be eligible |
+| `five_hour_weight` | 0.70 | Weight for 5-hour window in avail_score (weekly = 1 - this) |

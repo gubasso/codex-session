@@ -61,42 +61,48 @@ The **session group copies** (`groups/<gid>/auth.json`) are runtime
 artifacts. They are materialized from the seed before each child invocation
 and may accumulate stale copies across group IDs. The gate ignores them.
 
-### 2.3 Server-side token probe
+### 2.3 Why there is no server-side token probe
 
-After confirming the seed file exists, the gate performs a lightweight
-HTTP probe to validate the token against the server. This catches the
-case where `codex logout` revokes the token server-side but leaves the
-local seed file intact (unchanged JSON, same token values).
+An earlier implementation included an HTTP probe that validated the
+OAuth access token against `chatgpt.com/backend-api/me` on every
+launch. This was removed because:
 
-**How it works:**
+1. **Wrong endpoint.** The codex CLI obtains OAuth tokens scoped for
+    `api.openai.com` (`api.connectors.*` scopes), but the probe hit the
+    ChatGPT *web* backend. That endpoint returned 403 for valid CLI
+    tokens, causing the gate to report `AuthMissing` on every launch —
+    even when the account was freshly authenticated.
 
-1. Read the seed `auth.json` and extract `tokens.access_token`.
-2. If the field is missing or empty (e.g., API-key auth), skip the probe
-    (fail-open).
-3. Make a single GET request to a lightweight endpoint with a 3-second
-    timeout.
-4. If the server returns **401 or 403**, the token is revoked — return
-    `AuthMissing`.
-5. Any other response (200, 5xx, network error, timeout) — proceed
-    normally (fail-open).
+2. **Token refresh invalidation.** During a TUI session, the codex
+    runtime may refresh the OAuth token. The refreshed token is written
+    to the session group copy (`$CODEX_HOME/auth.json`), but the
+    account seed still holds the original token. If the refresh revokes
+    the original server-side, a probe against the seed would always
+    fail. The `sync_group_auth_to_seed` mechanism (see §5) now
+    propagates refreshed tokens back to the seed after each child exit,
+    but the probe was still unreliable for the endpoint mismatch above.
 
-**Fail-open design:** The probe never blocks offline users or unusual
-auth setups. Only an explicit server rejection (401/403) triggers
-`AuthMissing`. Network errors, DNS failures, and timeouts all result in
-the gate proceeding — the worst case is the same as the previous
-behavior (codex detects the error at runtime).
+3. **Redundant with managed logout.** The `codex-session logout`
+    command deletes the account seed, so the gate correctly detects
+    `AuthMissing` via seed-file existence alone. If a user runs native
+    `codex logout` (bypassing codex-session), the codex runtime detects
+    the invalid token at startup and surfaces an auth error — the user
+    can then run `codex-session login` to re-authenticate.
 
-**Probe endpoint:** Defaults to `https://chatgpt.com/backend-api/me`.
-Overridable via `CODEX_SESSION_AUTH_PROBE_URL` (used by tests with
-`wiremock`).
+**Current behavior:** The gate checks seed-file existence only. If the
+seed exists, the account is `Ready`. If not, `AuthMissing`. No HTTP
+request is made during `assess()`.
 
 ### 2.4 What the gate does NOT check
 
-- **Token expiry timestamps.** The gate does not parse expiry claims
-  from the token. It relies on the server to accept or reject the token.
+- **Token validity.** The gate does not validate the token against any
+  server or parse expiry claims. It trusts seed-file existence.  If the
+  token is invalid, the codex runtime detects the error at startup.
 
 - **Group-level auth copies.** Stale session group dirs may contain old
-  `auth.json` files from previous runs. These are not authoritative.
+  `auth.json` files from previous runs. These are not authoritative
+  (though `sync_group_auth_to_seed` propagates refreshes after each
+  child exit — see §5).
 
 ### 2.5 Auth lifecycle
 
@@ -113,13 +119,25 @@ Overridable via `CODEX_SESSION_AUTH_PROBE_URL` (used by tests with
 After step 3, the account seed exists and the gate will consider this
 account `Ready`.
 
-**Renewal (`account refresh` or gate re-authentication):**
+**Renewal (`account refresh`, `codex-session login`, or gate
+re-authentication):**
 
 1. `codex logout` + `codex login` — same as registration.
 2. `copy_native_auth_to_seed()` — overwrites the existing seed with the
     fresh token.
 3. `registry.delete_group_auths()` — removes all `groups/*/auth.json` so
     new sessions pick up the fresh seed instead of stale copies.
+
+**Logout (`codex-session logout`):**
+
+1. `codex logout` — revokes the token server-side (non-fatal if it
+    fails).
+2. `registry.delete_auth_seed()` — removes the account seed so the gate
+    returns `AuthMissing` on the next invocation.
+3. `registry.delete_group_auths()` — removes stale session copies.
+
+After step 2, the account has no seed and the gate will guide the user
+through re-authentication on next launch.
 
 **Pass-through launch (every `codex-session exec`, bare invocation, etc.):**
 
@@ -128,6 +146,7 @@ account `Ready`.
     already have an `auth.json`, copy the account seed into it. This is the
     file codex will read at `$CODEX_HOME/auth.json`.
 3. Spawn child codex with `CODEX_HOME` pointing at the session group dir.
+4. After child exits, `sync_group_auth_to_seed()` — see §5.
 
 ## 3. Gate assessment
 
@@ -162,15 +181,9 @@ variants:
                                │ NoneSelected│  ╱       ╲
                                │(stale ptr)  │ yes       no
                                └─────────────┘ │         │
-                                         token probe  ┌───┴────────┐
-                                         (HTTP)       │ AuthMissing│
-                                         ╱       ╲    └────────────┘
-                                     accepted   401/403
-                                       │          │
-                                  ┌────┴───┐ ┌────┴───────┐
-                                  │ Ready  │ │ AuthMissing│
-                                  └────────┘ │(revoked)   │
-                                             └────────────┘
+                                          ┌────┴───┐ ┌───┴────────┐
+                                          │ Ready  │ │ AuthMissing│
+                                          └────────┘ └────────────┘
 ```
 <!-- editorconfig-checker-enable -->
 
@@ -178,8 +191,8 @@ variants:
 |---|---|---|
 | `NoAccounts` | `registry.list()` is empty | Fresh install, no accounts ever registered |
 | `NoneSelected` | Accounts exist but resolver returns `NoneResolved`, or resolved account's directory is missing (stale LRU/config pointer) | User has accounts but none could be resolved |
-| `AuthMissing` | Account resolved and directory exists, but seed is absent **or** seed exists but server rejected the token (401/403) | Account never authenticated, seed deleted, or token revoked (e.g. `codex logout`) |
-| `Ready` | Account resolved, directory exists, seed present, token probe accepted (or skipped for non-OAuth) | Good to launch |
+| `AuthMissing` | Account resolved and directory exists, but seed is absent | Account never authenticated, or seed deleted via `codex-session logout` |
+| `Ready` | Account resolved, directory exists, seed present | Good to launch |
 
 ### 3.2 Resolution priority
 
@@ -250,7 +263,83 @@ still checks the seed and will error on `AuthMissing`, but it does not
 prompt for confirmation even in interactive mode — the user already told us
 what they want.
 
-## 5. Interaction with the retry loop
+## 5. Managed login and logout
+
+`codex-session login` and `codex-session logout` are intercepted in
+`pass_through::run()` before the normal gate/retry path. They are
+**not** raw pass-throughs to the native `codex` binary — they are
+managed by the gate module and fully account-aware.
+
+### 5.1 `codex-session login` (`gate::run_login`)
+
+Calls `assess()` then dispatches:
+
+| State | Interactive | Non-interactive |
+|---|---|---|
+| `NoAccounts` | Prompt for name, create account, authenticate | Error: `NoAccounts` |
+| `NoneSelected` | Prompt to select, then authenticate | Error: `NoneSelected` |
+| `AuthMissing` | `do_refresh_auth()` | `do_refresh_auth()` |
+| `Ready` | `do_refresh_auth()` (force re-auth) | `do_refresh_auth()` |
+
+Unlike `ensure()`, which returns immediately when `Ready`, `run_login()`
+always forces a fresh authentication — the user explicitly asked to log in.
+
+### 5.2 `codex-session logout` (`gate::run_logout`)
+
+| State | Interactive | Non-interactive |
+|---|---|---|
+| `NoAccounts` | Narrate "nothing to log out", exit 0 | Same |
+| `NoneSelected` | Prompt to select which to log out | Error: `NoneSelected` |
+| `AuthMissing` | Narrate "already logged out", exit 0 | Same |
+| `Ready` | `do_logout()` | `do_logout()` |
+
+`do_logout()` runs native `codex logout` (non-fatal), deletes the
+account seed via `registry.delete_auth_seed()`, and clears group auths.
+After logout, `assess()` returns `AuthMissing` (seed absent).
+
+### 5.3 Why login/logout are not raw pass-throughs
+
+If `codex-session login` forwarded directly to `codex login`, the user
+would authenticate against the global `~/.codex/auth.json` with no
+indication of which codex-session account is affected, and the account
+seed would not be updated. Similarly, a raw `codex logout` would revoke
+the token server-side but leave the account seed intact — the gate
+would still consider the account `Ready` (seed exists), only for the
+codex runtime to fail on an invalid token at startup.
+
+By managing login/logout through the gate, every auth operation narrates
+which account is being handled and keeps the seed in sync.
+
+## 6. Auth sync after child exit
+
+**Source file:** `pass_through::sync_group_auth_to_seed()`
+
+After every child process (TUI) exit, the wrapper compares the session
+group copy (`$CODEX_HOME/auth.json`) with the account seed
+(`accounts/<name>/auth.json`). If they differ, the group copy is written
+back to the seed via `atomic_write`.
+
+### 6.1 Why this is necessary
+
+During a TUI session, the codex runtime may refresh the OAuth token
+(e.g. token_A → token_B). The refreshed token_B is written to
+`$CODEX_HOME/auth.json` (the session group copy). Without the sync, the
+account seed still holds token_A. If the refresh revoked token_A
+server-side, the seed becomes stale — subsequent gate checks or re-added
+probes would see an invalid token.
+
+### 6.2 Behavior
+
+| Scenario | Seed | Group copy | Sync action |
+|---|---|---|---|
+| Token refreshed | token_A | token_B | Overwrites seed with token_B |
+| No refresh | token_A | token_A | No-op (bytes match) |
+| Group auth missing | token_A | absent | No-op (read fails, early return) |
+
+The sync is best-effort: read or write failures are logged but do not
+block the exit path.
+
+## 7. Interaction with the retry loop
 
 The gate runs once at the top of `pass_through::run()`. After the gate
 returns `Ready`, the retry loop (`retry::run_with_retry()`) takes over:
@@ -262,9 +351,10 @@ returns `Ready`, the retry loop (`retry::run_with_retry()`) takes over:
     exhausts all accounts, it returns `NoEligible`.
 
 The gate does **not** re-run between retry attempts. It is a one-time
-pre-launch check.
+pre-launch check. The auth sync runs after **each** child exit
+(including retries).
 
-## 6. Error variants
+## 8. Error variants
 
 | Variant | Exit code | When |
 |---|---|---|
@@ -274,7 +364,7 @@ pre-launch check.
 | `AuthMissing { name }` | 75 | Account resolved but seed missing |
 | `NonInteractive { action }` | 64 | Interactive prompt needed but no terminal |
 
-## 7. Filesystem layout
+## 9. Filesystem layout
 
 ```
 ~/.codex/
@@ -288,11 +378,11 @@ pre-launch check.
       auth.json                  ← account seed (gate checks THIS)
       groups/
         <group-id>/
-          auth.json              ← session copy (runtime artifact)
+          auth.json              ← session copy (synced back on exit)
       cooldown.json              ← failover cooldown state
 ```
 
-## 8. Security properties
+## 10. Security properties
 
 - **No implicit defaults.** There is no fallback to a hardcoded `"default"`
   account. Every account must be explicitly registered and authenticated.

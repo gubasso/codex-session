@@ -39,8 +39,10 @@ pub(crate) fn run(
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
 
     let first_arg = argv.first().and_then(|a| a.to_str()).unwrap_or("");
-    if matches!(first_arg, "login" | "logout") {
-        return run_auth_command(ctx, argv);
+    match first_arg {
+        "login" => return crate::services::account::gate::run_login(ctx),
+        "logout" => return crate::services::account::gate::run_logout(ctx),
+        _ => {}
     }
 
     let gated = crate::services::account::gate::ensure(ctx)?;
@@ -62,28 +64,6 @@ pub(crate) fn run(
         return Ok(0);
     }
     crate::services::account::retry::run_with_retry(ctx, argv)
-}
-
-/// Forward `login` / `logout` directly to the codex binary without
-/// account resolution, session dirs, or the auth gate.
-fn run_auth_command(
-    ctx: &crate::context::AppContext,
-    argv: &[std::ffi::OsString],
-) -> Result<i32, crate::error::AppError> {
-    use crate::adapters::spawner::Spawner as _;
-
-    let binary = ctx.resolved_child().map_err(map_child_err)?.clone();
-    let invocation = crate::domain::child_invocation::ChildInvocation {
-        binary,
-        args: argv.to_vec(),
-        env: crate::domain::child_invocation::ChildEnv::scrubbed_default(),
-    };
-    let child_pid = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
-    let status = ctx
-        .spawner
-        .spawn_and_wait(invocation, &child_pid)
-        .map_err(crate::error::AppError::from)?;
-    Ok(status.code().unwrap_or(1))
 }
 
 /// Run the child for one attempt. Returns the exit code plus stdout and
@@ -120,6 +100,7 @@ pub(crate) fn run_once(
     let cache_settings = cache_settings_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
     let result = run_child(ctx, prepared.invocation, session, capture);
+    sync_group_auth_to_seed(ctx, account, &prepared.session_dir);
     persist_trust(
         &session_config,
         &cache_settings,
@@ -278,6 +259,39 @@ fn materialize_account_auth_seed(
     crate::adapters::fs::atomic_write(&group_auth, &bytes)
         .map_err(crate::services::auth::AuthError::from)?;
     Ok(())
+}
+
+/// Propagate token refreshes from the session group copy back to the account seed.
+/// See `docs/auth-gate-spec.md` §6 for rationale.
+fn sync_group_auth_to_seed(
+    ctx: &crate::context::AppContext,
+    account: &crate::services::account::AccountId,
+    session_dir: &camino::Utf8Path,
+) {
+    let group_auth = session_dir.join("auth.json");
+    let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+    let seed = registry.group_auth_seed_path(account);
+
+    let Ok(group_bytes) = std::fs::read(group_auth.as_std_path()) else {
+        return;
+    };
+    let seed_bytes = std::fs::read(seed.as_std_path()).unwrap_or_default();
+    if group_bytes == seed_bytes {
+        return;
+    }
+    tracing::info!(
+        op = "auth.sync",
+        account = %account,
+        "group auth differs from seed; syncing refreshed token back"
+    );
+    if let Err(err) = crate::adapters::fs::atomic_write(&seed, &group_bytes) {
+        tracing::warn!(
+            op = "auth.sync",
+            account = %account,
+            error = %err,
+            "failed to sync refreshed auth back to seed"
+        );
+    }
 }
 
 fn finalize_child_status(

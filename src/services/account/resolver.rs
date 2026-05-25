@@ -11,8 +11,7 @@ pub(crate) enum AccountResolutionSource {
     Auto,
     Lru,
     ConfigPinned,
-    Default,
-    Fallback,
+    Interactive,
 }
 
 #[derive(Debug, Clone)]
@@ -28,8 +27,7 @@ pub(crate) const fn source_label(source: AccountResolutionSource) -> &'static st
         AccountResolutionSource::Auto => "auto",
         AccountResolutionSource::Lru => "lru",
         AccountResolutionSource::ConfigPinned => "config-pinned",
-        AccountResolutionSource::Default => "default",
-        AccountResolutionSource::Fallback => "fallback",
+        AccountResolutionSource::Interactive => "interactive",
     }
 }
 
@@ -100,20 +98,8 @@ fn resolve_from_inputs(
         });
     }
 
-    if let Some(id) = ctx.config.account.default.as_ref() {
-        tracing::info!(op = "account.resolve", source = "default", account = %id);
-        return Ok(ResolvedAccount {
-            id: id.clone(),
-            source: AccountResolutionSource::Default,
-        });
-    }
-
-    let id = AccountId::default();
-    tracing::info!(op = "account.resolve", source = "fallback", account = %id);
-    Ok(ResolvedAccount {
-        id,
-        source: AccountResolutionSource::Fallback,
-    })
+    tracing::info!(op = "account.resolve", source = "none-resolved");
+    Err(AccountError::NoneResolved.into())
 }
 
 #[cfg(test)]
@@ -126,7 +112,6 @@ mod tests {
     fn test_ctx(
         account: Option<crate::cli::account::AccountSelector>,
         pinned: Option<crate::services::account::AccountId>,
-        default: Option<crate::services::account::AccountId>,
     ) -> crate::context::AppContext {
         let temp = tempfile::tempdir().unwrap();
         let base = camino::Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
@@ -146,7 +131,6 @@ mod tests {
             },
             log: crate::config::LogConfig::default(),
             account: crate::config::AccountConfig {
-                default,
                 pinned,
                 ..crate::config::AccountConfig::default()
             },
@@ -169,7 +153,6 @@ mod tests {
                 "flag".parse().unwrap(),
             )),
             None,
-            None,
         );
         let resolved = resolve_from_inputs(&ctx, Some("env".to_owned())).unwrap();
         assert_eq!(resolved.id.as_str(), "flag");
@@ -178,7 +161,7 @@ mod tests {
 
     #[test]
     fn env_wins_when_no_flag() {
-        let ctx = test_ctx(None, None, None);
+        let ctx = test_ctx(None, None);
         let resolved = resolve_from_inputs(&ctx, Some("env".to_owned())).unwrap();
         assert_eq!(resolved.id.as_str(), "env");
         assert!(matches!(resolved.source, AccountResolutionSource::Env));
@@ -186,14 +169,10 @@ mod tests {
 
     #[test]
     fn lru_wins_over_config() {
-        let ctx = test_ctx(
-            None,
-            Some("pinned".parse().unwrap()),
-            Some("default".parse().unwrap()),
-        );
+        let ctx = test_ctx(None, Some("pinned".parse().unwrap()));
         let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let id = "lru".parse().unwrap();
-        registry.add(&id, false, ctx.home_dir()).unwrap();
+        registry.add(&id).unwrap();
         registry.set_current(&id).unwrap();
         let resolved = resolve(&ctx).unwrap();
         assert_eq!(resolved.id.as_str(), "lru");
@@ -201,12 +180,8 @@ mod tests {
     }
 
     #[test]
-    fn config_pinned_wins_over_default() {
-        let ctx = test_ctx(
-            None,
-            Some("pinned".parse().unwrap()),
-            Some("default".parse().unwrap()),
-        );
+    fn config_pinned_is_used() {
+        let ctx = test_ctx(None, Some("pinned".parse().unwrap()));
         let resolved = resolve(&ctx).unwrap();
         assert_eq!(resolved.id.as_str(), "pinned");
         assert!(matches!(
@@ -216,11 +191,28 @@ mod tests {
     }
 
     #[test]
+    fn no_sources_returns_none_resolved() {
+        let ctx = test_ctx(None, None);
+        let result = resolve(&ctx);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                crate::error::AppError::Account(
+                    crate::services::account::AccountError::NoneResolved
+                )
+            ),
+            "expected NoneResolved, got: {err:?}"
+        );
+    }
+
+    #[test]
     fn auto_invokes_selector() {
-        let ctx = test_ctx(Some(crate::cli::account::AccountSelector::Auto), None, None);
+        let ctx = test_ctx(Some(crate::cli::account::AccountSelector::Auto), None);
         let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let id = "auto".parse().unwrap();
-        registry.add(&id, false, ctx.home_dir()).unwrap();
+        registry.add(&id).unwrap();
         let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
         std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
         let cache_path = cache_dir.join("auto.json");
@@ -244,10 +236,10 @@ mod tests {
 
     #[test]
     fn auto_env_invokes_selector() {
-        let ctx = test_ctx(None, None, None);
+        let ctx = test_ctx(None, None);
         let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let id = "autoenv".parse().unwrap();
-        registry.add(&id, false, ctx.home_dir()).unwrap();
+        registry.add(&id).unwrap();
         let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
         std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
         let cache_path = cache_dir.join("autoenv.json");

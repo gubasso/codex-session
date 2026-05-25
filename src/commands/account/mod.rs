@@ -78,7 +78,7 @@ pub(crate) struct AccountCooldownEntryView {
     pub(crate) last_429_at_unix: Option<u64>,
 }
 
-pub(super) fn spawn_child(
+pub(crate) fn spawn_child(
     ctx: &crate::context::AppContext,
     args: impl IntoIterator<Item = &'static str>,
 ) -> Result<(), crate::error::AppError> {
@@ -133,7 +133,7 @@ fn map_spawner_error(err: &crate::adapters::spawner::SpawnerError) -> crate::err
     }
 }
 
-pub(super) fn copy_native_auth_to_seed(
+pub(crate) fn copy_native_auth_to_seed(
     ctx: &crate::context::AppContext,
     registry: &crate::services::account::registry::Registry,
     name: &crate::services::account::AccountId,

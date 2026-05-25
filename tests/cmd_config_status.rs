@@ -52,7 +52,7 @@ fn config_status_json_snapshot() {
         .clone();
     let mut value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     env.normalize_json(&mut value);
-    assert_eq!(value["account-source"], "fallback");
+    assert_eq!(value["account-source"], "lru");
     assert!(value["accounts-count"].is_number());
     assert!(value["active-account-has-auth"].is_boolean());
     assert!(value["accounts-in-cooldown"].is_number());
@@ -63,15 +63,8 @@ fn config_status_json_snapshot() {
 fn config_status_shows_cooldown_count() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("ignored");
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "acct-a", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "acct-b", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("acct-a", "{\"token\":\"test\"}\n");
+    env.seed_account("acct-b", "{\"token\":\"test\"}\n");
     let cooldown_path = env.named_account_root("acct-a").join("cooldown.json");
     let cooldown_json = serde_json::json!({
         "reset_at_unix": 9_999_999_999_u64,

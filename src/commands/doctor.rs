@@ -1008,7 +1008,7 @@ fn hint_for(name: &str) -> &'static str {
     } else if name == "account.cooldowns" {
         "wait for cooldown to expire or run `codex-session account cooldown clear --all`"
     } else if name == "session.account" {
-        "verify account exists with `codex-session account list` and check `--account` flag"
+        "run `codex-session account add <name>` to register an account, or pass `--account <name>`"
     } else {
         "see check detail"
     }

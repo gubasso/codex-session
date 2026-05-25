@@ -9,20 +9,6 @@ pub(crate) fn run(
 ) -> Result<(), crate::error::AppError> {
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
 
-    if args.from_current {
-        let entry = registry.add(&args.name, true, ctx.home_dir())?;
-        registry.set_current(&args.name)?;
-        tracing::info!(op = "account.add", outcome = "ok", account = %args.name);
-        ctx.ui.write_account_mutation(
-            "added",
-            &crate::commands::account::AccountMutationView {
-                name: entry.id.to_string(),
-                path: entry.dir,
-            },
-        )?;
-        return Ok(());
-    }
-
     if !std::io::stdin().is_terminal() {
         return Err(crate::services::account::AccountError::NonInteractive {
             action: "account add".to_owned(),
@@ -30,7 +16,7 @@ pub(crate) fn run(
         .into());
     }
 
-    let entry = registry.add(&args.name, false, ctx.home_dir())?;
+    let entry = registry.add(&args.name)?;
 
     let _ = super::spawn_child(ctx, ["logout"]).inspect_err(|err| {
         tracing::warn!(

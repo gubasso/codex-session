@@ -14,12 +14,7 @@ fn wham_url(server: &MockServer) -> String {
 #[tokio::test]
 async fn api_key_mode_skips_http_and_caches_for_five_minutes() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "scratch", "--from-current"])
-        .assert()
-        .success();
-    env.write_account_auth_seed("scratch", r#"{"OPENAI_API_KEY":"sk-test"}"#);
+    env.seed_account("scratch", r#"{"OPENAI_API_KEY":"sk-test"}"#);
 
     let server = MockServer::start().await;
     for _ in 0..2 {

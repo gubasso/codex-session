@@ -146,11 +146,15 @@ impl AppError {
                 .unwrap_or(70),
             Self::Account(err) => match err {
                 crate::services::account::AccountError::InvalidName { .. }
-                | crate::services::account::AccountError::NonInteractive { .. } => 64,
+                | crate::services::account::AccountError::NonInteractive { .. }
+                | crate::services::account::AccountError::NoneResolved
+                | crate::services::account::AccountError::NoAccounts
+                | crate::services::account::AccountError::NoneSelected => 64,
                 crate::services::account::AccountError::NotFound { .. }
                 | crate::services::account::AccountError::AlreadyExists { .. } => 78,
                 crate::services::account::AccountError::NoEligible
-                | crate::services::account::AccountError::LoginFailed { .. } => 75,
+                | crate::services::account::AccountError::LoginFailed { .. }
+                | crate::services::account::AccountError::AuthMissing { .. } => 75,
                 crate::services::account::AccountError::QuotaFetch { .. } => 69,
                 crate::services::account::AccountError::QuotaParse { .. } => 65,
                 crate::services::account::AccountError::NativeAuthMissing => 66,
@@ -462,8 +466,25 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
         },
         AccountError::NativeAuthMissing => ErrorDetail {
             what: "account: no native auth.json found".to_owned(),
+            why_line: "~/.codex/auth.json does not exist; run `codex login` first".to_owned(),
+        },
+        AccountError::NoneResolved => ErrorDetail {
+            what: "account: no account resolved".to_owned(),
+            why_line: "no account could be resolved from any source".to_owned(),
+        },
+        AccountError::AuthMissing { name } => ErrorDetail {
+            what: format!("account: '{name}' has no valid authentication"),
+            why_line: format!("run `codex-session account refresh {name}` to re-authenticate"),
+        },
+        AccountError::NoAccounts => ErrorDetail {
+            what: "account: no accounts registered".to_owned(),
+            why_line: "run `codex-session account add <name>` to create your first account"
+                .to_owned(),
+        },
+        AccountError::NoneSelected => ErrorDetail {
+            what: "account: no account selected".to_owned(),
             why_line:
-                "~/.codex/auth.json does not exist; run `codex login` first or omit --from-current"
+                "run `codex-session account use <name>` or pass `--account <name>` to select one"
                     .to_owned(),
         },
         AccountError::Cooldown(err) => ErrorDetail {
@@ -578,13 +599,25 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             Some("choose a different account name or remove the existing account first")
         }
         AppError::Account(crate::services::account::AccountError::NonInteractive { .. }) => {
-            Some("use --from-current (add) or --yes (remove) for non-interactive use")
+            Some("use --yes (remove) for non-interactive use, or run interactively")
         }
         AppError::Account(crate::services::account::AccountError::LoginFailed { .. }) => {
             Some("retry interactively or check your network/credentials")
         }
         AppError::Account(crate::services::account::AccountError::NativeAuthMissing) => {
             Some("run `codex login` first to create ~/.codex/auth.json")
+        }
+        AppError::Account(crate::services::account::AccountError::NoneResolved) => {
+            Some("run `codex-session account add <name>` or pass --account <name>")
+        }
+        AppError::Account(crate::services::account::AccountError::AuthMissing { .. }) => {
+            Some("run `codex-session account refresh <name>` to re-authenticate")
+        }
+        AppError::Account(crate::services::account::AccountError::NoAccounts) => {
+            Some("run `codex-session account add <name>` to register your first account")
+        }
+        AppError::Account(crate::services::account::AccountError::NoneSelected) => {
+            Some("run `codex-session account use <name>` or pass --account <name>")
         }
         AppError::Config(
             ConfigError::NoXdg

@@ -29,7 +29,13 @@ pub(crate) fn run(
         return Ok(());
     }
 
-    let active = crate::services::account::resolver::resolve(ctx)?.id;
+    let active = match crate::services::account::resolver::resolve(ctx) {
+        Ok(resolved) => resolved.id,
+        Err(crate::error::AppError::Account(AccountError::NoneResolved)) => {
+            return Err(AccountError::NoneResolved.into());
+        }
+        Err(err) => return Err(err),
+    };
     let entry = fetch_view(ctx, args, &active, true);
     match entry {
         Ok(view) => {

@@ -352,7 +352,7 @@ mod tests {
         );
         let id: crate::services::account::AccountId = "cool".parse().unwrap();
         crate::services::account::registry::Registry::from_config(&ctx.config)
-            .add(&id, false, ctx.home_dir())
+            .add(&id)
             .unwrap();
         let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let account_root = registry.account_dir(&id);

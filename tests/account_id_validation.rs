@@ -3,26 +3,20 @@
 
 mod support;
 
-use predicates::prelude::*;
 use support::TestEnv;
 
 #[test]
 fn account_id_accepts_valid_values() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
     for value in ["work", "a", "0", "a-b_c-1"] {
-        env.cmd()
-            .args(["account", "add", value, "--from-current"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains(format!("account added: {value}")));
+        env.seed_account(value, "{\"token\":\"test\"}\n");
+        assert!(env.named_account_root(value).is_dir());
     }
 }
 
 #[test]
 fn account_id_rejects_invalid_values() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
     for value in [
         "BAD",
         "-foo",
@@ -31,7 +25,7 @@ fn account_id_rejects_invalid_values() {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ] {
         env.cmd()
-            .args(["account", "add", value, "--from-current"])
+            .args(["account", "add", value])
             .assert()
             .failure()
             .code(64);

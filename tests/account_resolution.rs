@@ -12,19 +12,9 @@ fn write_user_config(env: &TestEnv, body: &str) {
 #[test]
 fn account_flag_overrides_env_and_lru() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "flag", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "env", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "lru", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("flag", "{\"token\":\"test\"}\n");
+    env.seed_account("env", "{\"token\":\"test\"}\n");
+    env.seed_account("lru", "{\"token\":\"test\"}\n");
     std::fs::write(env.last_account_path(), "lru").unwrap();
     let output = env
         .cmd()
@@ -50,20 +40,10 @@ fn account_flag_overrides_env_and_lru() {
 #[test]
 fn account_env_overrides_lru_and_config() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "env", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "lru", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("env", "{\"token\":\"test\"}\n");
+    env.seed_account("lru", "{\"token\":\"test\"}\n");
     std::fs::write(env.last_account_path(), "lru").unwrap();
-    write_user_config(
-        &env,
-        "[account]\npinned = \"pinned\"\ndefault = \"default\"\n",
-    );
+    write_user_config(&env, "[account]\npinned = \"pinned\"\n");
     let output = env
         .cmd()
         .env("CODEX_SESSION_ACCOUNT", "env")
@@ -81,11 +61,7 @@ fn account_env_overrides_lru_and_config() {
 #[test]
 fn account_lru_overrides_config_pinned() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "lru", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("lru", "{\"token\":\"test\"}\n");
     std::fs::write(env.last_account_path(), "lru").unwrap();
     write_user_config(&env, "[account]\npinned = \"pinned\"\n");
     let output = env
@@ -104,11 +80,7 @@ fn account_lru_overrides_config_pinned() {
 #[test]
 fn account_auto_invokes_selector() {
     let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "auto", "--from-current"])
-        .assert()
-        .success();
+    env.seed_account("auto", "{\"token\":\"test\"}\n");
     env.make_fake_codex();
     let output = env
         .cmd()

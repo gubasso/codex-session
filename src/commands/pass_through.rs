@@ -37,12 +37,19 @@ pub(crate) fn run(
     argv: &[std::ffi::OsString],
 ) -> Result<i32, crate::error::AppError> {
     tracing::info!(op = "pass-through", status = "start", argc = argv.len());
+
+    let first_arg = argv.first().and_then(|a| a.to_str()).unwrap_or("");
+    if matches!(first_arg, "login" | "logout") {
+        return run_auth_command(ctx, argv);
+    }
+
+    let gated = crate::services::account::gate::ensure(ctx)?;
+
     if ctx.global.dry_run {
-        let resolved = crate::services::account::resolver::resolve(ctx)?;
-        let prepared = prepare_invocation(ctx, argv, &resolved)?;
+        let prepared = prepare_invocation(ctx, argv, &gated)?;
         let dry_ctx = crate::domain::child_invocation::DryRunContext {
-            account: resolved.id.to_string(),
-            account_source: crate::services::account::resolver::source_label(resolved.source)
+            account: gated.id.to_string(),
+            account_source: crate::services::account::resolver::source_label(gated.source)
                 .to_owned(),
         };
         ctx.ui.write_dry_run(
@@ -55,6 +62,28 @@ pub(crate) fn run(
         return Ok(0);
     }
     crate::services::account::retry::run_with_retry(ctx, argv)
+}
+
+/// Forward `login` / `logout` directly to the codex binary without
+/// account resolution, session dirs, or the auth gate.
+fn run_auth_command(
+    ctx: &crate::context::AppContext,
+    argv: &[std::ffi::OsString],
+) -> Result<i32, crate::error::AppError> {
+    use crate::adapters::spawner::Spawner as _;
+
+    let binary = ctx.resolved_child().map_err(map_child_err)?.clone();
+    let invocation = crate::domain::child_invocation::ChildInvocation {
+        binary,
+        args: argv.to_vec(),
+        env: crate::domain::child_invocation::ChildEnv::scrubbed_default(),
+    };
+    let child_pid = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
+    let status = ctx
+        .spawner
+        .spawn_and_wait(invocation, &child_pid)
+        .map_err(crate::error::AppError::from)?;
+    Ok(status.code().unwrap_or(1))
 }
 
 /// Run the child for one attempt. Returns the exit code plus stdout and
@@ -90,13 +119,7 @@ pub(crate) fn run_once(
 
     let cache_settings = cache_settings_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
-    let result = run_child(
-        ctx,
-        &prepared.session_dir,
-        prepared.invocation,
-        session,
-        capture,
-    );
+    let result = run_child(ctx, prepared.invocation, session, capture);
     persist_trust(
         &session_config,
         &cache_settings,
@@ -116,29 +139,7 @@ fn prepare_invocation(
     argv: &[std::ffi::OsString],
     resolved: &crate::services::account::resolver::ResolvedAccount,
 ) -> Result<PreparedInvocation, crate::error::AppError> {
-    let child_binary = ctx.resolved_child().map_err(|err| match err {
-        crate::adapters::spawner::SpawnerError::NotFound {
-            tried,
-            path_searched,
-        } => crate::error::AppError::ChildNotFound {
-            tried: tried.clone().into_std_path_buf(),
-            path_searched: path_searched.clone(),
-        },
-        crate::adapters::spawner::SpawnerError::NotExecutable { path } => {
-            crate::error::AppError::ChildNotExecutable {
-                path: path.clone().into_std_path_buf(),
-            }
-        }
-        crate::adapters::spawner::SpawnerError::Recursion { path } => {
-            crate::error::AppError::ChildRecursion { path: path.clone() }
-        }
-        crate::adapters::spawner::SpawnerError::Exec(io) => {
-            crate::error::AppError::ChildExec(std::io::Error::new(io.kind(), io.to_string()))
-        }
-        crate::adapters::spawner::SpawnerError::NonUtf8Path(_) => {
-            crate::error::AppError::Other(anyhow::anyhow!("non-utf8 child path"))
-        }
-    })?;
+    let child_binary = ctx.resolved_child().map_err(map_child_err)?;
 
     let group = crate::services::session::group_id::current(ctx)?;
     let root = crate::services::session::dir::resolve_session_root(
@@ -238,13 +239,10 @@ fn persist_trust(
 
 fn run_child(
     ctx: &crate::context::AppContext,
-    session_dir: &camino::Utf8Path,
     inv: ChildInvocation,
     session: &SignalSession,
     capture: bool,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
-    crate::services::auth::import_if_missing(session_dir, ctx.home_dir())?;
-
     let (status, stdout, stderr) = if capture {
         let spawn_result = ctx.spawner.spawn_and_wait_output(inv, &session.child_pid);
         session
@@ -311,6 +309,32 @@ fn finalize_child_status(
 fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {
     Utf8PathBuf::try_from(std::env::current_dir().map_err(crate::config::ConfigError::CurrentDir)?)
         .map_err(crate::config::ConfigError::from)
+}
+
+fn map_child_err(err: &crate::adapters::spawner::SpawnerError) -> crate::error::AppError {
+    match err {
+        crate::adapters::spawner::SpawnerError::NotFound {
+            tried,
+            path_searched,
+        } => crate::error::AppError::ChildNotFound {
+            tried: tried.clone().into_std_path_buf(),
+            path_searched: path_searched.clone(),
+        },
+        crate::adapters::spawner::SpawnerError::NotExecutable { path } => {
+            crate::error::AppError::ChildNotExecutable {
+                path: path.clone().into_std_path_buf(),
+            }
+        }
+        crate::adapters::spawner::SpawnerError::Recursion { path } => {
+            crate::error::AppError::ChildRecursion { path: path.clone() }
+        }
+        crate::adapters::spawner::SpawnerError::Exec(io) => {
+            crate::error::AppError::ChildExec(std::io::Error::new(io.kind(), io.to_string()))
+        }
+        crate::adapters::spawner::SpawnerError::NonUtf8Path(_) => {
+            crate::error::AppError::Other(anyhow::anyhow!("non-utf8 child path"))
+        }
+    }
 }
 
 fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {

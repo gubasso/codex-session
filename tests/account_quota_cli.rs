@@ -14,12 +14,7 @@ fn wham_url(server: &MockServer) -> String {
 }
 
 fn add_account(env: &TestEnv, name: &str, account_id: &str) {
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", name, "--from-current"])
-        .assert()
-        .success();
-    env.write_account_auth_seed(
+    env.seed_account(
         name,
         &format!(r#"{{"tokens":{{"access_token":"test-token","account_id":"{account_id}"}}}}"#),
     );
@@ -108,14 +103,10 @@ async fn account_quota_live_and_named_account_work() {
 
 #[tokio::test]
 async fn account_quota_all_orders_real_quota_before_api_key() {
-    let env = TestEnv::new();
+    let env = TestEnv::new_empty();
     add_account(&env, "high", "acct-high");
     add_account(&env, "mid", "acct-mid");
-    env.cmd()
-        .args(["account", "add", "scratch", "--from-current"])
-        .assert()
-        .success();
-    env.write_account_auth_seed("scratch", r#"{"OPENAI_API_KEY":"sk-test"}"#);
+    env.seed_account("scratch", r#"{"OPENAI_API_KEY":"sk-test"}"#);
 
     let server = MockServer::start().await;
     Mock::given(method("GET"))

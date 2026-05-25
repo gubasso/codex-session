@@ -27,7 +27,7 @@ fn exec_foo_bar_is_passed_through_to_codex() {
     )
     .unwrap();
     assert_eq!(meta["account"], "default");
-    assert_eq!(meta["account-source"], "fallback");
+    assert_eq!(meta["account-source"], "lru");
 }
 
 #[test]

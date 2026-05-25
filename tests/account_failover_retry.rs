@@ -38,16 +38,9 @@ fn latest_log_file(dir: &std::path::Path) -> std::path::PathBuf {
 
 #[test]
 fn auto_retry_rotates_accounts_and_writes_cooldown() {
-    let env = TestEnv::new();
-    env.write_native_auth("{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "add", "work", "--from-current"])
-        .assert()
-        .success();
-    env.cmd()
-        .args(["account", "add", "personal", "--from-current"])
-        .assert()
-        .success();
+    let env = TestEnv::new_empty();
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    env.seed_account("work", "{\"token\":\"test\"}\n");
     env.write_quota_cache("work", &quota_cache(90.0, 90.0));
     env.write_quota_cache("personal", &quota_cache(80.0, 80.0));
 

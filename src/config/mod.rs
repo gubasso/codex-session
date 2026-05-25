@@ -66,7 +66,6 @@ pub(crate) struct ProfileConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct AccountConfig {
-    pub(crate) default: Option<crate::services::account::AccountId>,
     pub(crate) pinned: Option<crate::services::account::AccountId>,
     pub(crate) registry_dir: Option<Utf8PathBuf>,
     pub(crate) quota_ttl_secs: u64,
@@ -169,7 +168,6 @@ struct FileProfileConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 struct FileAccountConfig {
-    default: Option<String>,
     pinned: Option<String>,
     registry_dir: Option<Utf8PathBuf>,
     quota_ttl_secs: Option<u64>,
@@ -237,7 +235,6 @@ impl Default for ProfileConfig {
 impl Default for AccountConfig {
     fn default() -> Self {
         Self {
-            default: None,
             pinned: None,
             registry_dir: None,
             quota_ttl_secs: 30,
@@ -407,9 +404,6 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
     }
 
     if let Some(account) = layer.account {
-        if let Some(value) = account.default {
-            config.account.default = Some(parse_account_id_field("account.default", value)?);
-        }
         if let Some(value) = account.pinned {
             config.account.pinned = Some(parse_account_id_field("account.pinned", value)?);
         }
@@ -487,9 +481,6 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             }
             "PROFILE" => {
                 config.profile.active = Some(value.to_owned());
-            }
-            "ACCOUNT_DEFAULT" => {
-                config.account.default = Some(parse_account_id_env(key, value)?);
             }
             "ACCOUNT_PINNED" => {
                 config.account.pinned = Some(parse_account_id_env(key, value)?);
@@ -654,11 +645,11 @@ mod tests {
     use super::{Config, ConfigError};
 
     #[test]
-    fn invalid_account_default_in_file_layer_errors() {
+    fn invalid_account_pinned_in_file_layer_errors() {
         let mut config = Config::defaults().unwrap();
         let layer = super::FileConfig {
             account: Some(super::FileAccountConfig {
-                default: Some("BAD!".to_owned()),
+                pinned: Some("BAD!".to_owned()),
                 ..super::FileAccountConfig::default()
             }),
             ..super::FileConfig::default()
@@ -667,7 +658,7 @@ mod tests {
         assert!(matches!(
             err,
             ConfigError::AccountConfigParse {
-                field: "account.default",
+                field: "account.pinned",
                 ..
             }
         ));

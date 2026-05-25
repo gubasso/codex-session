@@ -44,8 +44,9 @@ chmod 600 "$CODEX_HOME/auth.json"
             .trim_end(),
         new_payload
     );
+    let native_contents = std::fs::read_to_string(native_auth(&env)).unwrap();
     assert!(
-        !native_auth(&env).exists(),
-        "native auth should remain untouched"
+        !native_contents.contains("first-login"),
+        "native auth should not be overwritten by the child process"
     );
 }

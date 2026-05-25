@@ -79,6 +79,44 @@ impl TestEnv {
                 std::os::unix::fs::symlink(src, fake_bin.join(tool)).unwrap();
             }
         }
+        let env = Self {
+            argc_file: tmp.path().join("codex.argc"),
+            argv_file: tmp.path().join("codex.argv"),
+            tmp,
+            home,
+            cache,
+            config_home,
+            state_home,
+            runtime,
+            fake_bin,
+        };
+        env.seed_account("default", "{\"token\":\"default\"}\n");
+        env
+    }
+
+    /// Create a test environment with no accounts registered.
+    pub fn new_empty() -> Self {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let cache = tmp.path().join("cache");
+        let config_home = tmp.path().join("config");
+        let state_home = tmp.path().join("state");
+        let runtime = tmp.path().join("runtime");
+        let fake_bin = tmp.path().join("bin");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::create_dir_all(config_home.join("codex-session")).unwrap();
+        std::fs::create_dir_all(&state_home).unwrap();
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::create_dir_all(&fake_bin).unwrap();
+        for tool in [
+            "bash", "cat", "chmod", "ln", "ls", "mkdir", "mv", "cp", "printf", "rm", "sleep",
+            "touch", "test", "head", "tail",
+        ] {
+            if let Ok(src) = which::which(tool) {
+                std::os::unix::fs::symlink(src, fake_bin.join(tool)).unwrap();
+            }
+        }
         Self {
             argc_file: tmp.path().join("codex.argc"),
             argv_file: tmp.path().join("codex.argv"),
@@ -102,7 +140,8 @@ impl TestEnv {
                 .env("XDG_CONFIG_HOME", &self.config_home)
                 .env("XDG_STATE_HOME", &self.state_home)
                 .env("XDG_RUNTIME_DIR", &self.runtime)
-                .env("PATH", path),
+                .env("PATH", path)
+                .env("CODEX_SESSION_AUTH_PROBE_URL", "http://127.0.0.1:1"),
         );
         cmd
     }
@@ -117,6 +156,7 @@ impl TestEnv {
             .env("XDG_STATE_HOME", &self.state_home)
             .env("XDG_RUNTIME_DIR", &self.runtime)
             .env("PATH", path)
+            .env("CODEX_SESSION_AUTH_PROBE_URL", "http://127.0.0.1:1")
             .env_remove("NO_COLOR")
             .env_remove("FORCE_COLOR")
             .env_remove("CLICOLOR")
@@ -140,10 +180,19 @@ impl TestEnv {
     }
 
     pub fn cmd_without_home(&self) -> assert_cmd::Command {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let mut cmd = assert_cmd::Command::cargo_bin("codex-session").unwrap();
         let path = self.fake_bin.display().to_string();
         let alt_home = self.tmp.path().join("alt-home");
         std::fs::create_dir_all(&alt_home).unwrap();
+        let alt_codex = alt_home.join(".codex");
+        std::fs::create_dir_all(&alt_codex).unwrap();
+        let auth_path = alt_codex.join("auth.json");
+        std::fs::write(&auth_path, "{\"token\":\"alt\"}\n").unwrap();
+        let mut perms = std::fs::metadata(&auth_path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&auth_path, perms).unwrap();
         color::clear_color_env(
             cmd.env_clear()
                 .env("HOME", alt_home)
@@ -300,6 +349,36 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
             .join("cache")
             .join("quota")
             .join(format!("{name}.json"))
+    }
+
+    /// Create an account directly on the filesystem, bypassing the CLI.
+    /// Writes both the account-root auth seed and the native `~/.codex/auth.json`
+    /// so the auth gate sees a fully logged-in state.
+    pub fn seed_account(&self, name: &str, auth_body: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let account_dir = self.named_account_root(name);
+        let groups_dir = account_dir.join("groups");
+        std::fs::create_dir_all(&groups_dir).unwrap();
+
+        let mut perms = std::fs::metadata(&account_dir).unwrap().permissions();
+        perms.set_mode(0o700);
+        std::fs::set_permissions(&account_dir, perms).unwrap();
+
+        let mut perms = std::fs::metadata(&groups_dir).unwrap().permissions();
+        perms.set_mode(0o700);
+        std::fs::set_permissions(&groups_dir, perms).unwrap();
+
+        let auth_path = account_dir.join("auth.json");
+        std::fs::write(&auth_path, auth_body).unwrap();
+        let mut perms = std::fs::metadata(&auth_path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&auth_path, perms).unwrap();
+
+        self.write_native_auth(auth_body);
+
+        let last_account = self.last_account_path();
+        Self::write_file(&last_account, name);
     }
 
     pub fn write_native_auth(&self, body: &str) {

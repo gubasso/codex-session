@@ -6,11 +6,11 @@ expression: stdout
 active-profile: default
 manifest-path:  <TMP>/config/codex-session/profiles/default.yaml
 account:        default
-account-source: fallback
+account-source: lru
 group-id:       stable
 group-id-source: flag
 codex_home:     <TMP>/state/codex-session/accounts/default/groups/stable
-accounts:       0 (0 in cooldown)
+accounts:       1 (0 in cooldown)
 active-auth:    true
 session-root:   <TMP>/state/codex-session
 session-source: state

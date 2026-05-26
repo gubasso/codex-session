@@ -213,6 +213,7 @@ mod tests {
         let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let id = "auto".parse().unwrap();
         registry.add(&id).unwrap();
+        std::fs::write(registry.group_auth_seed_path(&id).as_std_path(), b"{}").unwrap();
         let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
         std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
         let cache_path = cache_dir.join("auto.json");
@@ -240,6 +241,7 @@ mod tests {
         let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
         let id = "autoenv".parse().unwrap();
         registry.add(&id).unwrap();
+        std::fs::write(registry.group_auth_seed_path(&id).as_std_path(), b"{}").unwrap();
         let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
         std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
         let cache_path = cache_dir.join("autoenv.json");

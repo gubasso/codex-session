@@ -19,6 +19,10 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
 
     let mut candidates = Vec::with_capacity(accounts.len());
     for entry in accounts {
+        if !entry.has_auth {
+            tracing::debug!(account = %entry.id, reason = "no-auth");
+            continue;
+        }
         if cooldown_active(&registry, &entry.id)? {
             tracing::debug!(account = %entry.id, reason = "cooldown");
             continue;

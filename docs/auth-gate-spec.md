@@ -93,6 +93,23 @@ launch. This was removed because:
 seed exists, the account is `Ready`. If not, `AuthMissing`. No HTTP
 request is made during `assess()`.
 
+### 2.3a Why `run_login` uses a heartbeat probe (not `codex login status`)
+
+`codex login status` checks local credential-file existence only — it
+makes no API calls and no server-side token validation. This is
+functionally identical to the gate's seed-file check. A token that is
+invalidated or revoked server-side still has a local auth.json file, so
+`login status` would report "logged in" falsely.
+
+The heartbeat probe (`codex exec --model o4-mini --json "say ok"`) is
+the only reliable way to confirm the token actually works. It runs with:
+
+- Isolated `CODEX_HOME` (tempdir with a copy of the account seed).
+- Scrubbed environment (no `CODEX_SESSION_*` recursion risk).
+- 15-second timeout (prevents hangs on network issues).
+- Conservative fallback: any error (timeout, network, binary) triggers
+  re-authentication rather than falsely reporting "logged in".
+
 ### 2.4 What the gate does NOT check
 
 - **Token validity.** The gate does not validate the token against any
@@ -119,14 +136,29 @@ request is made during `assess()`.
 After step 3, the account seed exists and the gate will consider this
 account `Ready`.
 
-**Renewal (`account refresh`, `codex-session login`, or gate
-re-authentication):**
+**Login (`codex-session login`):**
+
+If the resolved account is already `Ready` (seed exists), the command
+runs a heartbeat probe (`codex exec --model o4-mini --json "say ok"`)
+to verify the token is still valid server-side:
+
+- Probe succeeds → "already authenticated", exit 0.
+- Probe fails with 401 → automatically re-authenticates.
+- Probe errors (network, binary missing) → re-authenticates to be safe.
+
+Pass `--force` (or `-f`) to skip the probe and force re-authentication
+unconditionally.
+
+**Renewal (`account refresh`):**
 
 1. `codex logout` + `codex login` — same as registration.
 2. `copy_native_auth_to_seed()` — overwrites the existing seed with the
     fresh token.
 3. `registry.delete_group_auths()` — removes all `groups/*/auth.json` so
     new sessions pick up the fresh seed instead of stale copies.
+
+Unlike `login`, `refresh` always forces re-authentication regardless of
+whether the seed already exists.
 
 **Logout (`codex-session logout`):**
 
@@ -200,7 +232,8 @@ The resolver (`resolver::resolve()`) tries sources in this order:
 
 1. **Flag** — `--account <name>` or `--account auto`
 2. **Env** — `CODEX_SESSION_ACCOUNT=<name>` or `=auto`
-3. **Auto** — `selector::pick()` (quota-weighted scoring)
+3. **Auto** — `selector::pick()` (quota-weighted scoring; accounts
+    without auth seeds are excluded from the eligible pool)
 4. **LRU** — `state/last-account` pointer
 5. **Config pinned** — `config.account.pinned`
 

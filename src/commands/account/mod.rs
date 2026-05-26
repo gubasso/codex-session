@@ -107,7 +107,9 @@ pub(crate) fn spawn_child(
     }
 }
 
-fn map_spawner_error(err: &crate::adapters::spawner::SpawnerError) -> crate::error::AppError {
+pub(crate) fn map_spawner_error(
+    err: &crate::adapters::spawner::SpawnerError,
+) -> crate::error::AppError {
     match err {
         crate::adapters::spawner::SpawnerError::NotFound {
             tried,

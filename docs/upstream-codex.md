@@ -120,6 +120,19 @@ history. There are no hard-coded fallbacks to `~/.codex/*`.
   [issue #18065 — "Misleading `~/.codex/config.toml` references ignore $CODEX_HOME"](https://github.com/openai/codex/issues/18065),
   [issue #4407 — "Change the hardcoded $HOME/.codex path"](https://github.com/openai/codex/issues/4407).
 
+## F6b — `--profile` CLI flag
+
+Codex supports `-p, --profile <CONFIG_PROFILE>` to select a named
+configuration profile at runtime. The flag maps to a `[profiles.<name>]`
+section in `config.toml`. Model resolution precedence (highest to lowest):
+CLI `--model` → `-c model=` override → `--profile` section → top-level
+`model` → catalog default.
+
+- **Sources:** `codex --help` (verified 2026-05-26).
+- **Implementation note:** The heartbeat probe in
+  `src/services/account/gate.rs` uses `--profile ping` with an isolated
+  `CODEX_HOME` to select the probe model without `--model` hardcoding.
+
 ## F7 — Write-back model
 
 Codex uses `toml_edit` to modify `config.toml`, which preserves user

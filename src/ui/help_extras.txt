@@ -9,7 +9,7 @@ WRAPPER VERBS
   profile       Inspect and compose wrapper-owned profiles.
   doctor        Run full validation of the codex-session setup.
   account       Manage codex-session accounts (subcommands: add, list,
-                current, use, remove, refresh, quota, cooldown).
+                current, use, remove, refresh, quota, health, cooldown).
   login         Verify or re-authenticate the active account (--force).
   logout        Log out the active account and delete its auth seed.
 
@@ -21,7 +21,11 @@ PASSTHROUGH
 ACCOUNT MANAGEMENT
   codex-session account add work
   codex-session account list
-  codex-session account quota --format json
+  codex-session account quota                   # ranked by score
+  codex-session account quota --detail          # verbose scoring breakdown
+  codex-session account health                  # live auth + quota + score
+  codex-session account health --fast           # local-only (JWT exp + cache)
+  codex-session account health --format json    # structured JSON output
   codex-session account use work
   codex-session --account work exec "hi"
   codex-session --account auto exec "hi"

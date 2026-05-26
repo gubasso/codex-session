@@ -73,6 +73,21 @@ Combined with `--max-retries`, the wrapper automatically fails over to the
 next account on 429 detection. See [`docs/auth-gate-spec.md`](./docs/auth-gate-spec.md)
 for the full authentication model.
 
+### Observability
+
+```bash
+codex-session account quota               # all accounts, ranked by composite score
+codex-session account quota --detail       # verbose: scoring breakdown per account
+codex-session account health               # live auth probe + quota + cooldown status
+codex-session account health --fast        # local-only: JWT expiry + cached quota (no network)
+codex-session account health --format json # structured output for scripts
+```
+
+`account quota` shows rank position and composite score for each account, sorted
+by score descending. `account health` combines token validity, plan tier,
+cooldown state, and eligibility into a single table. Both support `--format json`
+and `--detail` for verbose text output.
+
 ## Skills
 
 codex-session does **not** manage personal Codex skills. Codex CLI discovers

@@ -391,12 +391,13 @@ impl Ui {
         &self,
         view: &crate::commands::account::AccountQuotaEntryView,
         format: crate::cli::OutputFormat,
+        verbose: bool,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match format {
             crate::cli::OutputFormat::Text => {
                 let c = color::should_color(color::Stream::Stdout);
-                write_quota_entry_text(&mut stdout, view, c)?;
+                write_quota_entry_text(&mut stdout, view, c, verbose)?;
                 writeln!(
                     stdout,
                     "  {}Fetched: {} ({}, TTL {}s){}",
@@ -416,6 +417,7 @@ impl Ui {
         &self,
         views: &[crate::commands::account::AccountQuotaEntryView],
         format: crate::cli::OutputFormat,
+        verbose: bool,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match format {
@@ -428,7 +430,7 @@ impl Ui {
                     if i > 0 {
                         writeln!(stdout)?;
                     }
-                    write_quota_entry_text(&mut stdout, view, c)?;
+                    write_quota_entry_text(&mut stdout, view, c, verbose)?;
                     writeln!(
                         stdout,
                         "  {}{}, {}{}",
@@ -441,6 +443,26 @@ impl Ui {
                 Ok(())
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, views),
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn write_account_health(
+        &self,
+        view: &crate::commands::account::AccountHealthView,
+        format: crate::cli::OutputFormat,
+        verbose: bool,
+    ) -> std::io::Result<()> {
+        let mut stdout = std::io::stdout().lock();
+        match format {
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, &view.entries),
+            crate::cli::OutputFormat::Text => {
+                if verbose {
+                    write_health_verbose(&mut stdout, &view.entries)
+                } else {
+                    write_health_table(&mut stdout, &view.entries)
+                }
+            }
         }
     }
 
@@ -514,6 +536,81 @@ const fn format_status(status: crate::commands::doctor::CheckStatus) -> &'static
         crate::commands::doctor::CheckStatus::Warn => "WARN",
         crate::commands::doctor::CheckStatus::Fail => "FAIL",
     }
+}
+
+fn write_health_verbose(
+    stdout: &mut impl std::io::Write,
+    entries: &[crate::commands::account::AccountHealthEntryView],
+) -> std::io::Result<()> {
+    for (idx, entry) in entries.iter().enumerate() {
+        if idx > 0 {
+            writeln!(stdout)?;
+        }
+        writeln!(stdout, "account: {}", entry.account)?;
+        writeln!(
+            stdout,
+            "rank: {}",
+            entry.rank.map_or_else(|| "—".to_owned(), |r| r.to_string())
+        )?;
+        writeln!(stdout, "score: {}", entry.score_label)?;
+        writeln!(stdout, "plan: {}", entry.plan)?;
+        writeln!(stdout, "token: {}", entry.token)?;
+        writeln!(stdout, "token_detail: {}", entry.token_detail)?;
+        writeln!(stdout, "status: {}", entry.status)?;
+        writeln!(stdout, "active: {}", entry.active)?;
+        writeln!(stdout, "cooldown: {}", entry.cooldown)?;
+        writeln!(
+            stdout,
+            "last_used: {}",
+            entry
+                .last_used
+                .map_or_else(|| "—".to_owned(), |ts| ts.to_string())
+        )?;
+        writeln!(stdout, "fetched_at_unix: {}", entry.fetched_at_unix)?;
+    }
+    Ok(())
+}
+
+fn write_health_table(
+    stdout: &mut impl std::io::Write,
+    entries: &[crate::commands::account::AccountHealthEntryView],
+) -> std::io::Result<()> {
+    let tok_w = entries
+        .iter()
+        .map(|e| e.token.len())
+        .max()
+        .unwrap_or(5)
+        .max(5);
+    writeln!(
+        stdout,
+        "{:<5} {:<7} {:<12} {:<tw$} {:<15} {:<12} {:<7} {:<9} FETCHED",
+        "RANK",
+        "SCORE",
+        "ACCOUNT",
+        "TOKEN",
+        "PLAN",
+        "STATUS",
+        "ACTIVE",
+        "COOLDOWN",
+        tw = tok_w + 1,
+    )?;
+    for entry in entries {
+        writeln!(
+            stdout,
+            "{:<5} {:<7} {:<12} {:<tw$} {:<15} {:<12} {:<7} {:<9} {}",
+            entry.rank.map_or_else(|| "—".to_owned(), |r| r.to_string()),
+            entry.score_label,
+            entry.account,
+            entry.token,
+            entry.plan,
+            entry.status,
+            entry.active,
+            entry.cooldown,
+            human_age(entry.fetched_at_unix),
+            tw = tok_w + 1,
+        )?;
+    }
+    Ok(())
 }
 
 fn write_json_line<T: serde::Serialize + ?Sized>(
@@ -593,16 +690,62 @@ fn quota_bar(pct: f64, width: usize, use_color: bool) -> String {
     )
 }
 
+fn write_quota_entry_verbose(
+    stdout: &mut impl std::io::Write,
+    view: &crate::commands::account::AccountQuotaEntryView,
+) -> std::io::Result<()> {
+    writeln!(stdout, "account: {}", view.account)?;
+    writeln!(
+        stdout,
+        "rank: {}",
+        view.rank
+            .map_or_else(|| "—".to_owned(), |rank| rank.to_string())
+    )?;
+    writeln!(
+        stdout,
+        "score: {}",
+        view.score
+            .map_or_else(|| "—".to_owned(), |score| format!("{score:.2}"))
+    )?;
+    writeln!(stdout, "mode: {}", view.mode)?;
+    writeln!(stdout, "status: {}", view.status_label)?;
+    writeln!(stdout, "active: {}", view.active)?;
+    writeln!(stdout, "fetched_at_unix: {}", view.fetched_at_unix)?;
+    writeln!(stdout, "ttl_secs: {}", view.ttl_secs)?;
+    if let Some(ref fh) = view.five_hour {
+        writeln!(stdout, "five_hour_pct: {:.1}", fh.percent_left)?;
+        writeln!(stdout, "five_hour_reset_at_unix: {}", fh.reset_at_unix)?;
+    }
+    if let Some(ref wk) = view.weekly {
+        writeln!(stdout, "weekly_pct: {:.1}", wk.percent_left)?;
+        writeln!(stdout, "weekly_reset_at_unix: {}", wk.reset_at_unix)?;
+    }
+    if let Some(ref scoring) = view.scoring {
+        writeln!(stdout, "scoring_total: {:.2}", scoring.total)?;
+        writeln!(stdout, "scoring_recency_label: {}", scoring.recency_label)?;
+        writeln!(stdout, "scoring_pressure_label: {}", scoring.pressure_label)?;
+    }
+    Ok(())
+}
+
 fn write_quota_entry_text(
     stdout: &mut impl std::io::Write,
     view: &crate::commands::account::AccountQuotaEntryView,
     use_color: bool,
+    verbose: bool,
 ) -> std::io::Result<()> {
+    if verbose {
+        return write_quota_entry_verbose(stdout, view);
+    }
     match view.mode.as_str() {
         "oauth" => {
             write!(
                 stdout,
-                "  {}{}{}",
+                "  {}#{} {:.2} {}{}{}{}",
+                style_open(quota_styles::DIM, use_color),
+                view.rank.unwrap_or(0),
+                view.score.unwrap_or(0.0),
+                style_close(quota_styles::DIM, use_color),
                 style_open(quota_styles::BOLD, use_color),
                 view.account,
                 style_close(quota_styles::BOLD, use_color),

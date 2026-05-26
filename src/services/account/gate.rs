@@ -17,8 +17,12 @@ use super::{
     resolver::{AccountResolutionSource, ResolvedAccount, source_label},
 };
 
+use camino::Utf8PathBuf;
+
 use crate::context::AppContext;
 use crate::error::AppError;
+
+const PING_PROFILE: &str = "ping";
 
 pub(crate) struct LoginOptions {
     pub(crate) force: bool,
@@ -368,29 +372,80 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
 
 /// Verify the token is valid server-side via a minimal `codex exec` probe.
 ///
-/// Why `codex exec` and not `codex login status`:
-/// `codex login status` only checks local file existence (~/.codex/auth.json)
-/// and exits 0/1. It makes no server-side validation — functionally identical
-/// to our gate's seed-file check in `assess()`. A token that is invalidated
-/// or revoked server-side (401 `token_invalidated`) still has a local file, so
-/// `login status` would report "logged in" falsely.
+/// Extracts the `[profiles.ping]` section from the user's composed
+/// codex-session settings and serializes a minimal config.toml containing
+/// only that section, suitable for writing to the probe's isolated
+/// `CODEX_HOME`.
+fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
+    let profile_name = ctx.config.profile.active.as_deref().ok_or_else(|| {
+        AppError::Account(AccountError::PingProfileMissing {
+            detail: "no active codex-session profile".to_owned(),
+        })
+    })?;
+
+    let composition = crate::services::profile::compose(
+        profile_name,
+        &crate::services::profile::ProfilePaths {
+            profiles_dir: ctx.config.profile.profiles_dir.clone(),
+            settings_dir: ctx.config.profile.settings_dir.clone(),
+            cache_settings: cache_settings_path(ctx),
+        },
+    )?;
+
+    let ping_table = composition
+        .merged_config
+        .get("profiles")
+        .and_then(|v| v.as_table())
+        .and_then(|profiles| profiles.get(PING_PROFILE))
+        .and_then(|v| v.as_table())
+        .ok_or_else(|| {
+            let detail = format!(
+                "[profiles.{PING_PROFILE}] not found in \
+                composed settings for profile `{profile_name}`"
+            );
+            AppError::Account(AccountError::PingProfileMissing { detail })
+        })?;
+
+    let mut config = toml::Table::new();
+    let mut profiles = toml::Table::new();
+    profiles.insert(
+        PING_PROFILE.to_owned(),
+        toml::Value::Table(ping_table.clone()),
+    );
+    config.insert("profiles".to_owned(), toml::Value::Table(profiles));
+
+    toml::to_string_pretty(&config).map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))
+}
+
+fn cache_settings_path(ctx: &AppContext) -> Option<Utf8PathBuf> {
+    let path = ctx.config.paths.cache_dir.join("settings.toml");
+    path.is_file().then_some(path)
+}
+
+pub(crate) fn validate_ping_profile(ctx: &AppContext) -> Result<(), AppError> {
+    extract_ping_config(ctx).map(|_| ())
+}
+
+/// Heartbeat probe — runs `codex --profile ping exec --json "say ok"` in
+/// an isolated `CODEX_HOME` to verify the account's token works server-side.
 ///
-/// The only way to confirm the token actually works is to make a real API
-/// call. We use `codex exec --model o4-mini "say ok"` as a minimal probe:
-/// cheapest model, tiny prompt, ~500ms–2s, negligible cost.
+/// The model is resolved by codex via `[profiles.ping]` — codex-session
+/// never inspects or passes a model value. Users control the probe model
+/// by setting `[profiles.ping].model` in their settings layer.
 ///
-/// Returns `(valid, stderr)`: `valid` is true when the token works, false
-/// when the probe detected a 401, and `None` on non-auth failures.
-/// `stderr` always contains the full child stderr for the caller to display.
+/// Returns `(valid, detail)`: `valid` is `Some(true)` when the token works,
+/// `Some(false)` on a 401, and `None` on non-auth failures. `detail`
+/// contains the combined stdout+stderr for the caller to display.
 fn heartbeat_probe(
     ctx: &AppContext,
     account: &AccountId,
 ) -> Result<(Option<bool>, String), AppError> {
-    use std::io::Read as _;
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 
     const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+    let ping_config = extract_ping_config(ctx)?;
 
     let registry = Registry::from_config(&ctx.config);
     let seed = registry.group_auth_seed_path(account);
@@ -415,19 +470,21 @@ fn heartbeat_probe(
         .map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))?;
     crate::adapters::fs::atomic_write(&tmp_path.join("auth.json"), &bytes)
         .map_err(crate::services::auth::AuthError::from)?;
+    crate::adapters::fs::atomic_write(&tmp_path.join("config.toml"), ping_config.as_bytes())
+        .map_err(crate::services::auth::AuthError::from)?;
 
     let binary = ctx
         .resolved_child()
         .map_err(crate::commands::account::map_spawner_error)?;
 
     let mut child = Command::new(binary.as_std_path())
-        .args(["exec", "--model", "o4-mini", "--json", "say ok"])
+        .args(["--profile", PING_PROFILE, "exec", "--json", "say ok"])
         .env_clear()
         .env("CODEX_HOME", tmp_path.as_str())
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("HOME", std::env::var("HOME").unwrap_or_default())
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(AppError::ChildExec)?;
@@ -439,36 +496,72 @@ fn heartbeat_probe(
             None if start.elapsed() >= PROBE_TIMEOUT => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let mut stderr_bytes = Vec::new();
-                if let Some(mut pipe) = child.stderr.take() {
-                    let _ = pipe.read_to_end(&mut stderr_bytes);
-                }
-                let mut stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_owned();
-                if !stderr.is_empty() {
-                    stderr.insert(0, '\n');
-                }
+                let output = drain_child_output(&mut child);
                 return Ok((
                     None,
-                    format!("heartbeat probe timed out after {PROBE_TIMEOUT:?}{stderr}"),
+                    format!("heartbeat probe timed out after {PROBE_TIMEOUT:?}\n{output}"),
                 ));
             }
             None => std::thread::sleep(Duration::from_millis(200)),
         }
     };
 
-    let mut stderr_bytes = Vec::new();
-    if let Some(mut pipe) = child.stderr.take() {
-        let _ = pipe.read_to_end(&mut stderr_bytes);
-    }
-    let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_owned();
+    let raw_output = drain_child_output(&mut child);
 
     if status.success() {
-        return Ok((Some(true), stderr));
+        return Ok((Some(true), strip_codex_stdin_noise(&raw_output)));
     }
-    if stderr.contains("401") || stderr.contains("Unauthorized") {
-        return Ok((Some(false), stderr));
+    if raw_output.contains("401") || raw_output.contains("Unauthorized") {
+        return Ok((Some(false), raw_output));
     }
-    Ok((None, stderr))
+    if raw_output.contains("model_not_found")
+        || raw_output.contains("decommissioned")
+        || (raw_output.contains("model") && raw_output.contains("does not exist"))
+    {
+        let truncated = &raw_output[..raw_output.len().min(500)];
+        return Ok((
+            None,
+            format!(
+                "ping profile model may be deprecated or \
+                unavailable — update [profiles.ping].model \
+                in your codex settings layer.\n\
+                API said: {truncated}"
+            ),
+        ));
+    }
+    Ok((None, raw_output))
+}
+
+fn drain_child_output(child: &mut std::process::Child) -> String {
+    use std::io::Read as _;
+    let mut combined = Vec::new();
+    if let Some(mut pipe) = child.stdout.take() {
+        let _ = pipe.read_to_end(&mut combined);
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_end(&mut combined);
+    }
+    String::from_utf8_lossy(&combined).trim().to_owned()
+}
+
+/// Codex prints "Reading additional input from stdin..." to stderr when
+/// stdin is /dev/null (not a TTY). Strip it only on success — on failure
+/// the full output is diagnostic and should be preserved verbatim.
+fn strip_codex_stdin_noise(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| *line != "Reading additional input from stdin...")
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
+}
+
+pub(crate) fn probe_token(
+    ctx: &AppContext,
+    account: &AccountId,
+) -> Result<(Option<bool>, String), AppError> {
+    heartbeat_probe(ctx, account)
 }
 
 pub(crate) fn run_login(ctx: &AppContext, opts: &LoginOptions) -> Result<i32, AppError> {

@@ -3,6 +3,7 @@
 pub(crate) mod add;
 pub(crate) mod cooldown;
 pub(crate) mod current;
+pub(crate) mod health;
 pub(crate) mod list;
 pub(crate) mod quota;
 pub(crate) mod refresh;
@@ -42,6 +43,26 @@ pub(crate) struct AccountMutationView {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountScoringView {
+    pub(crate) base: f64,
+    pub(crate) plan_bonus: f64,
+    pub(crate) recency: f64,
+    pub(crate) recency_label: String,
+    pub(crate) avail_score: f64,
+    pub(crate) five_hour_pct: Option<f64>,
+    pub(crate) weekly_pct: Option<f64>,
+    pub(crate) five_hour_weight: f64,
+    pub(crate) weekly_pressure: f64,
+    pub(crate) fh_pressure: f64,
+    pub(crate) pressure_label: String,
+    pub(crate) total: f64,
+    pub(crate) eligible: bool,
+    pub(crate) ineligible_reason: Option<String>,
+    pub(crate) tie_five_hour: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) struct AccountQuotaWindowView {
     pub(crate) percent_left: f64,
     pub(crate) reset_at_unix: u64,
@@ -58,6 +79,34 @@ pub(crate) struct AccountQuotaEntryView {
     pub(crate) error: Option<String>,
     pub(crate) five_hour: Option<AccountQuotaWindowView>,
     pub(crate) weekly: Option<AccountQuotaWindowView>,
+    pub(crate) score: Option<f64>,
+    pub(crate) rank: Option<usize>,
+    pub(crate) status_label: String,
+    pub(crate) scoring: Option<AccountScoringView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountHealthEntryView {
+    pub(crate) account: String,
+    pub(crate) token: String,
+    pub(crate) token_detail: String,
+    pub(crate) plan: String,
+    pub(crate) score: Option<f64>,
+    pub(crate) rank: Option<usize>,
+    pub(crate) status: String,
+    pub(crate) active: bool,
+    pub(crate) cooldown: bool,
+    pub(crate) last_used: Option<u64>,
+    pub(crate) fetched_at_unix: u64,
+    pub(crate) score_label: String,
+    pub(crate) scoring: Option<AccountScoringView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountHealthView {
+    pub(crate) entries: Vec<AccountHealthEntryView>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -286,6 +335,7 @@ pub(crate) fn dispatch(
         AccountCommand::Remove(args) => remove::run(ctx, &args),
         AccountCommand::Refresh(args) => refresh::run(ctx, &args),
         AccountCommand::Quota(args) => quota::run(ctx, args),
+        AccountCommand::Health(args) => health::run(ctx, args),
         AccountCommand::Cooldown(args) => cooldown::run(ctx, args),
     }
 }

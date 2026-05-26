@@ -92,6 +92,26 @@ struct ScoredCandidate {
     tie_five_hour: Option<f64>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) struct ScoreBreakdown {
+    pub(crate) base: f64,
+    pub(crate) plan_bonus: f64,
+    pub(crate) recency: f64,
+    pub(crate) recency_label: String,
+    pub(crate) avail_score: f64,
+    pub(crate) five_hour_pct: Option<f64>,
+    pub(crate) weekly_pct: Option<f64>,
+    pub(crate) five_hour_weight: f64,
+    pub(crate) weekly_pressure: f64,
+    pub(crate) fh_pressure: f64,
+    pub(crate) pressure_label: String,
+    pub(crate) total: f64,
+    pub(crate) eligible: bool,
+    pub(crate) ineligible_reason: Option<String>,
+    pub(crate) tie_five_hour: Option<f64>,
+}
+
 fn pick_from_candidates(
     candidates: &[Candidate<'_>],
     now: SystemTime,
@@ -151,71 +171,138 @@ fn score_candidate(
     weekly_floor: f64,
     five_hour_weight: f64,
 ) -> Option<ScoredCandidate> {
-    let health_bonus: f64 = 100.0;
-    let penalty: f64 = 0.0;
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "plan_bonus is a small bounded integer (0, 20, or 30)"
-    )]
-    let plan_bonus = candidate.plan_bonus as f64;
-    let recency = if candidate.lru == Some(&candidate.id) {
-        -30.0
-    } else if candidate
-        .last_used_at
-        .and_then(|ts| now.duration_since(ts).ok())
-        .is_some_and(|duration| duration.as_secs() > LONG_IDLE_SECS)
-    {
-        20.0
-    } else {
-        0.0
+    let params = ScoringParams {
+        plan_bonus: candidate.plan_bonus,
+        last_used_at: candidate.last_used_at,
+        is_lru: candidate.lru == Some(&candidate.id),
+        now,
+        five_hour_threshold,
+        weekly_floor,
+        five_hour_weight,
     };
-
-    let (avail_score, weekly_pressure, fh_pressure, tie_five_hour, eligible) =
-        match &candidate.quota_state {
-            QuotaState::Known(quota) => {
-                let eligible = quota.five_hour.percent_left > five_hour_threshold
-                    && quota.weekly.percent_left > weekly_floor;
-                let weekly_weight = 1.0 - five_hour_weight;
-                let avail_score = five_hour_weight.mul_add(
-                    quota.five_hour.percent_left,
-                    weekly_weight * quota.weekly.percent_left,
-                ) - 50.0;
-                let weekly_pressure = if quota.weekly.percent_left < 20.0 {
-                    -30.0
-                } else {
-                    0.0
-                };
-                let fh_pressure = if quota.five_hour.percent_left < 15.0 {
-                    -25.0
-                } else {
-                    0.0
-                };
-                (
-                    avail_score,
-                    weekly_pressure,
-                    fh_pressure,
-                    Some(quota.five_hour.percent_left),
-                    eligible,
-                )
-            }
-            QuotaState::ApiKeyMode | QuotaState::Unknown => (0.0, 0.0, 0.0, None, true),
-        };
-
-    if !eligible {
+    let breakdown = score_for_display(&candidate.quota_state, &params);
+    if !breakdown.eligible {
         return None;
     }
 
     Some(ScoredCandidate {
         id: candidate.id.clone(),
-        total: health_bonus
-            + penalty
-            + plan_bonus
-            + recency
-            + avail_score
-            + weekly_pressure
-            + fh_pressure,
-        tie_five_hour,
+        total: breakdown.total,
+        tie_five_hour: breakdown.tie_five_hour,
     })
+}
+
+pub(crate) struct ScoringParams {
+    pub(crate) plan_bonus: i64,
+    pub(crate) last_used_at: Option<SystemTime>,
+    pub(crate) is_lru: bool,
+    pub(crate) now: SystemTime,
+    pub(crate) five_hour_threshold: f64,
+    pub(crate) weekly_floor: f64,
+    pub(crate) five_hour_weight: f64,
+}
+
+pub(crate) fn score_from_quota_result(
+    result: &quota::QuotaResult,
+    params: &ScoringParams,
+) -> ScoreBreakdown {
+    let quota_state = match result {
+        quota::QuotaResult::Ok(value) => QuotaState::Known(value.clone()),
+        quota::QuotaResult::ApiKeyMode => QuotaState::ApiKeyMode,
+    };
+    score_for_display(&quota_state, params)
+}
+
+fn score_for_display(quota_state: &QuotaState, params: &ScoringParams) -> ScoreBreakdown {
+    let base = 100.0;
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "plan_bonus is a small bounded integer (0, 20, or 30)"
+    )]
+    let plan_bonus_f = params.plan_bonus as f64;
+    let (recency, recency_label) = if params.is_lru {
+        (-30.0, "LRU penalty".to_owned())
+    } else if params
+        .last_used_at
+        .and_then(|ts| params.now.duration_since(ts).ok())
+        .is_some_and(|duration| duration.as_secs() > LONG_IDLE_SECS)
+    {
+        (20.0, "long idle bonus".to_owned())
+    } else {
+        (0.0, "neutral".to_owned())
+    };
+
+    let (
+        avail_score,
+        weekly_pressure,
+        fh_pressure,
+        five_hour_pct,
+        weekly_pct,
+        tie_five_hour,
+        eligible,
+        ineligible_reason,
+    ) = match quota_state {
+        QuotaState::Known(quota) => {
+            let eligible = quota.five_hour.percent_left > params.five_hour_threshold
+                && quota.weekly.percent_left > params.weekly_floor;
+            let fht = params.five_hour_threshold;
+            let wf = params.weekly_floor;
+            let reason = (!eligible).then_some(format!("five_hour>{fht} and weekly>{wf} required"));
+            let weekly_weight = 1.0 - params.five_hour_weight;
+            let avail_score = params.five_hour_weight.mul_add(
+                quota.five_hour.percent_left,
+                weekly_weight * quota.weekly.percent_left,
+            ) - 50.0;
+            let weekly_pressure = if quota.weekly.percent_left < 20.0 {
+                -30.0
+            } else {
+                0.0
+            };
+            let fh_pressure = if quota.five_hour.percent_left < 15.0 {
+                -25.0
+            } else {
+                0.0
+            };
+            (
+                avail_score,
+                weekly_pressure,
+                fh_pressure,
+                Some(quota.five_hour.percent_left),
+                Some(quota.weekly.percent_left),
+                Some(quota.five_hour.percent_left),
+                eligible,
+                reason,
+            )
+        }
+        QuotaState::ApiKeyMode | QuotaState::Unknown => {
+            (0.0, 0.0, 0.0, None, None, None, true, None)
+        }
+    };
+    let pressure_label = if weekly_pressure < 0.0 || fh_pressure < 0.0 {
+        "penalized"
+    } else {
+        "none"
+    }
+    .to_owned();
+    let total = base + plan_bonus_f + recency + avail_score + weekly_pressure + fh_pressure;
+
+    ScoreBreakdown {
+        base,
+        plan_bonus: plan_bonus_f,
+        recency,
+        recency_label,
+        avail_score,
+        five_hour_pct,
+        weekly_pct,
+        five_hour_weight: params.five_hour_weight,
+        weekly_pressure,
+        fh_pressure,
+        pressure_label,
+        total,
+        eligible,
+        ineligible_reason,
+        tie_five_hour,
+    }
 }
 
 fn cooldown_active(registry: &Registry, account: &AccountId) -> Result<bool, AccountError> {
@@ -236,7 +323,10 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use super::{Candidate, LONG_IDLE_SECS, QuotaState, cooldown_active, pick_from_candidates};
+    use super::{
+        Candidate, LONG_IDLE_SECS, QuotaState, ScoringParams, cooldown_active,
+        pick_from_candidates, score_from_quota_result,
+    };
 
     fn known(five_hour: f64, weekly: f64) -> QuotaState {
         QuotaState::Known(crate::services::account::quota::Quota {
@@ -352,6 +442,38 @@ mod tests {
         ];
         let picked = pick_from_candidates(&candidates, now, 0.0, 0.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "b");
+    }
+
+    #[test]
+    fn score_from_quota_result_returns_breakdown() {
+        let result = crate::services::account::quota::QuotaResult::Ok(
+            crate::services::account::quota::Quota {
+                five_hour: crate::services::account::quota::Window {
+                    percent_left: 80.0,
+                    reset_at_unix: 0,
+                },
+                weekly: crate::services::account::quota::Window {
+                    percent_left: 60.0,
+                    reset_at_unix: 0,
+                },
+            },
+        );
+        let now = std::time::SystemTime::now();
+        let score = score_from_quota_result(
+            &result,
+            &ScoringParams {
+                plan_bonus: 20,
+                last_used_at: None,
+                is_lru: false,
+                now,
+                five_hour_threshold: 50.0,
+                weekly_floor: 10.0,
+                five_hour_weight: 0.70,
+            },
+        );
+        assert!(score.eligible);
+        assert!(score.total > 100.0);
+        assert_eq!(score.five_hour_pct, Some(80.0));
     }
 
     #[test]

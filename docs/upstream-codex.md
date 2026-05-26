@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-05-22
+- **Last verified:** 2026-05-26
 - **Codex version checked:** `codex-cli 0.132.0`
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -172,14 +172,64 @@ wrapper aligned with codex.
   rename. Same threat model and same operational shape as codex's own
   auth file.
 
+## F10 — Token revocation on login
+
+`codex login` revokes any previously-stored managed ChatGPT token via
+`POST https://auth.openai.com/oauth/revoke` before saving the new one.
+If revocation fails, login still succeeds (graceful failure).
+
+- **Sources:** [PR #21747 — "Revoke superseded auth tokens on relogin"](https://github.com/openai/codex/pull/21747).
+
+## F11 — Token revocation on logout
+
+`codex logout` sends the stored `refresh_token` to the revocation
+endpoint before deleting local auth.  Fail-closed: if revocation fails,
+local auth is preserved so the user can retry.
+
+- **Sources:** [PR #17825 — "Revoke ChatGPT tokens on logout"](https://github.com/openai/codex/pull/17825).
+
+## F12 — `CODEX_HOME` fully scopes auth
+
+All auth operations read/write `$CODEX_HOME/auth.json`.  When
+`CODEX_HOME` is set, codex does not touch `~/.codex/auth.json`.
+
+Keyring entries (when `cli_auth_credentials_store` is `keyring` or
+`auto`) are keyed by a hash of the `CODEX_HOME` path — different
+`CODEX_HOME` values maintain completely isolated credential stores.
+
+- **Sources:** [docs: local-config](https://developers.openai.com/codex/local-config/),
+  [Codex Auth docs](https://developers.openai.com/codex/auth).
+
+## F13 — Token refresh endpoint
+
+OAuth refresh at `POST https://auth.openai.com/oauth/token` with:
+
+```json
+{
+  "grant_type": "refresh_token",
+  "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+  "refresh_token": "<stored_rt>"
+}
+```
+
+Returns new `access_token` + new `refresh_token` (rotation).  The old
+`refresh_token` is permanently invalidated after a single use.  Reusing
+it returns `refresh_token_reused`.
+
+- **Sources:** [OpenAI Apps SDK Auth](https://developers.openai.com/apps-sdk/build/auth),
+  [Issue #10332 — "Race condition in OAuth token refresh"](https://github.com/openai/codex/issues/10332),
+  [Issue #4432 — "First-class multi-account auth"](https://github.com/openai/codex/issues/4432).
+
 ## Sources (full list)
 
 - Docs: <https://developers.openai.com/codex/local-config/>,
   <https://developers.openai.com/codex/config-reference>
 - Issues: [#4407](https://github.com/openai/codex/issues/4407),
+  [#4432](https://github.com/openai/codex/issues/4432),
   [#4940](https://github.com/openai/codex/issues/4940),
   [#9695](https://github.com/openai/codex/issues/9695),
   [#9696](https://github.com/openai/codex/issues/9696),
+  [#10332](https://github.com/openai/codex/issues/10332),
   [#10347](https://github.com/openai/codex/issues/10347),
   [#10389](https://github.com/openai/codex/issues/10389),
   [#14547](https://github.com/openai/codex/issues/14547),
@@ -190,5 +240,7 @@ wrapper aligned with codex.
 - PRs: [#14718](https://github.com/openai/codex/pull/14718),
   [#14849](https://github.com/openai/codex/pull/14849),
   [#17595](https://github.com/openai/codex/pull/17595),
+  [#17825](https://github.com/openai/codex/pull/17825),
   [#18626](https://github.com/openai/codex/pull/18626),
-  [#20667](https://github.com/openai/codex/pull/20667)
+  [#20667](https://github.com/openai/codex/pull/20667),
+  [#21747](https://github.com/openai/codex/pull/21747)

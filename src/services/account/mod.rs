@@ -10,6 +10,7 @@ pub(crate) mod registry;
 pub(crate) mod resolver;
 pub(crate) mod retry;
 pub(crate) mod selector;
+pub(crate) mod token_refresh;
 
 pub(crate) use error::AccountError;
 pub(crate) use id::AccountId;

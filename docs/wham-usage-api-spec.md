@@ -134,10 +134,28 @@ back to RFC-3339 string parsing for backward compatibility.
 - **Missing root key** (`rate_limit` / `rate_limits`): `QuotaError::ParseMissingRateLimit`, exit 65.
 - **Missing window**: `QuotaError::ParseMissingWindow("five_hour")` or `("weekly")`, exit 65.
 - **HTTP 5xx**: retry once after 1 s; on second failure, `QuotaError::HttpStatus`, exit 69.
-- **HTTP 4xx**: immediate `QuotaError::HttpStatus`, exit 69.
+- **HTTP 401**: triggers an OAuth token refresh attempt (see below);
+  on success, retries the WHAM request once.  If the refresh also fails,
+  surfaces `QuotaError::HttpStatus(401)`, exit 69.
+- **HTTP 4xx (non-401)**: immediate `QuotaError::HttpStatus`, exit 69.
 - **Network error**: `QuotaError::Network`, exit 69.
 - **Stale cache fallback**: on fetch error, if a cache entry exists (any age), return
   `QuotaResult::Stale` rather than failing.
+
+### 6.1 Token refresh on 401
+
+When the WHAM endpoint returns HTTP 401, the quota module attempts an
+OAuth token refresh before giving up:
+
+1. Read the `refresh_token` from the same auth file used for the original request.
+2. `POST https://auth.openai.com/oauth/token` with `grant_type=refresh_token`, `client_id=app_EMoamEEZ73f0CkXaXp7hrann`.
+3. On success: save the new `access_token` + `refresh_token` back to the auth file, then retry the WHAM request once.
+4. On failure: surface the original 401 as `QuotaError::HttpStatus`.
+
+Override for testing: `CODEX_SESSION_TOKEN_ENDPOINT` env var.
+
+See `docs/openai-oauth-token-lifecycle.md` for the full token rotation
+behavior.
 
 ## 7. Re-verification recipe
 

@@ -108,6 +108,43 @@ pub(crate) fn refresh(
 }
 
 fn fetch(ctx: &crate::context::AppContext, account: &AccountId) -> Result<QuotaResult, QuotaError> {
+    match fetch_inner(ctx, account) {
+        Err(QuotaError::HttpStatus(401)) => {
+            tracing::info!(
+                op = "quota.fetch",
+                account = %account,
+                outcome = "401_retry",
+                "attempting token refresh before retrying"
+            );
+            let auth_path = resolve_auth_path(ctx, account)?;
+            match super::token_refresh::refresh_token(&auth_path) {
+                Ok(_) => {
+                    tracing::info!(
+                        op = "quota.token_refresh",
+                        account = %account,
+                        outcome = "ok"
+                    );
+                    fetch_inner(ctx, account)
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        op = "quota.token_refresh",
+                        account = %account,
+                        error = %err,
+                        "token refresh failed; surfacing original 401"
+                    );
+                    Err(QuotaError::HttpStatus(401))
+                }
+            }
+        }
+        other => other,
+    }
+}
+
+fn fetch_inner(
+    ctx: &crate::context::AppContext,
+    account: &AccountId,
+) -> Result<QuotaResult, QuotaError> {
     let auth = resolve_auth(ctx, account)?;
     match auth {
         AuthKind::ApiKey => {
@@ -405,10 +442,10 @@ fn parse_reset_at_unix(window: &Value) -> Option<u64> {
     None
 }
 
-fn resolve_auth(
+fn resolve_auth_path(
     ctx: &crate::context::AppContext,
     account: &AccountId,
-) -> Result<AuthKind, QuotaError> {
+) -> Result<Utf8PathBuf, QuotaError> {
     let registry = Registry::from_config(&ctx.config);
     let current_group = crate::services::session::group_id::current(ctx)
         .ok()
@@ -423,12 +460,17 @@ fn resolve_auth(
     let newest_group = newest_group_auth_path(&registry, account)?;
     let seed = registry.group_auth_seed_path(account);
 
-    let auth_path = current_group
+    current_group
         .or(newest_group)
         .or_else(|| is_regular_file(&seed).then_some(seed.clone()))
-        .ok_or_else(|| {
-            QuotaError::AuthMissing(format!("no auth.json under {}", account.as_str()))
-        })?;
+        .ok_or_else(|| QuotaError::AuthMissing(format!("no auth.json under {}", account.as_str())))
+}
+
+fn resolve_auth(
+    ctx: &crate::context::AppContext,
+    account: &AccountId,
+) -> Result<AuthKind, QuotaError> {
+    let auth_path = resolve_auth_path(ctx, account)?;
 
     let bytes = crate::services::auth::secure_file_read(&auth_path).map_err(|err| match err {
         crate::services::auth::AuthError::Io { source, .. } => QuotaError::Io(source),

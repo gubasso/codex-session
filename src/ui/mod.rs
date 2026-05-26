@@ -567,6 +567,39 @@ fn write_health_verbose(
                 .map_or_else(|| "—".to_owned(), |ts| ts.to_string())
         )?;
         writeln!(stdout, "fetched_at_unix: {}", entry.fetched_at_unix)?;
+        if let Some(ref scoring) = entry.scoring {
+            writeln!(stdout, "scoring_base: {:.2}", scoring.base)?;
+            writeln!(stdout, "scoring_plan_bonus: {:.2}", scoring.plan_bonus)?;
+            writeln!(stdout, "scoring_recency: {:.2}", scoring.recency)?;
+            writeln!(stdout, "scoring_recency_label: {}", scoring.recency_label)?;
+            writeln!(stdout, "scoring_avail_score: {:.2}", scoring.avail_score)?;
+            if let Some(fh) = scoring.five_hour_pct {
+                writeln!(stdout, "scoring_five_hour_pct: {fh:.1}")?;
+            }
+            if let Some(wk) = scoring.weekly_pct {
+                writeln!(stdout, "scoring_weekly_pct: {wk:.1}")?;
+            }
+            writeln!(
+                stdout,
+                "scoring_five_hour_weight: {:.2}",
+                scoring.five_hour_weight
+            )?;
+            writeln!(
+                stdout,
+                "scoring_weekly_pressure: {:.2}",
+                scoring.weekly_pressure
+            )?;
+            writeln!(stdout, "scoring_fh_pressure: {:.2}", scoring.fh_pressure)?;
+            writeln!(stdout, "scoring_pressure_label: {}", scoring.pressure_label)?;
+            writeln!(stdout, "scoring_total: {:.2}", scoring.total)?;
+            writeln!(stdout, "scoring_eligible: {}", scoring.eligible)?;
+            if let Some(ref reason) = scoring.ineligible_reason {
+                writeln!(stdout, "scoring_ineligible_reason: {reason}")?;
+            }
+            if let Some(tie) = scoring.tie_five_hour {
+                writeln!(stdout, "scoring_tie_five_hour: {tie:.1}")?;
+            }
+        }
     }
     Ok(())
 }
@@ -728,6 +761,46 @@ fn write_quota_entry_verbose(
     Ok(())
 }
 
+fn write_quota_oauth_header(
+    stdout: &mut impl std::io::Write,
+    view: &crate::commands::account::AccountQuotaEntryView,
+    use_color: bool,
+) -> std::io::Result<()> {
+    if let Some(rank) = view.rank {
+        write!(
+            stdout,
+            "  {}#{} {:.2} {}{}{}{}",
+            style_open(quota_styles::DIM, use_color),
+            rank,
+            view.score.unwrap_or(0.0),
+            style_close(quota_styles::DIM, use_color),
+            style_open(quota_styles::BOLD, use_color),
+            view.account,
+            style_close(quota_styles::BOLD, use_color),
+        )?;
+    } else {
+        write!(
+            stdout,
+            "  {}{:.2} {}{}{}{}",
+            style_open(quota_styles::DIM, use_color),
+            view.score.unwrap_or(0.0),
+            style_close(quota_styles::DIM, use_color),
+            style_open(quota_styles::BOLD, use_color),
+            view.account,
+            style_close(quota_styles::BOLD, use_color),
+        )?;
+    }
+    if view.active {
+        write!(
+            stdout,
+            " {}(active){}",
+            style_open(quota_styles::BOLD_CYAN, use_color),
+            style_close(quota_styles::BOLD_CYAN, use_color),
+        )?;
+    }
+    writeln!(stdout)
+}
+
 fn write_quota_entry_text(
     stdout: &mut impl std::io::Write,
     view: &crate::commands::account::AccountQuotaEntryView,
@@ -739,26 +812,7 @@ fn write_quota_entry_text(
     }
     match view.mode.as_str() {
         "oauth" => {
-            write!(
-                stdout,
-                "  {}#{} {:.2} {}{}{}{}",
-                style_open(quota_styles::DIM, use_color),
-                view.rank.unwrap_or(0),
-                view.score.unwrap_or(0.0),
-                style_close(quota_styles::DIM, use_color),
-                style_open(quota_styles::BOLD, use_color),
-                view.account,
-                style_close(quota_styles::BOLD, use_color),
-            )?;
-            if view.active {
-                write!(
-                    stdout,
-                    " {}(active){}",
-                    style_open(quota_styles::BOLD_CYAN, use_color),
-                    style_close(quota_styles::BOLD_CYAN, use_color),
-                )?;
-            }
-            writeln!(stdout)?;
+            write_quota_oauth_header(stdout, view, use_color)?;
             if let Some(ref fh) = view.five_hour {
                 let ps = percent_style(fh.percent_left);
                 writeln!(

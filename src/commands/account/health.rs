@@ -181,10 +181,13 @@ fn fetch_quota(
             None => (None, 0, "cache missing".to_owned()),
         }
     } else {
-        let fetched = read_cache_fetched_at(ctx, account).unwrap_or(0);
+        let pre_fetched = read_cache_fetched_at(ctx, account).unwrap_or(0);
         quota::refresh(ctx, account).map_or_else(
-            |_| (None, fetched, "fetch failed".to_owned()),
-            |result| (Some(result), fetched, "live".to_owned()),
+            |_| (None, pre_fetched, "fetch failed".to_owned()),
+            |result| {
+                let post_fetched = read_cache_fetched_at(ctx, account).unwrap_or(pre_fetched);
+                (Some(result), post_fetched, "live".to_owned())
+            },
         )
     }
 }

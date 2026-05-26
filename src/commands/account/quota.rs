@@ -69,7 +69,9 @@ pub(crate) fn run(
     entries.sort_by(quota_sort_key);
     if single_account.is_none() {
         for (idx, entry) in entries.iter_mut().enumerate() {
-            entry.rank = Some(idx + 1);
+            if entry.score.is_some() {
+                entry.rank = Some(idx + 1);
+            }
         }
     }
 

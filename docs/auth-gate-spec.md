@@ -436,21 +436,16 @@ pre-launch check. The auth sync runs after **each** child exit
 
 ## 9. Filesystem layout
 
-```
-~/.codex/
-  auth.json                      ← native auth (global singleton)
+See [`README.md`](../README.md#filesystem-layout) for the full directory
+tree.  Auth-relevant paths:
 
-<XDG_STATE_HOME>/codex-session/
-  state/
-    last-account                 ← LRU pointer (plain text: account name)
-  accounts/
-    <name>/
-      auth.json                  ← account seed (gate checks THIS)
-      groups/
-        <group-id>/
-          auth.json              ← session copy (synced back on exit)
-      cooldown.json              ← failover cooldown state
-```
+| Path | Role |
+|---|---|
+| `~/.codex/auth.json` | Native auth (global singleton, written by `codex login`) |
+| `<state>/accounts/<name>/auth.json` | Account seed — **the gate checks this** |
+| `<state>/accounts/<name>/groups/<gid>/auth.json` | Session group copy (synced back on exit) |
+| `<state>/accounts/<name>/cooldown.json` | Failover cooldown state |
+| `<state>/state/last-account` | LRU pointer (plain text: account name) |
 
 ## 10. Security properties
 

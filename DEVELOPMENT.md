@@ -39,7 +39,7 @@ just uninstall
 
 ## Prerequisites
 
-- Rust **stable** (pinned via `rust-toolchain.toml`, MSRV `1.85`,
+- Rust **stable** (pinned via `rust-toolchain.toml`, MSRV `1.88`,
   edition 2024). `rustup` will install the right toolchain on first
   `cargo` invocation.
 - [`just`](https://github.com/casey/just) — task runner. Every command

@@ -51,16 +51,17 @@ async fn account_quota_text_and_json_modes_work() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota"])
+        .args(["--account", "work", "account", "quota"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("account: work (active)"))
-        .stdout(predicate::str::contains("five-hour:"));
+        .stdout(predicate::str::contains("work"))
+        .stdout(predicate::str::contains("(active)"))
+        .stdout(predicate::str::contains("Five-hour"));
 
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--format", "json"])
+        .args(["--account", "work", "account", "quota", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -133,7 +134,7 @@ async fn account_quota_all_orders_real_quota_before_api_key() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--all", "--format", "json"])
+        .args(["account", "quota", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -146,4 +147,61 @@ async fn account_quota_all_orders_real_quota_before_api_key() {
     assert_eq!(items[0]["mode"], "oauth");
     assert_eq!(items[1]["account"], "mid");
     assert_eq!(items[2]["mode"], "api-key");
+}
+
+#[tokio::test]
+async fn account_quota_all_flag_is_accepted_with_deprecation_warning() {
+    let env = TestEnv::new_empty();
+    add_account(&env, "demo", "acct-demo");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(50.0, 50.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    env.cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota", "--all", "--format", "json"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("--all is deprecated"));
+}
+
+#[tokio::test]
+async fn account_quota_default_shows_all_accounts_text() {
+    let env = TestEnv::new_empty();
+    add_account(&env, "alpha", "acct-alpha");
+    add_account(&env, "beta", "acct-beta");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-alpha"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(80.0, 95.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-beta"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(30.0, 70.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    env.cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("alpha"))
+        .stdout(predicate::str::contains("beta"))
+        .stdout(predicate::str::contains("Five-hour"))
+        .stdout(predicate::str::contains("Weekly"));
 }

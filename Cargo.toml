@@ -12,6 +12,7 @@ name = "codex-session"
 path = "src/main.rs"
 
 [dependencies]
+anstyle = "1"
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4"
 anyhow = "1"

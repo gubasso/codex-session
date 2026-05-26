@@ -12,38 +12,34 @@ pub(crate) fn run(
     let registry = Registry::from_config(&ctx.config);
 
     if args.all {
-        // `--all` is a read-only listing. Use the persisted LRU marker for the
-        // "active" column rather than invoking the full resolver, which would
-        // run the auto-selector (and persist `last-account`) under
-        // `--account auto`.
-        let active = registry.current()?;
+        ctx.ui
+            .write_warning("warning: --all is deprecated (all accounts are shown by default)")?;
+    }
+
+    let single_account = match ctx.global.account.as_ref() {
+        Some(crate::cli::account::AccountSelector::Named(id)) => Some(id.clone()),
+        _ => None,
+    };
+
+    let active = registry.current()?;
+    if let Some(target) = single_account {
+        let is_active = active
+            .as_ref()
+            .is_some_and(|current| current.as_str() == target.as_str());
+        let view = fetch_view(ctx, args, &target, is_active, false)?;
+        ctx.ui.write_account_quota(&view, args.format)?;
+    } else {
         let mut entries = Vec::new();
         for entry in registry.list()? {
             let is_active = active
                 .as_ref()
                 .is_some_and(|current| current.as_str() == entry.id.as_str());
-            entries.push(fetch_view(ctx, args, &entry.id, is_active)?);
+            entries.push(fetch_view(ctx, args, &entry.id, is_active, true)?);
         }
         entries.sort_by(quota_sort_key);
         ctx.ui.write_account_quota_many(&entries, args.format)?;
-        return Ok(());
     }
-
-    let active = match crate::services::account::resolver::resolve(ctx) {
-        Ok(resolved) => resolved.id,
-        Err(crate::error::AppError::Account(AccountError::NoneResolved)) => {
-            return Err(AccountError::NoneResolved.into());
-        }
-        Err(err) => return Err(err),
-    };
-    let entry = fetch_view(ctx, args, &active, true);
-    match entry {
-        Ok(view) => {
-            ctx.ui.write_account_quota(&view, args.format)?;
-            Ok(())
-        }
-        Err(err) => Err(err.into()),
-    }
+    Ok(())
 }
 
 fn fetch_view(
@@ -51,6 +47,7 @@ fn fetch_view(
     args: crate::cli::account::AccountQuotaArgs,
     account: &AccountId,
     active: bool,
+    multi: bool,
 ) -> Result<crate::commands::account::AccountQuotaEntryView, AccountError> {
     let result = if args.live {
         quota::refresh(ctx, account)
@@ -74,7 +71,7 @@ fn fetch_view(
             ))
         }
         Err(err) => {
-            if args.all {
+            if multi {
                 Ok(crate::commands::account::AccountQuotaEntryView {
                     account: account.to_string(),
                     active,

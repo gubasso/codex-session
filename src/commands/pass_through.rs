@@ -40,7 +40,10 @@ pub(crate) fn run(
 
     let first_arg = argv.first().and_then(|a| a.to_str()).unwrap_or("");
     match first_arg {
-        "login" => return crate::services::account::gate::run_login(ctx),
+        "login" => {
+            let opts = crate::services::account::gate::LoginOptions::from_argv(&argv[1..]);
+            return crate::services::account::gate::run_login(ctx, &opts);
+        }
         "logout" => return crate::services::account::gate::run_logout(ctx),
         _ => {}
     }

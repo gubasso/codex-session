@@ -4,8 +4,9 @@
 //! `codex-session logout` — these are managed by the gate (not raw
 //! pass-throughs) so that every auth operation is account-aware and narrated.
 //!
-//! Auth validity is determined by seed-file existence only. There is no
-//! server-side token probe; see `docs/auth-gate-spec.md` §2.3 for rationale.
+//! For the pass-through path (`ensure`), auth validity is determined by
+//! seed-file existence only. `run_login` additionally runs a heartbeat probe
+//! to verify the token server-side before skipping re-authentication.
 #![allow(clippy::result_large_err)]
 
 use std::io::IsTerminal as _;
@@ -18,6 +19,22 @@ use super::{
 
 use crate::context::AppContext;
 use crate::error::AppError;
+
+pub(crate) struct LoginOptions {
+    pub(crate) force: bool,
+}
+
+impl LoginOptions {
+    pub(crate) fn from_argv(tail: &[std::ffi::OsString]) -> Self {
+        let mut opts = Self { force: false };
+        for arg in tail {
+            if let Some("--force" | "-f") = arg.to_str() {
+                opts.force = true;
+            }
+        }
+        opts
+    }
+}
 
 #[derive(Debug)]
 pub(crate) enum AccountState {
@@ -372,7 +389,112 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
     Ok(())
 }
 
-pub(crate) fn run_login(ctx: &AppContext) -> Result<i32, AppError> {
+/// Verify the token is valid server-side via a minimal `codex exec` probe.
+///
+/// Why `codex exec` and not `codex login status`:
+/// `codex login status` only checks local file existence (~/.codex/auth.json)
+/// and exits 0/1. It makes no server-side validation — functionally identical
+/// to our gate's seed-file check in `assess()`. A token that is invalidated
+/// or revoked server-side (401 `token_invalidated`) still has a local file, so
+/// `login status` would report "logged in" falsely.
+///
+/// The only way to confirm the token actually works is to make a real API
+/// call. We use `codex exec --model o4-mini "say ok"` as a minimal probe:
+/// cheapest model, tiny prompt, ~500ms–2s, negligible cost.
+///
+/// Returns `(valid, stderr)`: `valid` is true when the token works, false
+/// when the probe detected a 401, and `None` on non-auth failures.
+/// `stderr` always contains the full child stderr for the caller to display.
+fn heartbeat_probe(
+    ctx: &AppContext,
+    account: &AccountId,
+) -> Result<(Option<bool>, String), AppError> {
+    use std::io::Read as _;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+
+    let registry = Registry::from_config(&ctx.config);
+    let seed = registry.group_auth_seed_path(account);
+    let bytes = crate::services::auth::secure_file_read(&seed)?;
+
+    // Place the probe dir under state_dir, not /tmp — codex refuses to
+    // create helper binaries when CODEX_HOME is under a temporary directory.
+    let probe_parent = ctx.config.paths.state_dir.join("probe");
+    std::fs::create_dir_all(probe_parent.as_std_path()).map_err(|source| {
+        crate::services::auth::AuthError::Io {
+            path: probe_parent.clone(),
+            source,
+        }
+    })?;
+    let tmp = tempfile::tempdir_in(probe_parent.as_std_path()).map_err(|source| {
+        crate::services::auth::AuthError::Io {
+            path: probe_parent,
+            source,
+        }
+    })?;
+    let tmp_path = camino::Utf8PathBuf::try_from(tmp.path().to_path_buf())
+        .map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))?;
+    crate::adapters::fs::atomic_write(&tmp_path.join("auth.json"), &bytes)
+        .map_err(crate::services::auth::AuthError::from)?;
+
+    let binary = ctx
+        .resolved_child()
+        .map_err(crate::commands::account::map_spawner_error)?;
+
+    let mut child = Command::new(binary.as_std_path())
+        .args(["exec", "--model", "o4-mini", "--json", "say ok"])
+        .env_clear()
+        .env("CODEX_HOME", tmp_path.as_str())
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", std::env::var("HOME").unwrap_or_default())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(AppError::ChildExec)?;
+
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait().map_err(AppError::ChildExec)? {
+            Some(status) => break status,
+            None if start.elapsed() >= PROBE_TIMEOUT => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let mut stderr_bytes = Vec::new();
+                if let Some(mut pipe) = child.stderr.take() {
+                    let _ = pipe.read_to_end(&mut stderr_bytes);
+                }
+                let mut stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_owned();
+                if !stderr.is_empty() {
+                    stderr.insert(0, '\n');
+                }
+                return Ok((
+                    None,
+                    format!("heartbeat probe timed out after {PROBE_TIMEOUT:?}{stderr}"),
+                ));
+            }
+            None => std::thread::sleep(Duration::from_millis(200)),
+        }
+    };
+
+    let mut stderr_bytes = Vec::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = pipe.read_to_end(&mut stderr_bytes);
+    }
+    let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_owned();
+
+    if status.success() {
+        return Ok((Some(true), stderr));
+    }
+    if stderr.contains("401") || stderr.contains("Unauthorized") {
+        return Ok((Some(false), stderr));
+    }
+    Ok((None, stderr))
+}
+
+pub(crate) fn run_login(ctx: &AppContext, opts: &LoginOptions) -> Result<i32, AppError> {
     let state = assess(ctx)?;
     let interactive = std::io::stdin().is_terminal();
 
@@ -417,19 +539,95 @@ pub(crate) fn run_login(ctx: &AppContext) -> Result<i32, AppError> {
             narrate(ctx, &format!("account '{account}' is now authenticated."));
             Ok(0)
         }
-        AccountState::Ready(resolved) => {
+        AccountState::Ready(resolved) => login_handle_ready(ctx, opts, &resolved),
+    }
+}
+
+fn login_handle_ready(
+    ctx: &AppContext,
+    opts: &LoginOptions,
+    resolved: &ResolvedAccount,
+) -> Result<i32, AppError> {
+    if opts.force {
+        narrate(
+            ctx,
+            &format!(
+                "force-refreshing authentication for account '{}' (source: {})...",
+                resolved.id,
+                source_label(resolved.source),
+            ),
+        );
+        do_refresh_auth(ctx, &resolved.id)?;
+        narrate(
+            ctx,
+            &format!("account '{}' is now authenticated.", resolved.id),
+        );
+        return Ok(0);
+    }
+
+    narrate(
+        ctx,
+        &format!(
+            "verifying token for account '{}' (source: {})...",
+            resolved.id,
+            source_label(resolved.source),
+        ),
+    );
+    let emit_stderr = |stderr: &str| {
+        if !stderr.is_empty() {
+            let _ = ctx.ui.write_warning(stderr);
+        }
+    };
+
+    match heartbeat_probe(ctx, &resolved.id) {
+        Ok((Some(true), stderr)) => {
+            emit_stderr(&stderr);
+            narrate(
+                ctx,
+                &format!("account '{}' is already authenticated.", resolved.id),
+            );
+            Ok(0)
+        }
+        Ok((Some(false), stderr)) => {
+            emit_stderr(&stderr);
             narrate(
                 ctx,
                 &format!(
-                    "refreshing authentication for account '{}' (source: {})...",
+                    "account '{}' token is invalid — re-authenticating...",
                     resolved.id,
-                    source_label(resolved.source),
                 ),
             );
             do_refresh_auth(ctx, &resolved.id)?;
             narrate(
                 ctx,
                 &format!("account '{}' is now authenticated.", resolved.id),
+            );
+            Ok(0)
+        }
+        Ok((None, stderr)) => {
+            // Probe failed for a non-auth reason (timeout, binary issue, env).
+            // This says nothing about token validity — assume the token is fine.
+            // The user can run `login --force` if they know it's actually broken.
+            emit_stderr(&stderr);
+            narrate(
+                ctx,
+                &format!(
+                    "account '{}' is already authenticated. \
+                    Use `login --force` if you need to re-authenticate.",
+                    resolved.id,
+                ),
+            );
+            Ok(0)
+        }
+        Err(err) => {
+            // Probe could not even start (binary missing, seed unreadable).
+            narrate(
+                ctx,
+                &format!(
+                    "account '{}' is already authenticated ({err}). \
+                    Use `login --force` if you need to re-authenticate.",
+                    resolved.id,
+                ),
             );
             Ok(0)
         }

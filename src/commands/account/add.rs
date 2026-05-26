@@ -41,7 +41,7 @@ pub(crate) fn run(
         .into());
     }
 
-    super::copy_native_auth_to_seed(ctx, &registry, &args.name)?;
+    super::move_native_auth_to_seed(ctx, &registry, &args.name)?;
     registry.set_current(&args.name)?;
 
     tracing::info!(op = "account.add", outcome = "ok", account = %args.name);

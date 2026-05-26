@@ -43,15 +43,7 @@ async fn parses_rate_limit_shape() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -86,15 +78,7 @@ async fn parses_rate_limits_plural_shape() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -128,15 +112,7 @@ async fn parses_primary_secondary_aliases() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -178,15 +154,7 @@ async fn prefers_reset_time_ms_over_reset_at() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -230,15 +198,7 @@ async fn parses_real_api_shape_with_used_percent_and_reset_at_integer() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -280,15 +240,7 @@ async fn parses_new_primary_secondary_shape() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()

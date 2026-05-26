@@ -22,7 +22,7 @@ pub(crate) enum AccountCommand {
     Remove(AccountRemoveArgs),
     /// Refresh an account's root auth.json from the native codex login.
     Refresh(AccountRefreshArgs),
-    /// Read per-account quota from the cached or live wham/usage endpoint.
+    /// Read per-account quota from the live wham/usage endpoint.
     Quota(AccountQuotaArgs),
     /// Show or clear failover cooldown state.
     Cooldown(AccountCooldownArgs),
@@ -71,9 +71,6 @@ pub(crate) struct AccountRefreshArgs {
 
 #[derive(Debug, Clone, Copy, clap::Args)]
 pub(crate) struct AccountQuotaArgs {
-    /// Bypass cache and force a live fetch.
-    #[arg(long)]
-    pub(crate) live: bool,
     /// Deprecated: all accounts are shown by default. Accepted but ignored.
     #[arg(long, hide = true)]
     pub(crate) all: bool,

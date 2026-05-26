@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 //! HTTP-behavior tests for the wham/usage quota reader: retry-on-5xx,
-//! no-retry-on-4xx, stale-cache fallback when `--live` refresh fails, and
+//! no-retry-on-4xx, stale-cache fallback when live refresh fails, and
 //! verification of the required request headers.
 
 mod support;
@@ -72,15 +72,7 @@ async fn retries_once_on_5xx_then_success() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -108,7 +100,7 @@ async fn second_5xx_surfaces_http_status_error() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work", "--live"])
+        .args(["account", "quota", "--account", "work"])
         .assert()
         .code(69);
 
@@ -131,22 +123,19 @@ async fn no_retry_on_4xx() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work", "--live"])
+        .args(["account", "quota", "--account", "work"])
         .assert()
         .code(69);
 
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
-/// `--live` with a preseeded cache and a failing server must return
-/// `Stale(prev)` rather than erroring.
+/// A failing server must surface an error even when a stale cache exists.
 #[tokio::test]
-async fn live_falls_back_to_stale_cache_on_refresh_failure() {
+async fn fetch_failure_surfaces_error_despite_cached_data() {
     let env = TestEnv::new();
     add_account(&env, "work");
 
-    // Seed an "old" cache file with quota=ok body but a stale `fetched_at`
-    // timestamp so the freshness check would force a refresh.
     let cache = r#"{
     "fetched_at_unix": 0,
     "ttl_secs": 30,
@@ -165,29 +154,11 @@ async fn live_falls_back_to_stale_cache_on_refresh_failure() {
         .mount(&server)
         .await;
 
-    let output = env
-        .cmd()
+    env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work"])
         .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["mode"], "oauth");
-    assert_eq!(value["stale"], true);
-    assert_eq!(value["five-hour"]["percent-left"], 22.2);
-    assert_eq!(value["weekly"]["percent-left"], 33.3);
+        .code(69);
 }
 
 /// The HTTP request must carry the exact header set documented in
@@ -212,15 +183,7 @@ async fn required_headers_are_sent() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success();
 

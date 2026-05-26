@@ -30,7 +30,7 @@ const fn payload() -> &'static str {
 }
 
 #[tokio::test]
-async fn fresh_cache_avoids_second_fetch() {
+async fn every_invocation_fetches_live() {
     let env = TestEnv::new();
     add_account(&env, "work");
     let server = MockServer::start().await;
@@ -44,36 +44,6 @@ async fn fresh_cache_avoids_second_fetch() {
         env.cmd()
             .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
             .args(["account", "quota", "--account", "work", "--format", "json"])
-            .assert()
-            .success();
-    }
-
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn live_forces_second_fetch() {
-    let env = TestEnv::new();
-    add_account(&env, "work");
-    let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(path("/backend-api/wham/usage"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(payload(), "application/json"))
-        .mount(&server)
-        .await;
-
-    for _ in 0..2 {
-        env.cmd()
-            .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-            .args([
-                "account",
-                "quota",
-                "--account",
-                "work",
-                "--live",
-                "--format",
-                "json",
-            ])
             .assert()
             .success();
     }
@@ -119,15 +89,7 @@ async fn cache_write_leaves_no_temp_files() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success();
 

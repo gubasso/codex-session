@@ -16,7 +16,6 @@ const DEFAULT_WHAM_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage
 pub(crate) enum QuotaResult {
     Ok(Quota),
     ApiKeyMode,
-    Stale(Quota),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -105,23 +104,7 @@ pub(crate) fn refresh(
     ctx: &crate::context::AppContext,
     account: &AccountId,
 ) -> Result<QuotaResult, QuotaError> {
-    match fetch(ctx, account) {
-        Ok(result) => Ok(result),
-        Err(err) => match load_cache(&cache_path(ctx, account)) {
-            CacheLoad::Entry(entry) => match entry.body {
-                CacheBody::Ok { five_hour, weekly } => {
-                    tracing::warn!(
-                        op = "quota.fetch",
-                        account = %account,
-                        outcome = "stale_fallback"
-                    );
-                    Ok(QuotaResult::Stale(Quota { five_hour, weekly }))
-                }
-                CacheBody::ApiKey => Ok(QuotaResult::ApiKeyMode),
-            },
-            CacheLoad::Missing | CacheLoad::Malformed => Err(err),
-        },
-    }
+    fetch(ctx, account)
 }
 
 fn fetch(ctx: &crate::context::AppContext, account: &AccountId) -> Result<QuotaResult, QuotaError> {

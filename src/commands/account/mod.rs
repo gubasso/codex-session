@@ -55,8 +55,6 @@ pub(crate) struct AccountQuotaEntryView {
     pub(crate) mode: String,
     pub(crate) fetched_at_unix: u64,
     pub(crate) ttl_secs: u64,
-    pub(crate) stale: bool,
-    pub(crate) live: bool,
     pub(crate) error: Option<String>,
     pub(crate) five_hour: Option<AccountQuotaWindowView>,
     pub(crate) weekly: Option<AccountQuotaWindowView>,
@@ -135,7 +133,7 @@ pub(crate) fn map_spawner_error(
     }
 }
 
-pub(crate) fn copy_native_auth_to_seed(
+pub(crate) fn move_native_auth_to_seed(
     ctx: &crate::context::AppContext,
     registry: &crate::services::account::registry::Registry,
     name: &crate::services::account::AccountId,
@@ -170,6 +168,20 @@ pub(crate) fn copy_native_auth_to_seed(
             }
         },
     )?;
+    // Prevent a subsequent `codex logout` (from another account's refresh)
+    // from revoking this token server-side.
+    match std::fs::remove_file(native_auth.as_std_path()) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            tracing::warn!(
+                op = "move_native_auth_to_seed",
+                path = %native_auth,
+                error = %err,
+                "failed to delete native auth — leftover token may be revoked by next refresh"
+            );
+        }
+    }
     Ok(())
 }
 

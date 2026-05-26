@@ -87,15 +87,7 @@ async fn account_quota_live_and_named_account_work() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success();
 

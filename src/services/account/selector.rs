@@ -30,9 +30,7 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
 
         let plan_bonus = quota::plan_bonus(ctx, &entry.id);
         let quota_state = match quota::get(ctx, &entry.id, ttl) {
-            Ok(quota::QuotaResult::Ok(quota) | quota::QuotaResult::Stale(quota)) => {
-                QuotaState::Known(quota)
-            }
+            Ok(quota::QuotaResult::Ok(quota)) => QuotaState::Known(quota),
             Ok(quota::QuotaResult::ApiKeyMode) => QuotaState::ApiKeyMode,
             Err(err) => {
                 tracing::warn!(

@@ -105,7 +105,7 @@ Reference: <https://developers.openai.com/codex/skills>
 | `69` | Service unavailable |
 | `70` | Internal software error |
 | `74` | Generic I/O failure or exec handoff failure |
-| `75` | All accounts exhausted (failover) |
+| `75` | Auth failure / all accounts exhausted |
 | `77` | Permission denied |
 | `78` | Configuration error |
 | `126` | Child resolved but is not executable |

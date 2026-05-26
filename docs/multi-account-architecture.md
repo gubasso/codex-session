@@ -134,6 +134,19 @@ session dir is used.
 re-auth.  When the WHAM API returns 401, we attempt an OAuth token
 refresh using the stored `refresh_token` before surfacing the error.
 
+**Three-layer auth defense (added 2026-05):**
+
+1. **Layer 1 — JWT pre-check (selector.rs):** skip accounts with tokens
+  expiring within 60 seconds, before attempting quota fetch.
+2. **Layer 2 — Quota-level 401 retry (quota.rs):** on HTTP 401 during
+  quota fetch, attempt token refresh and retry once.
+3. **Layer 3 — Exec-level detection (retry.rs + failover.rs):** scan
+  child stderr/stdout for auth-failure patterns; attempt refresh;
+  rotate on failure.
+
+See [`docs/openai-api-error-reference.md`](./openai-api-error-reference.md)
+for pattern lists and error semantics.
+
 **From upstream #4432:** the `CODEX_HOME`-as-profile pattern.  We use
 ephemeral temp dirs during auth operations and permanent per-account
 session dirs during exec — achieving the same isolation without waiting

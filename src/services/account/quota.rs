@@ -442,7 +442,7 @@ fn parse_reset_at_unix(window: &Value) -> Option<u64> {
     None
 }
 
-fn resolve_auth_path(
+pub(super) fn resolve_auth_path(
     ctx: &crate::context::AppContext,
     account: &AccountId,
 ) -> Result<Utf8PathBuf, QuotaError> {

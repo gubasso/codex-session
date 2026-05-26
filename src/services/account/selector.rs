@@ -6,7 +6,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use super::{AccountError, AccountId, cooldown, quota, registry::Registry};
+use super::{AccountError, AccountId, cooldown, quota, registry::Registry, token_expiry};
 
 const LONG_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
 
@@ -25,6 +25,10 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
         }
         if cooldown_active(&registry, &entry.id)? {
             tracing::debug!(account = %entry.id, reason = "cooldown");
+            continue;
+        }
+        if token_expired(ctx, &entry.id) {
+            tracing::debug!(account = %entry.id, reason = "token-expired");
             continue;
         }
 
@@ -311,6 +315,22 @@ fn cooldown_active(registry: &Registry, account: &AccountId) -> Result<bool, Acc
         .is_some_and(|cooldown| cooldown::is_active(&cooldown, now_unix())))
 }
 
+fn token_expired(ctx: &crate::context::AppContext, account: &AccountId) -> bool {
+    let Ok(auth_path) = quota::resolve_auth_path(ctx, account) else {
+        return false;
+    };
+    let Ok(data) = std::fs::read_to_string(auth_path.as_std_path()) else {
+        return false;
+    };
+    let Ok(auth) = serde_json::from_str::<serde_json::Value>(&data) else {
+        return false;
+    };
+    match token_expiry::token_expiry_from_auth(&auth) {
+        token_expiry::TokenExpiry::ExpiresAt(exp) => now_unix() + 60 >= exp,
+        _ => false,
+    }
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -325,8 +345,42 @@ mod tests {
 
     use super::{
         Candidate, LONG_IDLE_SECS, QuotaState, ScoringParams, cooldown_active,
-        pick_from_candidates, score_from_quota_result,
+        pick_from_candidates, score_from_quota_result, token_expired,
     };
+
+    fn test_ctx() -> (
+        tempfile::TempDir,
+        crate::context::AppContext,
+        crate::services::account::registry::Registry,
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let base = camino::Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
+        let config = crate::config::Config {
+            child: crate::config::ChildConfig { bin: None },
+            profile: crate::config::ProfileConfig {
+                active: None,
+                default: None,
+                config_dir: base.join("config"),
+                profiles_dir: base.join("profiles"),
+                settings_dir: base.join("settings"),
+            },
+            paths: crate::config::PathsConfig {
+                cache_dir: base.join("cache"),
+                state_dir: base.join("state"),
+                runtime_dir: Some(base.join("runtime")),
+            },
+            log: crate::config::LogConfig::default(),
+            account: crate::config::AccountConfig::default(),
+            sources: crate::config::ConfigSources::default(),
+        };
+        let ctx = crate::context::AppContext::new(
+            Arc::new(config),
+            crate::cli::GlobalArgs::default(),
+            base.join("home"),
+        );
+        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+        (temp, ctx, registry)
+    }
 
     fn known(five_hour: f64, weekly: f64) -> QuotaState {
         QuotaState::Known(crate::services::account::quota::Quota {
@@ -489,36 +543,9 @@ mod tests {
 
     #[test]
     fn cooldown_file_disqualifies_account() {
-        let temp = tempfile::tempdir().unwrap();
-        let base = camino::Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
-        let config = crate::config::Config {
-            child: crate::config::ChildConfig { bin: None },
-            profile: crate::config::ProfileConfig {
-                active: None,
-                default: None,
-                config_dir: base.join("config"),
-                profiles_dir: base.join("profiles"),
-                settings_dir: base.join("settings"),
-            },
-            paths: crate::config::PathsConfig {
-                cache_dir: base.join("cache"),
-                state_dir: base.join("state"),
-                runtime_dir: Some(base.join("runtime")),
-            },
-            log: crate::config::LogConfig::default(),
-            account: crate::config::AccountConfig::default(),
-            sources: crate::config::ConfigSources::default(),
-        };
-        let ctx = crate::context::AppContext::new(
-            Arc::new(config),
-            crate::cli::GlobalArgs::default(),
-            base.join("home"),
-        );
+        let (_temp, _ctx, registry) = test_ctx();
         let id: crate::services::account::AccountId = "cool".parse().unwrap();
-        crate::services::account::registry::Registry::from_config(&ctx.config)
-            .add(&id)
-            .unwrap();
-        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+        registry.add(&id).unwrap();
         let account_root = registry.account_dir(&id);
         std::fs::create_dir_all(account_root.as_std_path()).unwrap();
         crate::services::account::cooldown::write(
@@ -533,5 +560,77 @@ mod tests {
         .unwrap();
 
         assert!(cooldown_active(&registry, &id).unwrap());
+    }
+
+    #[test]
+    fn token_expired_true_when_near_or_past_expiry() {
+        let (_temp, ctx, registry) = test_ctx();
+        let id: crate::services::account::AccountId = "expired".parse().unwrap();
+        registry.add(&id).unwrap();
+        let auth_path = registry.group_auth_seed_path(&id);
+        std::fs::write(
+            auth_path,
+            r#"{"tokens":{"access_token":"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDAwMDB9."}}"#,
+        )
+        .unwrap();
+
+        assert!(token_expired(&ctx, &id));
+    }
+
+    #[test]
+    fn token_expired_false_when_valid() {
+        let (_temp, ctx, registry) = test_ctx();
+        let id: crate::services::account::AccountId = "valid".parse().unwrap();
+        registry.add(&id).unwrap();
+        let auth_path = registry.group_auth_seed_path(&id);
+        std::fs::write(
+            auth_path,
+            r#"{"tokens":{"access_token":"eyJhbGciOiJub25lIn0.eyJleHAiOjQxMDI0NDQ4MDB9."}}"#,
+        )
+        .unwrap();
+
+        assert!(!token_expired(&ctx, &id));
+    }
+
+    #[test]
+    fn token_expired_false_when_missing_token() {
+        let (_temp, ctx, registry) = test_ctx();
+        let id: crate::services::account::AccountId = "missing".parse().unwrap();
+        registry.add(&id).unwrap();
+        let auth_path = registry.group_auth_seed_path(&id);
+        std::fs::write(auth_path, r#"{"tokens":{}}"#).unwrap();
+
+        assert!(!token_expired(&ctx, &id));
+    }
+
+    #[test]
+    fn token_expired_false_when_malformed_jwt() {
+        let (_temp, ctx, registry) = test_ctx();
+        let id: crate::services::account::AccountId = "badjwt".parse().unwrap();
+        registry.add(&id).unwrap();
+        let auth_path = registry.group_auth_seed_path(&id);
+        std::fs::write(auth_path, r#"{"tokens":{"access_token":"bad"}}"#).unwrap();
+
+        assert!(!token_expired(&ctx, &id));
+    }
+
+    #[test]
+    fn token_expired_false_for_api_key_mode() {
+        let (_temp, ctx, registry) = test_ctx();
+        let id: crate::services::account::AccountId = "apikey".parse().unwrap();
+        registry.add(&id).unwrap();
+        let auth_path = registry.group_auth_seed_path(&id);
+        std::fs::write(auth_path, r#"{"api_key":"sk-test"}"#).unwrap();
+
+        assert!(!token_expired(&ctx, &id));
+    }
+
+    #[test]
+    fn token_expired_false_when_auth_missing() {
+        let (_temp, ctx, registry) = test_ctx();
+        let id: crate::services::account::AccountId = "missingfile".parse().unwrap();
+        registry.add(&id).unwrap();
+
+        assert!(!token_expired(&ctx, &id));
     }
 }

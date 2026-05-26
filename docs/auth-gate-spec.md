@@ -107,8 +107,10 @@ the only reliable way to confirm the token actually works. It runs with:
 - Isolated `CODEX_HOME` (tempdir with a copy of the account seed).
 - Scrubbed environment (no `CODEX_SESSION_*` recursion risk).
 - 15-second timeout (prevents hangs on network issues).
-- Conservative fallback: any error (timeout, network, binary) triggers
-  re-authentication rather than falsely reporting "logged in".
+- Conservative-safe fallback: probe errors (timeout, network, binary
+  missing) are treated as "probably fine" — the account is reported as
+  already authenticated. The user can run `login --force` to
+  re-authenticate if they know the token is actually broken.
 
 ### 2.4 What the gate does NOT check
 
@@ -232,12 +234,16 @@ The resolver (`resolver::resolve()`) tries sources in this order:
 
 1. **Flag** — `--account <name>` or `--account auto`
 2. **Env** — `CODEX_SESSION_ACCOUNT=<name>` or `=auto`
-3. **Auto** — `selector::pick()` (quota-weighted scoring; accounts
-    without auth seeds are excluded from the eligible pool)
-4. **LRU** — `state/last-account` pointer
-5. **Config pinned** — `config.account.pinned`
+3. **LRU** — `state/last-account` pointer
+4. **Config pinned** — `config.account.pinned`
 
 If none matches, the resolver returns `Err(NoneResolved)`.
+
+When the value `auto` is provided via Flag or Env, the resolver invokes
+`selector::pick()` (quota-weighted scoring) instead of using a literal
+account name. Accounts without auth seeds are excluded from the eligible
+pool. `auto` is not a separate resolution step — it is a special value
+recognized by the Flag and Env sources.
 
 There are no implicit defaults or fallbacks — every resolved account traces
 back to an explicit source.
@@ -312,10 +318,19 @@ Calls `assess()` then dispatches:
 | `NoAccounts` | Prompt for name, create account, authenticate | Error: `NoAccounts` |
 | `NoneSelected` | Prompt to select, then authenticate | Error: `NoneSelected` |
 | `AuthMissing` | `do_refresh_auth()` | `do_refresh_auth()` |
-| `Ready` | `do_refresh_auth()` (force re-auth) | `do_refresh_auth()` |
+| `Ready` | Heartbeat probe (see below) | Heartbeat probe (see below) |
 
-Unlike `ensure()`, which returns immediately when `Ready`, `run_login()`
-always forces a fresh authentication — the user explicitly asked to log in.
+When `Ready`, `run_login()` runs a heartbeat probe to check whether the
+existing token is still valid server-side:
+
+- **Probe succeeds (valid token):** Reports "already authenticated", exit 0.
+- **Probe returns 401 (invalid token):** Automatically re-authenticates
+  via `do_refresh_auth()`.
+- **Probe errors (timeout, network, binary missing):** Reports "already
+  authenticated" and suggests `login --force` if the user knows the token
+  is broken.
+- **`--force` flag:** Skips the probe entirely and forces
+  `do_refresh_auth()` unconditionally.
 
 ### 5.2 `codex-session logout` (`gate::run_logout`)
 

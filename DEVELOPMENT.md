@@ -107,12 +107,11 @@ cargo run -- help
 cargo run -- version
 cargo run -- version --format json
 cargo run -- config status
-cargo run -- config show-local --format json
 
 # Show what would be exec'd, without actually launching codex
 cargo run -- --dry-run some passthrough args
 cargo run -- --dry-run -- --flag-starting-with-dash
-cargo run -- account add work --from-native
+cargo run -- account add work
 cargo run -- account list --format json
 cargo run -- account use work
 cargo run -- --account auto --max-retries 2 --group stable
@@ -212,21 +211,9 @@ Implemented with [`figment`](https://docs.rs/figment) plus
 config structs use `#[serde(deny_unknown_fields)]` so typos surface
 as errors instead of being silently ignored.
 
-Environment variables consumed by the wrapper (full list in
-`README.md`):
-
-- `CODEX_SESSION_CHILD_BIN`
-- `CODEX_SESSION_ACCOUNT`, `CODEX_SESSION_GROUP`
-- `CODEX_SESSION_ACCOUNT_DEFAULT`, `CODEX_SESSION_ACCOUNT_PINNED`
-- `CODEX_SESSION_ACCOUNT_REGISTRY_DIR`
-- `CODEX_SESSION_ACCOUNT_QUOTA_TTL_SECS`
-- `CODEX_SESSION_ACCOUNT_WEEKLY_FLOOR`
-- `CODEX_SESSION_ACCOUNT_FIVE_HOUR_THRESHOLD`
-- `CODEX_SESSION_WHAM_USAGE_URL`
-- `CODEX_SESSION_LOG_FILE`, `CODEX_SESSION_LOG_DIR`
-- `CODEX_SESSION_REENTRY`
-- `NO_COLOR`, `FORCE_COLOR`
-- `RUST_LOG`
+All `CODEX_SESSION_*` environment variables are handled in
+`src/config/mod.rs::apply_env_layer()`. Run `codex-session help` for the
+most common ones.
 
 ## Testing
 
@@ -301,14 +288,6 @@ Two architectural patterns to keep in mind:
   `no-commit-to-branch`. Work on a feature branch and open a PR.
 - Run `just check` before pushing; `pre-push` additionally runs
   `gitleaks`, `cargo-machete`, `cargo-audit`, and `cargo-deny`.
-
-## Installing the wrapper
-
-`cargo install --path .` (or `just install`) places the binary in
-`~/.cargo/bin/codex-session`. `just uninstall` removes it. The wrapper
-locates the real `codex` binary via [`which`](https://docs.rs/which),
-or via `CODEX_SESSION_CHILD_BIN` when set — see the env-vars table in
-`README.md`.
 
 ## Troubleshooting
 

@@ -25,6 +25,18 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn first_oauth_entry(value: &serde_json::Value) -> serde_json::Value {
+    value.as_array().map_or_else(
+        || value.clone(),
+        |arr| {
+            arr.iter()
+                .find(|e| e["mode"] == "oauth")
+                .expect("no oauth entry in quota array")
+                .clone()
+        },
+    )
+}
+
 fn live_tests_enabled() -> bool {
     std::env::var("CODEX_SESSION_LIVE_TESTS")
         .ok()
@@ -57,15 +69,17 @@ fn live_quota_parses_successfully() {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|err| {
+    let top: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|err| {
         panic!(
             "failed to parse JSON output: {err}\n\
-            stdout: {}\n\
-            Upstream WHAM API may have changed. \
-            See docs/wham-usage-api-spec.md §4 and run §7 re-verification recipe.",
+                stdout: {}\n\
+                Upstream WHAM API may have changed. \
+                See docs/wham-usage-api-spec.md §4 and run §7 re-verification recipe.",
             String::from_utf8_lossy(&output.stdout),
         );
     });
+
+    let value = first_oauth_entry(&top);
 
     let five_hour_pct = value["five-hour"]["percent-left"].as_f64();
     assert!(
@@ -114,7 +128,8 @@ fn live_quota_reset_at_is_future() {
 
     assert!(output.status.success(), "account quota --live failed");
 
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let top: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let value = first_oauth_entry(&top);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

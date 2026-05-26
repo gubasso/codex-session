@@ -395,46 +395,16 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         match format {
             crate::cli::OutputFormat::Text => {
-                let suffix = if view.active { " (active)" } else { "" };
-                match view.mode.as_str() {
-                    "oauth" => {
-                        writeln!(stdout, "account: {}{suffix}", view.account)?;
-                        if let Some(five_hour) = view.five_hour.as_ref() {
-                            writeln!(
-                                stdout,
-                                "five-hour:  {:.1}% left, resets in {}",
-                                five_hour.percent_left,
-                                human_duration_until(five_hour.reset_at_unix)
-                            )?;
-                        }
-                        if let Some(weekly) = view.weekly.as_ref() {
-                            writeln!(
-                                stdout,
-                                "weekly:     {:.1}% left, resets in {}",
-                                weekly.percent_left,
-                                human_duration_until(weekly.reset_at_unix)
-                            )?;
-                        }
-                    }
-                    "api-key" => {
-                        writeln!(stdout, "account: {} (api-key-mode)", view.account)?;
-                        writeln!(stdout, "quota:   not available (API-key auth)")?;
-                    }
-                    _ => {
-                        writeln!(stdout, "account: {}{}", view.account, suffix)?;
-                        writeln!(
-                            stdout,
-                            "quota:   error ({})",
-                            view.error.as_deref().unwrap_or("unknown")
-                        )?;
-                    }
-                }
+                let c = color::should_color(color::Stream::Stdout);
+                write_quota_entry_text(&mut stdout, view, c)?;
                 writeln!(
                     stdout,
-                    "fetched:    {} ({}, TTL {}s)",
+                    "  {}Fetched: {} ({}, TTL {}s){}",
+                    style_open(quota_styles::DIM, c),
                     human_age(view.fetched_at_unix),
                     fetched_label(view),
-                    view.ttl_secs
+                    view.ttl_secs,
+                    style_close(quota_styles::DIM, c),
                 )
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
@@ -453,34 +423,20 @@ impl Ui {
                 if views.is_empty() {
                     return writeln!(stdout, "(no accounts)");
                 }
-                for view in views {
-                    match view.mode.as_str() {
-                        "oauth" => {
-                            let percent = view.five_hour.as_ref().map_or_else(
-                                || "n/a".to_owned(),
-                                |window| format!("{:.1}%", window.percent_left),
-                            );
-                            writeln!(
-                                stdout,
-                                "{}: mode={} five-hour={} fetched={}{}",
-                                view.account,
-                                view.mode,
-                                percent,
-                                human_age(view.fetched_at_unix),
-                                if view.active { " active" } else { "" }
-                            )?;
-                        }
-                        _ => {
-                            writeln!(
-                                stdout,
-                                "{}: mode={} fetched={}{}",
-                                view.account,
-                                view.mode,
-                                human_age(view.fetched_at_unix),
-                                if view.active { " active" } else { "" }
-                            )?;
-                        }
+                let c = color::should_color(color::Stream::Stdout);
+                for (i, view) in views.iter().enumerate() {
+                    if i > 0 {
+                        writeln!(stdout)?;
                     }
+                    write_quota_entry_text(&mut stdout, view, c)?;
+                    writeln!(
+                        stdout,
+                        "  {}{}, {}{}",
+                        style_open(quota_styles::DIM, c),
+                        human_age(view.fetched_at_unix),
+                        fetched_label(view),
+                        style_close(quota_styles::DIM, c),
+                    )?;
                 }
                 Ok(())
             }
@@ -576,6 +532,160 @@ const fn fetched_label(view: &crate::commands::account::AccountQuotaEntryView) -
     } else {
         "cached"
     }
+}
+
+mod quota_styles {
+    use anstyle::{AnsiColor, Effects, Style};
+
+    pub(super) const BOLD: Style = Style::new().effects(Effects::BOLD);
+    pub(super) const DIM: Style = Style::new().effects(Effects::DIMMED);
+    pub(super) const BOLD_CYAN: Style = Style::new()
+        .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)))
+        .effects(Effects::BOLD);
+    pub(super) const RED: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
+    pub(super) const BOLD_GREEN: Style = Style::new()
+        .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)))
+        .effects(Effects::BOLD);
+    pub(super) const BOLD_YELLOW: Style = Style::new()
+        .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)))
+        .effects(Effects::BOLD);
+    pub(super) const BOLD_RED: Style = Style::new()
+        .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)))
+        .effects(Effects::BOLD);
+}
+
+fn style_open(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display {
+    if use_color {
+        style.render()
+    } else {
+        anstyle::Style::new().render()
+    }
+}
+
+fn style_close(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display {
+    if use_color {
+        style.render_reset()
+    } else {
+        anstyle::Style::new().render_reset()
+    }
+}
+
+fn percent_style(pct: f64) -> anstyle::Style {
+    if pct > 50.0 {
+        quota_styles::BOLD_GREEN
+    } else if pct > 20.0 {
+        quota_styles::BOLD_YELLOW
+    } else {
+        quota_styles::BOLD_RED
+    }
+}
+
+fn quota_bar(pct: f64, width: usize, use_color: bool) -> String {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    let filled = (pct / 100.0 * width as f64).round() as usize;
+    let filled = filled.min(width);
+    let empty = width - filled;
+    let style = percent_style(pct);
+    format!(
+        "{}{}{}{}",
+        style_open(style, use_color),
+        "█".repeat(filled),
+        style_close(style, use_color),
+        "░".repeat(empty),
+    )
+}
+
+fn write_quota_entry_text(
+    stdout: &mut impl std::io::Write,
+    view: &crate::commands::account::AccountQuotaEntryView,
+    use_color: bool,
+) -> std::io::Result<()> {
+    match view.mode.as_str() {
+        "oauth" => {
+            write!(
+                stdout,
+                "  {}{}{}",
+                style_open(quota_styles::BOLD, use_color),
+                view.account,
+                style_close(quota_styles::BOLD, use_color),
+            )?;
+            if view.active {
+                write!(
+                    stdout,
+                    " {}(active){}",
+                    style_open(quota_styles::BOLD_CYAN, use_color),
+                    style_close(quota_styles::BOLD_CYAN, use_color),
+                )?;
+            }
+            writeln!(stdout)?;
+            if let Some(ref fh) = view.five_hour {
+                let ps = percent_style(fh.percent_left);
+                writeln!(
+                    stdout,
+                    "  Five-hour   {}  {}{:.1}%{} left   resets in {}",
+                    quota_bar(fh.percent_left, 20, use_color),
+                    style_open(ps, use_color),
+                    fh.percent_left,
+                    style_close(ps, use_color),
+                    human_duration_until(fh.reset_at_unix),
+                )?;
+            }
+            if let Some(ref wk) = view.weekly {
+                let ps = percent_style(wk.percent_left);
+                writeln!(
+                    stdout,
+                    "  Weekly      {}  {}{:.1}%{} left   resets in {}",
+                    quota_bar(wk.percent_left, 20, use_color),
+                    style_open(ps, use_color),
+                    wk.percent_left,
+                    style_close(ps, use_color),
+                    human_duration_until(wk.reset_at_unix),
+                )?;
+            }
+        }
+        "api-key" => {
+            writeln!(
+                stdout,
+                "  {}{}{} {}(api-key){}",
+                style_open(quota_styles::BOLD, use_color),
+                view.account,
+                style_close(quota_styles::BOLD, use_color),
+                style_open(quota_styles::DIM, use_color),
+                style_close(quota_styles::DIM, use_color),
+            )?;
+            writeln!(stdout, "  Quota not available (API-key auth)")?;
+        }
+        _ => {
+            write!(
+                stdout,
+                "  {}{}{}",
+                style_open(quota_styles::BOLD, use_color),
+                view.account,
+                style_close(quota_styles::BOLD, use_color),
+            )?;
+            if view.active {
+                write!(
+                    stdout,
+                    " {}(active){}",
+                    style_open(quota_styles::BOLD_CYAN, use_color),
+                    style_close(quota_styles::BOLD_CYAN, use_color),
+                )?;
+            }
+            writeln!(stdout)?;
+            writeln!(
+                stdout,
+                "  {}Error: {}{}",
+                style_open(quota_styles::RED, use_color),
+                view.error.as_deref().unwrap_or("unknown"),
+                style_close(quota_styles::RED, use_color),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn human_duration_until(reset_at_unix: u64) -> String {

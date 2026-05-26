@@ -76,21 +76,35 @@ pub(crate) struct AccountCooldownEntryView {
     pub(crate) last_429_at_unix: Option<u64>,
 }
 
+#[allow(dead_code)]
 pub(crate) fn spawn_child(
     ctx: &crate::context::AppContext,
     args: impl IntoIterator<Item = &'static str>,
+) -> Result<(), crate::error::AppError> {
+    spawn_child_isolated(ctx, args, None)
+}
+
+pub(crate) fn spawn_child_isolated(
+    ctx: &crate::context::AppContext,
+    args: impl IntoIterator<Item = &'static str>,
+    codex_home: Option<&camino::Utf8Path>,
 ) -> Result<(), crate::error::AppError> {
     use crate::adapters::spawner::Spawner as _;
     use std::sync::atomic::AtomicI32;
 
     let binary = ctx.resolved_child().map_err(map_spawner_error)?.clone();
+    let mut env = crate::domain::child_invocation::ChildEnv::scrubbed_default();
+    if let Some(home) = codex_home {
+        env.set
+            .push(("CODEX_HOME".to_owned(), home.as_os_str().to_owned()));
+    }
     let invocation = crate::domain::child_invocation::ChildInvocation {
         binary,
         args: args
             .into_iter()
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>(),
-        env: crate::domain::child_invocation::ChildEnv::scrubbed_default(),
+        env,
     };
     let status = ctx
         .spawner
@@ -133,56 +147,129 @@ pub(crate) fn map_spawner_error(
     }
 }
 
+/// Create a temporary directory for isolated auth operations.
+///
+/// Placed under `state_dir/auth-ops/`, NOT `/tmp` — codex refuses to
+/// create helper binaries when `CODEX_HOME` is under a temporary
+/// filesystem (see `heartbeat_probe` in `gate.rs`).  Returns a
+/// `TempDir` handle; the caller keeps it alive as long as needed.
+pub(crate) fn create_auth_ops_dir(
+    ctx: &crate::context::AppContext,
+) -> Result<tempfile::TempDir, crate::error::AppError> {
+    let parent = ctx.config.paths.state_dir.join("auth-ops");
+    std::fs::create_dir_all(parent.as_std_path()).map_err(|source| {
+        crate::error::AppError::Other(anyhow::anyhow!(
+            "failed to create auth-ops dir {parent}: {source}"
+        ))
+    })?;
+    tempfile::tempdir_in(parent.as_std_path()).map_err(|source| {
+        crate::error::AppError::Other(anyhow::anyhow!(
+            "failed to create auth-ops tmpdir: {source}"
+        ))
+    })
+}
+
+/// Run `codex logout` + `codex login` inside an isolated `CODEX_HOME`.
+///
+/// Returns `(dir_handle, auth_json_path)`.  The caller must keep
+/// `dir_handle` alive until `persist_auth_to_seed` has copied the
+/// token — the temporary directory is cleaned up on drop.
+pub(crate) fn run_isolated_login(
+    ctx: &crate::context::AppContext,
+) -> Result<(tempfile::TempDir, camino::Utf8PathBuf), crate::error::AppError> {
+    let dir = create_auth_ops_dir(ctx)?;
+    let home = camino::Utf8PathBuf::try_from(dir.path().to_path_buf())
+        .map_err(|err| crate::error::AppError::Other(anyhow::anyhow!("{err}")))?;
+
+    // Precautionary logout — no-op in the empty temp dir (no auth.json
+    // to find/revoke), which is exactly what we want.
+    let _ = spawn_child_isolated(ctx, ["logout"], Some(&home)).inspect_err(|err| {
+        tracing::warn!(
+            op = "isolated_login",
+            outcome = "logout-failed-non-fatal",
+            error = %err
+        );
+    });
+
+    if let Err(err) = spawn_child_isolated(ctx, ["login"], Some(&home)) {
+        return Err(crate::services::account::AccountError::LoginFailed {
+            detail: err.to_string(),
+        }
+        .into());
+    }
+
+    let auth_path = home.join("auth.json");
+    Ok((dir, auth_path))
+}
+
+/// Copy an `auth.json` from `source` into the account seed.
+pub(crate) fn persist_auth_to_seed(
+    source: &camino::Utf8Path,
+    registry: &crate::services::account::registry::Registry,
+    name: &crate::services::account::AccountId,
+) -> Result<(), crate::error::AppError> {
+    if !source.as_std_path().exists() {
+        return Err(crate::services::account::AccountError::NativeAuthMissing.into());
+    }
+    let bytes = crate::services::auth::secure_file_read(source)?;
+    crate::adapters::fs::atomic_write(&registry.group_auth_seed_path(name), &bytes)
+        .map_err(map_fs_error)?;
+    // With CODEX_HOME isolation the source is a temp dir — cleanup
+    // happens on TempDir drop. This deletion is defense-in-depth.
+    match std::fs::remove_file(source.as_std_path()) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            tracing::warn!(
+                op = "persist_auth_to_seed",
+                path = %source,
+                error = %err,
+                "failed to delete source auth file"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Legacy wrapper — reads from `~/.codex/auth.json`.  Prefer
+/// `persist_auth_to_seed` with an explicit source path.
+#[allow(dead_code)]
 pub(crate) fn move_native_auth_to_seed(
     ctx: &crate::context::AppContext,
     registry: &crate::services::account::registry::Registry,
     name: &crate::services::account::AccountId,
 ) -> Result<(), crate::error::AppError> {
     let native_auth = ctx.home_dir().join(".codex").join("auth.json");
-    if !native_auth.exists() {
-        return Err(crate::services::account::AccountError::NativeAuthMissing.into());
-    }
-    let bytes = crate::services::auth::secure_file_read(&native_auth)?;
-    crate::adapters::fs::atomic_write(&registry.group_auth_seed_path(name), &bytes).map_err(
-        |err| match err {
-            crate::adapters::fs::FsError::Io { path, source } => {
-                crate::services::account::AccountError::RegistryIo { path, source }
+    persist_auth_to_seed(&native_auth, registry, name)
+}
+
+fn map_fs_error(err: crate::adapters::fs::FsError) -> crate::error::AppError {
+    match err {
+        crate::adapters::fs::FsError::Io { path, source } => {
+            crate::services::account::AccountError::RegistryIo { path, source }.into()
+        }
+        crate::adapters::fs::FsError::SymlinkRefused { path } => {
+            crate::services::account::AccountError::RegistryIo {
+                path,
+                source: std::io::Error::other("symlink refused"),
             }
-            crate::adapters::fs::FsError::SymlinkRefused { path } => {
-                crate::services::account::AccountError::RegistryIo {
-                    path,
-                    source: std::io::Error::other("symlink refused"),
-                }
+            .into()
+        }
+        crate::adapters::fs::FsError::HardlinkRefused { path } => {
+            crate::services::account::AccountError::RegistryIo {
+                path,
+                source: std::io::Error::other("hardlink refused"),
             }
-            crate::adapters::fs::FsError::HardlinkRefused { path } => {
-                crate::services::account::AccountError::RegistryIo {
-                    path,
-                    source: std::io::Error::other("hardlink refused"),
-                }
+            .into()
+        }
+        crate::adapters::fs::FsError::BadOwnership { path, .. } => {
+            crate::services::account::AccountError::RegistryIo {
+                path,
+                source: std::io::Error::other("bad ownership"),
             }
-            crate::adapters::fs::FsError::BadOwnership { path, .. } => {
-                crate::services::account::AccountError::RegistryIo {
-                    path,
-                    source: std::io::Error::other("bad ownership"),
-                }
-            }
-        },
-    )?;
-    // Prevent a subsequent `codex logout` (from another account's refresh)
-    // from revoking this token server-side.
-    match std::fs::remove_file(native_auth.as_std_path()) {
-        Ok(()) => {}
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => {
-            tracing::warn!(
-                op = "move_native_auth_to_seed",
-                path = %native_auth,
-                error = %err,
-                "failed to delete native auth — leftover token may be revoked by next refresh"
-            );
+            .into()
         }
     }
-    Ok(())
 }
 
 pub(crate) fn dispatch(

@@ -314,15 +314,6 @@ fn do_add_account(ctx: &AppContext, account_id: &AccountId) -> Result<(), AppErr
     let registry = Registry::from_config(&ctx.config);
     registry.add(account_id)?;
 
-    narrate(ctx, "logging out of any existing codex session first...");
-    let _ = crate::commands::account::spawn_child(ctx, ["logout"]).inspect_err(|err| {
-        tracing::warn!(
-            op = "gate.add",
-            outcome = "logout-failed-non-fatal",
-            error = %err
-        );
-    });
-
     narrate(
         ctx,
         &format!(
@@ -330,37 +321,28 @@ fn do_add_account(ctx: &AppContext, account_id: &AccountId) -> Result<(), AppErr
             to link account '{account_id}'...",
         ),
     );
-    if let Err(err) = crate::commands::account::spawn_child(ctx, ["login"]) {
-        let _ = registry.remove(account_id).inspect_err(|cleanup_err| {
-            tracing::warn!(
-                op = "gate.add",
-                outcome = "cleanup-failed",
-                account = %account_id,
-                error = %cleanup_err
-            );
-        });
-        return Err(AccountError::LoginFailed {
-            detail: err.to_string(),
+    let (_dir, auth_path) = match crate::commands::account::run_isolated_login(ctx) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = registry.remove(account_id).inspect_err(|cleanup_err| {
+                tracing::warn!(
+                    op = "gate.add",
+                    outcome = "cleanup-failed",
+                    account = %account_id,
+                    error = %cleanup_err
+                );
+            });
+            return Err(err);
         }
-        .into());
-    }
+    };
 
     narrate(ctx, "login succeeded — saving authentication token...");
-    crate::commands::account::move_native_auth_to_seed(ctx, &registry, account_id)?;
+    crate::commands::account::persist_auth_to_seed(&auth_path, &registry, account_id)?;
     registry.set_current(account_id)?;
     Ok(())
 }
 
 fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError> {
-    narrate(ctx, "logging out of any existing codex session first...");
-    let _ = crate::commands::account::spawn_child(ctx, ["logout"]).inspect_err(|err| {
-        tracing::warn!(
-            op = "gate.refresh",
-            outcome = "logout-failed-non-fatal",
-            error = %err
-        );
-    });
-
     narrate(
         ctx,
         &format!(
@@ -368,19 +350,14 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
             to renew the token for account '{account}'...",
         ),
     );
-    if let Err(err) = crate::commands::account::spawn_child(ctx, ["login"]) {
-        return Err(AccountError::LoginFailed {
-            detail: err.to_string(),
-        }
-        .into());
-    }
+    let (_dir, auth_path) = crate::commands::account::run_isolated_login(ctx)?;
 
     narrate(
         ctx,
         "login succeeded — saving renewed authentication token...",
     );
     let registry = Registry::from_config(&ctx.config);
-    crate::commands::account::move_native_auth_to_seed(ctx, &registry, account)?;
+    crate::commands::account::persist_auth_to_seed(&auth_path, &registry, account)?;
     narrate(
         ctx,
         "clearing stale group auth tokens so new sessions use the fresh token...",
@@ -747,20 +724,42 @@ fn logout_resolve_none_selected(accounts: &[AccountEntry]) -> Result<AccountId, 
 }
 
 fn do_logout(ctx: &AppContext, account: &AccountId) -> Result<(), AppError> {
-    narrate(ctx, "running native codex logout...");
-    let _ = crate::commands::account::spawn_child(ctx, ["logout"]).inspect_err(|err| {
-        tracing::warn!(
-            op = "gate.logout",
-            outcome = "native-logout-failed-non-fatal",
-            account = %account,
-            error = %err
-        );
-    });
-
     let registry = Registry::from_config(&ctx.config);
+    let seed = registry.group_auth_seed_path(account);
+
+    // Copy the account's token into an isolated CODEX_HOME so codex
+    // finds and revokes the correct token — not whatever is in ~/.codex/.
+    if seed.as_std_path().exists() {
+        narrate(ctx, "revoking token via isolated codex logout...");
+        match revoke_via_isolated_logout(ctx, &seed) {
+            Ok(()) => {}
+            Err(err) => {
+                tracing::warn!(
+                    op = "gate.logout",
+                    outcome = "isolated-logout-failed-non-fatal",
+                    account = %account,
+                    error = %err
+                );
+            }
+        }
+    }
+
     registry.delete_auth_seed(account)?;
     registry.delete_group_auths(account)?;
     Ok(())
+}
+
+fn revoke_via_isolated_logout(
+    ctx: &AppContext,
+    seed_path: &camino::Utf8Path,
+) -> Result<(), AppError> {
+    let dir = crate::commands::account::create_auth_ops_dir(ctx)?;
+    let home = camino::Utf8PathBuf::try_from(dir.path().to_path_buf())
+        .map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))?;
+    let bytes = crate::services::auth::secure_file_read(seed_path)?;
+    crate::adapters::fs::atomic_write(&home.join("auth.json"), &bytes)
+        .map_err(crate::services::auth::AuthError::from)?;
+    crate::commands::account::spawn_child_isolated(ctx, ["logout"], Some(&home))
 }
 
 fn narrate(ctx: &AppContext, msg: &str) {

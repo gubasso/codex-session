@@ -23,23 +23,9 @@ pub(crate) fn run(
     };
     let _ = registry.expect_account_dir(&name)?;
 
-    let _ = super::spawn_child(ctx, ["logout"]).inspect_err(|err| {
-        tracing::warn!(
-            op = "account.refresh",
-            outcome = "logout-failed-non-fatal",
-            account = %name,
-            error = %err
-        );
-    });
+    let (_dir, auth_path) = super::run_isolated_login(ctx)?;
 
-    if let Err(err) = super::spawn_child(ctx, ["login"]) {
-        return Err(crate::services::account::AccountError::LoginFailed {
-            detail: err.to_string(),
-        }
-        .into());
-    }
-
-    super::move_native_auth_to_seed(ctx, &registry, &name)?;
+    super::persist_auth_to_seed(&auth_path, &registry, &name)?;
     registry.delete_group_auths(&name)?;
 
     tracing::info!(op = "account.refresh", outcome = "ok", account = %name);

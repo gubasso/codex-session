@@ -127,15 +127,15 @@ the only reliable way to confirm the token actually works. It runs with:
 
 **Registration (`account add`):**
 
-1. `codex logout` — clear any previous native auth (non-fatal if it fails).
-2. `codex login` — user authenticates in browser; codex writes
-    `~/.codex/auth.json`.
-3. `copy_native_auth_to_seed()` — reads `~/.codex/auth.json` with hardened
-    file checks (ownership, mode, no symlinks, no hardlinks), writes a copy
-    to `accounts/<name>/auth.json`.
-4. `registry.set_current()` — sets the LRU pointer.
+1. `run_isolated_login()` — creates a temp dir under `state_dir/auth-ops/`,
+    runs `codex logout` + `codex login` with `CODEX_HOME` pointing at the
+    temp dir.  The logout is a no-op (empty dir), the login writes
+    `$CODEX_HOME/auth.json` inside the temp dir.
+2. `persist_auth_to_seed()` — reads the temp `auth.json`, copies to
+    `accounts/<name>/auth.json` with hardened file checks.
+3. `registry.set_current()` — sets the LRU pointer.
 
-After step 3, the account seed exists and the gate will consider this
+After step 2, the account seed exists and the gate will consider this
 account `Ready`.
 
 **Login (`codex-session login`):**
@@ -153,8 +153,8 @@ unconditionally.
 
 **Renewal (`account refresh`):**
 
-1. `codex logout` + `codex login` — same as registration.
-2. `copy_native_auth_to_seed()` — overwrites the existing seed with the
+1. `run_isolated_login()` — same as registration.
+2. `persist_auth_to_seed()` — overwrites the existing seed with the
     fresh token.
 3. `registry.delete_group_auths()` — removes all `groups/*/auth.json` so
     new sessions pick up the fresh seed instead of stale copies.
@@ -164,14 +164,36 @@ whether the seed already exists.
 
 **Logout (`codex-session logout`):**
 
-1. `codex logout` — revokes the token server-side (non-fatal if it
-    fails).
+1. `revoke_via_isolated_logout()` — copies the account's seed auth to a
+    temp `CODEX_HOME`, runs `codex logout` against it so the correct
+    token is revoked server-side (non-fatal if it fails).
 2. `registry.delete_auth_seed()` — removes the account seed so the gate
     returns `AuthMissing` on the next invocation.
 3. `registry.delete_group_auths()` — removes stale session copies.
 
 After step 2, the account has no seed and the gate will guide the user
 through re-authentication on next launch.
+
+### 2.6 `CODEX_HOME` isolation during auth operations
+
+All auth operations (`account add`, `account refresh`, `codex-session
+login`, `codex-session logout`) run the native codex binary inside an
+**isolated temporary `CODEX_HOME`** so that one account's login/logout
+cycle never touches another account's token state.
+
+Without isolation, each `codex login` writes to the global
+`~/.codex/auth.json` and revokes any previously-stored token (per
+upstream PR #21747).  This means authenticating account B invalidates
+account A's token — even though A's seed file is a separate copy.
+
+The temp dir is created under `state_dir/auth-ops/` (not `/tmp`,
+because codex refuses to create helper binaries when `CODEX_HOME` is on
+a tmpfs).  The `TempDir` handle is held alive until
+`persist_auth_to_seed` has copied the token, then dropped (cleaning up
+the temp dir).
+
+See also `docs/openai-oauth-token-lifecycle.md` for the full token
+rotation and revocation behavior that makes this necessary.
 
 **Pass-through launch (every `codex-session exec`, bare invocation, etc.):**
 

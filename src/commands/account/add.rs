@@ -18,30 +18,22 @@ pub(crate) fn run(
 
     let entry = registry.add(&args.name)?;
 
-    let _ = super::spawn_child(ctx, ["logout"]).inspect_err(|err| {
-        tracing::warn!(
-            op = "account.add",
-            outcome = "logout-failed-non-fatal",
-            error = %err
-        );
-    });
-
-    if let Err(err) = super::spawn_child(ctx, ["login"]) {
-        let _ = registry.remove(&args.name).inspect_err(|cleanup_err| {
-            tracing::warn!(
-                op = "account.add",
-                outcome = "cleanup-failed",
-                account = %args.name,
-                error = %cleanup_err
-            );
-        });
-        return Err(crate::services::account::AccountError::LoginFailed {
-            detail: err.to_string(),
+    let (_dir, auth_path) = match super::run_isolated_login(ctx) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = registry.remove(&args.name).inspect_err(|cleanup_err| {
+                tracing::warn!(
+                    op = "account.add",
+                    outcome = "cleanup-failed",
+                    account = %args.name,
+                    error = %cleanup_err
+                );
+            });
+            return Err(err);
         }
-        .into());
-    }
+    };
 
-    super::move_native_auth_to_seed(ctx, &registry, &args.name)?;
+    super::persist_auth_to_seed(&auth_path, &registry, &args.name)?;
     registry.set_current(&args.name)?;
 
     tracing::info!(op = "account.add", outcome = "ok", account = %args.name);

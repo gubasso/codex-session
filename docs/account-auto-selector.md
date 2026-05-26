@@ -14,6 +14,17 @@ sit idle. If that account gets rate-limited (HTTP 429), your session stops. The
 auto-selector spreads the load, avoids exhausted accounts, and fails over
 automatically.
 
+## Inspecting scores
+
+The scoring algorithm is used internally by `--account auto`, but you can
+inspect the scores directly:
+
+```bash
+codex-session account quota          # shows rank + total score per account
+codex-session account quota --detail # shows every scoring component
+codex-session account health         # shows score alongside auth/cooldown status
+```
+
 ## High-level flow
 
 The algorithm has two phases:

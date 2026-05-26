@@ -151,7 +151,8 @@ impl AppError {
                 | crate::services::account::AccountError::NoAccounts
                 | crate::services::account::AccountError::NoneSelected => 64,
                 crate::services::account::AccountError::NotFound { .. }
-                | crate::services::account::AccountError::AlreadyExists { .. } => 78,
+                | crate::services::account::AccountError::AlreadyExists { .. }
+                | crate::services::account::AccountError::PingProfileMissing { .. } => 78,
                 crate::services::account::AccountError::NoEligible
                 | crate::services::account::AccountError::LoginFailed { .. }
                 | crate::services::account::AccountError::AuthMissing { .. } => 75,
@@ -487,6 +488,10 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
                 "run `codex-session account use <name>` or pass `--account <name>` to select one"
                     .to_owned(),
         },
+        AccountError::PingProfileMissing { detail } => ErrorDetail {
+            what: "account: health probe requires [profiles.ping]".to_owned(),
+            why_line: detail.clone(),
+        },
         AccountError::Cooldown(err) => ErrorDetail {
             what: "account: cooldown state failed".to_owned(),
             why_line: err.to_string(),
@@ -619,6 +624,12 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Account(crate::services::account::AccountError::NoneSelected) => {
             Some("run `codex-session account use <name>` or pass --account <name>")
         }
+        AppError::Account(crate::services::account::AccountError::PingProfileMissing {
+            ..
+        }) => Some(
+            "add [profiles.ping] to your codex settings layer, e.g.:\n\n  \
+            [profiles.ping]\n  model = \"gpt-5.4-mini\"",
+        ),
         AppError::Config(
             ConfigError::NoXdg
             | ConfigError::NoHomeDir

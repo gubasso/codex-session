@@ -24,6 +24,8 @@ pub(crate) enum AccountCommand {
     Refresh(AccountRefreshArgs),
     /// Read per-account quota from the live wham/usage endpoint.
     Quota(AccountQuotaArgs),
+    /// Check account token health, quota score, and probe status.
+    Health(AccountHealthArgs),
     /// Show or clear failover cooldown state.
     Cooldown(AccountCooldownArgs),
 }
@@ -77,6 +79,22 @@ pub(crate) struct AccountQuotaArgs {
     /// Output format for the reported quota.
     #[arg(long, value_enum, default_value_t = crate::cli::OutputFormat::Text)]
     pub(crate) format: crate::cli::OutputFormat,
+    /// Include detailed scoring fields in text mode.
+    #[arg(long)]
+    pub(crate) detail: bool,
+}
+
+#[derive(Debug, Clone, Copy, clap::Args)]
+pub(crate) struct AccountHealthArgs {
+    /// Output format for account health.
+    #[arg(long, value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
+    /// Include detailed scoring fields in text mode.
+    #[arg(long)]
+    pub(crate) detail: bool,
+    /// Local-only mode: do not refresh or probe; accept stale cache.
+    #[arg(long)]
+    pub(crate) fast: bool,
 }
 
 #[derive(Debug, clap::Args)]

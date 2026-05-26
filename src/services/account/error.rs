@@ -59,6 +59,9 @@ pub(crate) enum AccountError {
     )]
     NoneSelected,
 
+    #[error("health probe requires [profiles.ping]: {detail}")]
+    PingProfileMissing { detail: String },
+
     #[error(transparent)]
     Cooldown(#[from] CooldownError),
 }
@@ -80,6 +83,7 @@ impl AccountError {
             Self::AuthMissing { .. } => "account-auth-missing",
             Self::NoAccounts => "account-no-accounts",
             Self::NoneSelected => "account-none-selected",
+            Self::PingProfileMissing { .. } => "account-ping-profile-missing",
             Self::Cooldown { .. } => "account-cooldown",
         }
     }
@@ -110,7 +114,8 @@ impl AccountError {
             | Self::NoneResolved
             | Self::AuthMissing { .. }
             | Self::NoAccounts
-            | Self::NoneSelected => None,
+            | Self::NoneSelected
+            | Self::PingProfileMissing { .. } => None,
         }
     }
 }

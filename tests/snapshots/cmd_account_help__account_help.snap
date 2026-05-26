@@ -1,5 +1,6 @@
 ---
 source: tests/cmd_account_help.rs
+assertion_line: 21
 expression: normalized
 ---
 Manage codex-session accounts (multi-credential pool)
@@ -14,6 +15,7 @@ Commands:
   remove    Remove an account permanently
   refresh   Refresh an account's root auth.json from the native codex login
   quota     Read per-account quota from the live wham/usage endpoint
+  health    Check account token health, quota score, and probe status
   cooldown  Show or clear failover cooldown state
   help      Print this message or the help of the given subcommand(s)
 

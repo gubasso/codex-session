@@ -545,16 +545,37 @@ fn is_regular_file(path: &camino::Utf8Path) -> bool {
 }
 
 fn parse_plan_bonus(value: &Value) -> i64 {
-    let plan = value
-        .get("tokens")
-        .and_then(|tokens| tokens.get("plan"))
-        .and_then(Value::as_str)
-        .map(str::to_ascii_lowercase);
+    let plan = plan_type_from_jwt(value).or_else(|| {
+        value
+            .get("tokens")
+            .and_then(|tokens| tokens.get("plan"))
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase)
+    });
     match plan.as_deref() {
         Some("enterprise") => 30,
-        Some("pro" | "team") => 20,
+        Some("pro" | "team" | "plus") => 20,
         _ => 0,
     }
+}
+
+fn plan_type_from_jwt(value: &Value) -> Option<String> {
+    use base64::Engine as _;
+
+    let jwt = value
+        .get("tokens")
+        .and_then(|tokens| tokens.get("access_token"))
+        .and_then(Value::as_str)?;
+    let payload = jwt.split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    let claims: Value = serde_json::from_slice(&decoded).ok()?;
+    claims
+        .get("https://api.openai.com/auth")
+        .and_then(|auth| auth.get("chatgpt_plan_type"))
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase)
 }
 
 fn now_unix() -> u64 {

@@ -149,3 +149,85 @@ async fn missing_weekly_window_is_parse_error() {
         .code(65)
         .stderr(predicate::str::contains("missing window: weekly"));
 }
+
+#[tokio::test]
+async fn new_shape_tolerates_extra_fields() {
+    let env = TestEnv::new();
+    add_account(&env, "work");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{
+    "rate_limits": {
+    "primary": {
+        "usedPercent": 30.0,
+        "resetsAt": 1716393600,
+        "windowDurationMins": 300,
+        "unknownField": true
+    },
+    "secondary": {
+        "usedPercent": 10.0,
+        "resetsAt": 1716998400,
+        "windowDurationMins": 10080,
+        "anotherExtra": 42
+    },
+    "models": { "gpt-4o": {} },
+    "code_review": {}
+    }
+}"#,
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args([
+            "account",
+            "quota",
+            "--account",
+            "work",
+            "--live",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let five_hour_pct = value["five-hour"]["percent-left"].as_f64().unwrap();
+    assert!((five_hour_pct - 70.0).abs() < 0.01);
+}
+
+#[tokio::test]
+async fn missing_primary_and_five_hour_is_parse_error() {
+    let env = TestEnv::new();
+    add_account(&env, "work");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{
+    "rate_limits": {
+    "secondary": { "usedPercent": 10.0, "resetsAt": 1716998400 }
+    }
+}"#,
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+
+    env.cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota", "--account", "work", "--live"])
+        .assert()
+        .failure()
+        .code(65)
+        .stderr(predicate::str::contains("missing window: five_hour"));
+}

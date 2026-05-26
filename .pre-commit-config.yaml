@@ -75,27 +75,29 @@ repos:
   # place that defines test commands for this project.
   #
   # Classification follows the general testing pyramid:
-  #   - Unit:         src/ inline `#[cfg(test)] mod tests` (29 tests).
+  #   - Unit:         src/ inline `#[cfg(test)] mod tests` (115 tests).
   #                   Tests one function/module in isolation. kind=bin
   #                   (this crate is binary-only — no [lib]). Fast (~20 ms).
-  #   - Integration:  tests/*.rs (127 tests, kind=test). Tests the
-  #                   *seam* between components — wrapper-to-child argv
-  #                   contract, config layering, error surfacing, --help
-  #                   parity. Every file plants a fake `codex` on a
+  #   - Integration:  tests/*.rs excl. *_live.rs (209 tests, kind=test).
+  #                   Tests the *seam* between components — wrapper-to-child
+  #                   argv contract, config layering, error surfacing,
+  #                   --help parity. Every file plants a fake `codex` on a
   #                   curated PATH via `support::TestEnv::make_fake_codex`
   #                   or stubs `CODEX_SESSION_CHILD_BIN`; no test invokes
   #                   the real `codex` binary or any real external system.
   #                   Per the doc: "Integration ≠ touches real things;
   #                   integration = tests the interaction between things."
-  #   - E2E:          NOT YET PRESENT. Would run the wrapper against a
-  #                   real `codex` binary (real subprocess, real auth,
-  #                   real network). Per the doc, E2E belongs in CI only
-  #                   — never pre-commit or pre-push. No hook here.
+  #   - Live:         tests/*_live.rs (kind=test, binary matches /live/).
+  #                   Hits real API endpoints with real OAuth credentials.
+  #                   Excluded from pre-push via nextest filter subtraction:
+  #                   pre-push profile uses `kind(test) - binary(/live/)`.
+  #                   Manual invocation only: `just test-live`.
+  #                   See docs/wham-usage-api-spec.md §7.
   #
   # Tier-to-hook mapping (matches 08-testing-strategy.md § CI essentials):
   #   - pre-commit: unit only           (sub-second budget)
   #   - pre-push:   unit + integration  (single-digit-seconds budget)
-  #   - CI:         everything + E2E    (see .github/workflows)
+  #   - live:       manual only         (`just test-live`, no hook)
   #
   # Doctests are intentionally omitted: binary-only crate, `cargo test
   # --doc` has nothing to run. Re-add the template's hook if a [lib]

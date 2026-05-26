@@ -33,7 +33,8 @@ final-status-level = "fail"
 success-output = "never"
 failure-output = "immediate-final"
 
-# Integration-test lane: tests/*.rs. Wired to the `pre-push` stage.
+# Integration-test lane: tests/*.rs (excluding live tests). Wired to
+# the `pre-push` stage.
 #
 # These are integration tests in the pyramid sense (testing the *seam*
 # between the wrapper binary, the config layer, and the child-process
@@ -42,12 +43,13 @@ failure-output = "immediate-final"
 # Per docs-n-notes 08-testing-strategy.md: a wrapper spawning its own
 # binary against a stubbed child is integration, not E2E.
 #
-# True E2E (real `codex`, real network) is not yet present and per the
-# doc would belong in CI only — never as a git hook.
+# Live tests (tests/*_live.rs) are explicitly subtracted via
+# `binary(/live/)` — they hit real endpoints and belong in a separate
+# tier invoked manually via `just test-live`.
 #
 # `fail-fast` is off so a single failure does not hide other regressions.
 [profile.pre-push]
-default-filter = "kind(test)"
+default-filter = "kind(test) - binary(/live/)"
 fail-fast = false
 slow-timeout = { period = "120s", terminate-after = 2 }
 status-level = "fail"
@@ -78,4 +80,20 @@ retries = { backoff = "exponential", count = 2, delay = "1s", max-delay = "10s",
 status-level = "fail"
 final-status-level = "fail"
 success-output = "never"
+failure-output = "immediate-final"
+
+# Live API tests: hit real endpoints (WHAM usage, etc.). Selected by
+# binary name convention: any test binary matching /live/. Never runs
+# in git hooks — the pre-push profile explicitly subtracts binary(/live/).
+#
+# Requires: real OAuth credentials in the account registry + network.
+# Invoke: CODEX_SESSION_LIVE_TESTS=1 just test-live
+# See: docs/wham-usage-api-spec.md §7 for re-verification details.
+[profile.live]
+default-filter = "binary(/live/)"
+fail-fast = true
+slow-timeout = { period = "30s", terminate-after = 2 }
+status-level = "pass"
+final-status-level = "fail"
+success-output = "immediate"
 failure-output = "immediate-final"

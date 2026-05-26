@@ -74,9 +74,17 @@ test-unit:
 test-integration:
     pre-commit run --all-files --hook-stage pre-push cargo-nextest-integration
 
-# All tests (unit + integration) via pre-commit. No E2E in this repo yet —
-# when E2E lands it will run in CI only, never in this recipe.
+# All gated tests (unit + integration). Live tests are excluded — they
+# require real credentials + network; run `just test-live` separately.
 test: test-unit test-integration
+
+# Live API tests — hit real endpoints (WHAM usage). Requires real OAuth
+# credentials + network. NOT a git hook — binary(/live/) is explicitly
+# excluded from the pre-push nextest profile. Calls cargo nextest directly
+# (no pre-commit hook exists for this tier).
+# See: .config/nextest.toml [profile.live], docs/wham-usage-api-spec.md §7.
+test-live:
+    CODEX_SESSION_LIVE_TESTS=1 cargo nextest run --profile live --all-features
 
 # Aggregate gate: lint + all tests. What contributors run before pushing.
 check: lint test

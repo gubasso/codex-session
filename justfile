@@ -65,11 +65,11 @@ lint-print:
         --glob '!src/ui/**' --glob '!src/error.rs' --glob '!src/logging.rs' \
         --glob '!tests/**' src
 
-# Fast unit tests (29 tests, ~20 ms). Delegates to pre-commit hook.
+# Fast unit tests. Delegates to pre-commit hook.
 test-unit:
     pre-commit run --all-files cargo-nextest-unit
 
-# Integration tests (127 tests; wrapper-to-stubbed-child seam, no real codex).
+# Integration tests (wrapper-to-stubbed-child seam, no real codex).
 # Delegates to pre-commit hook. See .pre-commit-config.yaml for classification.
 test-integration:
     pre-commit run --all-files --hook-stage pre-push cargo-nextest-integration

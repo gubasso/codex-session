@@ -17,52 +17,47 @@ cargo install --path .
 
 ## Usage
 
-Wrapper-owned verbs:
+Run `codex-session help` for the full verb, flag, and environment variable
+reference. A few common patterns:
 
-- `codex-session version [--format text|json]`
-- `codex-session completion <shell>`
-- `codex-session config status [--format text|json]`
-- `codex-session profile list [--format text|json]`
-- `codex-session profile show [NAME] [--format text|json]`
-- `codex-session profile compose [NAME]`
-- `codex-session doctor [--all-profiles] [--show-env]`
-- `codex-session account add <NAME> [--from-native]`
-- `codex-session account list [--format text|json]`
-- `codex-session account current`
-- `codex-session account use <NAME>`
-- `codex-session account remove <NAME>`
-- `codex-session account quota [--all] [--live] [--format text|json]`
-- `codex-session account cooldown show|clear [--all] [--account NAME]`
+```bash
+codex-session                                        # bare → launches codex TUI
+codex-session exec "hello"                           # passthrough verb
+codex-session --dry-run exec "hello"                 # show what would run
+codex-session account add work                       # register an account
+codex-session account list --format json             # inspect accounts
+codex-session --account auto --max-retries 2 exec hi # quota-aware rotation
+codex-session login                                  # verify / re-authenticate
+codex-session doctor                                 # full setup validation
+```
 
-Wrapper-owned global flags:
+Any verb not owned by the wrapper is forwarded verbatim to `codex`.
 
-- `--profile <NAME>` selects the wrapper profile before pass-through begins.
-- `--dry-run` prints the resolved child invocation, including `CODEX_HOME`.
-- `--account <NAME|auto>` selects account routing behavior.
-- `--max-retries <N>` enables retry/failover attempts (used with `--account auto`).
-- `--group <ID>` pins the session group-id.
+## Filesystem layout
 
-Anything else — including bare `codex-session` with no subcommand — is
-forwarded verbatim to the real `codex`. Bare invocation execs `codex`
-with no arguments (launching the Codex TUI). To see the real `codex`'s
-own help, run `codex-session -- --help`.
-
-## Profile Layout
-
-Wrapper config lives under XDG paths:
+Run `codex-session config status` or `codex-session doctor` to see resolved
+paths for the current environment. The general structure:
 
 ```text
 $XDG_CONFIG_HOME/codex-session/
-  config.toml
-  profiles/*.yaml
-  settings/*.toml
+  config.toml                           wrapper config
+  profiles/*.yaml                       profile manifests
+  settings/*.toml                       settings layers
 
-$XDG_CACHE_HOME/codex-session/settings.toml
+$XDG_CACHE_HOME/codex-session/
+  settings.toml                         trust / cache-layer writes
+  quota/<account>.json                  cached quota responses
 
-$XDG_RUNTIME_DIR/codex-session/accounts/<account>/groups/<group-id>/
-  config.toml
-  .codex-session-compose.json
-  session-meta.json
+$XDG_STATE_HOME/codex-session/
+  state/last-account                    LRU pointer (plain text)
+  accounts/<account>/
+    auth.json                           account seed (auth source of truth)
+    cooldown.json                       failover cooldown state
+    groups/<group-id>/
+      auth.json                         session copy (synced back on exit)
+      config.toml                       composed codex config
+      .codex-session-compose.json       composition metadata
+      session-meta.json                 session metadata
 ```
 
 Profile manifests list ordered `settings-layers`. Each layer is parsed from
@@ -70,38 +65,13 @@ Profile manifests list ordered `settings-layers`. Each layer is parsed from
 table, then written into the session directory. Stock mode still creates a
 session directory with an empty `config.toml`.
 
-## Multi-Account Management
+## Multi-account management
 
-Examples:
-
-```bash
-codex-session account add work --from-native
-codex-session account add personal
-codex-session account use work
-codex-session --account auto --max-retries 2 --group stable
-codex-session account cooldown show --all --format json
-```
-
-Account layout:
-
-```text
-$XDG_STATE_HOME/codex-session/
-  accounts/
-    <account>/
-      auth.json
-      cooldown.json
-      groups/
-        <group-id>/
-          config.toml
-          .codex-session-compose.json
-          session-meta.json
-```
-
-Failover usage:
-
-- Set `--account auto` (or `CODEX_SESSION_ACCOUNT=auto`) to rotate accounts on retry.
-- Use `--max-retries <N>` to cap retry attempts before returning `75` (all accounts exhausted).
-- Cooldowns are tracked per account via `cooldown.json` and skipped until reset.
+When multiple accounts are registered, `--account auto` picks the best one
+using quota-weighted scoring (see [`docs/account-auto-selector.md`](./docs/account-auto-selector.md)).
+Combined with `--max-retries`, the wrapper automatically fails over to the
+next account on 429 detection. See [`docs/auth-gate-spec.md`](./docs/auth-gate-spec.md)
+for the full authentication model.
 
 ## Skills
 
@@ -124,28 +94,7 @@ their dotfiles repo to deploy skills as symlinks under
 
 Reference: <https://developers.openai.com/codex/skills>
 
-## Environment
-
-- `CODEX_SESSION_CHILD_BIN`: explicit path to the wrapped `codex` binary.
-- `CODEX_SESSION_PROFILE`: active wrapper profile when CLI `--profile` is absent.
-- `CODEX_SESSION_ACCOUNT`: active account override (`<name>` or `auto`).
-- `CODEX_SESSION_GROUP`: session group-id override.
-- `CODEX_SESSION_LOG_FILE`: directory hint for wrapper log rotation.
-- `CODEX_SESSION_LOG_DIR`: legacy directory hint when `LOG_FILE` is unset.
-- `CODEX_SESSION_ACCOUNT_DEFAULT`: default account id override.
-- `CODEX_SESSION_ACCOUNT_PINNED`: pinned account id override.
-- `CODEX_SESSION_ACCOUNT_REGISTRY_DIR`: custom account registry root.
-- `CODEX_SESSION_ACCOUNT_QUOTA_TTL_SECS`: quota cache TTL override.
-- `CODEX_SESSION_ACCOUNT_WEEKLY_FLOOR`: quota floor override.
-- `CODEX_SESSION_ACCOUNT_FIVE_HOUR_THRESHOLD`: quota threshold override.
-- `CODEX_SESSION_WHAM_USAGE_URL`: usage endpoint override for account quota probing.
-- `CODEX_SESSION_REENTRY`: wrapper-set recursion guard.
-- `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`, `RUST_LOG`.
-
-Wrapper-private `CODEX_SESSION_*` variables are scrubbed from the child
-environment. Profile `[env]` tables may not reintroduce them.
-
-## Exit Codes
+## Exit codes
 
 | Code | Meaning |
 | --- | --- |
@@ -161,3 +110,6 @@ environment. Profile `[env]` tables may not reintroduce them.
 | `78` | Configuration error |
 | `126` | Child resolved but is not executable |
 | `127` | Child not found |
+
+Exit codes are a stable user-facing contract (SoT: `src/error.rs`). Child
+exit codes are passed through as-is.

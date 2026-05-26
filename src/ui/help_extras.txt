@@ -10,10 +10,12 @@ WRAPPER VERBS
   doctor        Run full validation of the codex-session setup.
   account       Manage codex-session accounts (subcommands: add, list,
                 current, use, remove, refresh, quota, cooldown).
+  login         Verify or re-authenticate the active account (--force).
+  logout        Log out the active account and delete its auth seed.
 
 PASSTHROUGH
   Any verb not listed above is forwarded verbatim to `codex` (e.g. exec,
-  apply, resume, fork, review, login, logout, mcp, plugin, ...). Use `--`
+  apply, resume, fork, review, mcp, plugin, ...). Use `--`
   to disambiguate flags that would otherwise be claimed by the wrapper.
 
 ACCOUNT MANAGEMENT

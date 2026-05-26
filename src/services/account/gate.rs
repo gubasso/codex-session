@@ -346,7 +346,7 @@ fn do_add_account(ctx: &AppContext, account_id: &AccountId) -> Result<(), AppErr
     }
 
     narrate(ctx, "login succeeded — saving authentication token...");
-    crate::commands::account::copy_native_auth_to_seed(ctx, &registry, account_id)?;
+    crate::commands::account::move_native_auth_to_seed(ctx, &registry, account_id)?;
     registry.set_current(account_id)?;
     Ok(())
 }
@@ -380,7 +380,7 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
         "login succeeded — saving renewed authentication token...",
     );
     let registry = Registry::from_config(&ctx.config);
-    crate::commands::account::copy_native_auth_to_seed(ctx, &registry, account)?;
+    crate::commands::account::move_native_auth_to_seed(ctx, &registry, account)?;
     narrate(
         ctx,
         "clearing stale group auth tokens so new sessions use the fresh token...",

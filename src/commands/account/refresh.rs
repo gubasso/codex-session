@@ -39,7 +39,7 @@ pub(crate) fn run(
         .into());
     }
 
-    super::copy_native_auth_to_seed(ctx, &registry, &name)?;
+    super::move_native_auth_to_seed(ctx, &registry, &name)?;
     registry.delete_group_auths(&name)?;
 
     tracing::info!(op = "account.refresh", outcome = "ok", account = %name);

@@ -55,13 +55,13 @@ fn live_quota_parses_successfully() {
 
     let output = assert_cmd::Command::cargo_bin("codex-session")
         .unwrap()
-        .args(["account", "quota", "--live", "--format", "json"])
+        .args(["account", "quota", "--format", "json"])
         .output()
         .expect("failed to execute codex-session");
 
     assert!(
         output.status.success(),
-        "account quota --live failed (exit {}).\n\
+        "account quota failed (exit {}).\n\
         stderr: {}\n\
         Upstream WHAM API may have changed. \
         See docs/wham-usage-api-spec.md §4 and run §7 re-verification recipe.",
@@ -122,11 +122,11 @@ fn live_quota_reset_at_is_future() {
 
     let output = assert_cmd::Command::cargo_bin("codex-session")
         .unwrap()
-        .args(["account", "quota", "--live", "--format", "json"])
+        .args(["account", "quota", "--format", "json"])
         .output()
         .expect("failed to execute codex-session");
 
-    assert!(output.status.success(), "account quota --live failed");
+    assert!(output.status.success(), "account quota failed");
 
     let top: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let value = first_oauth_entry(&top);

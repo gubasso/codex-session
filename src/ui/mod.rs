@@ -524,14 +524,8 @@ fn write_json_line<T: serde::Serialize + ?Sized>(
     writeln!(stdout)
 }
 
-const fn fetched_label(view: &crate::commands::account::AccountQuotaEntryView) -> &'static str {
-    if view.stale {
-        "stale"
-    } else if view.live {
-        "live"
-    } else {
-        "cached"
-    }
+const fn fetched_label(_view: &crate::commands::account::AccountQuotaEntryView) -> &'static str {
+    "live"
 }
 
 mod quota_styles {

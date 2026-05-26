@@ -26,7 +26,7 @@ pub(crate) fn run(
         let is_active = active
             .as_ref()
             .is_some_and(|current| current.as_str() == target.as_str());
-        let view = fetch_view(ctx, args, &target, is_active, false)?;
+        let view = fetch_view(ctx, &target, is_active, false)?;
         ctx.ui.write_account_quota(&view, args.format)?;
     } else {
         let mut entries = Vec::new();
@@ -34,7 +34,7 @@ pub(crate) fn run(
             let is_active = active
                 .as_ref()
                 .is_some_and(|current| current.as_str() == entry.id.as_str());
-            entries.push(fetch_view(ctx, args, &entry.id, is_active, true)?);
+            entries.push(fetch_view(ctx, &entry.id, is_active, true)?);
         }
         entries.sort_by(quota_sort_key);
         ctx.ui.write_account_quota_many(&entries, args.format)?;
@@ -44,20 +44,11 @@ pub(crate) fn run(
 
 fn fetch_view(
     ctx: &crate::context::AppContext,
-    args: crate::cli::account::AccountQuotaArgs,
     account: &AccountId,
     active: bool,
     multi: bool,
 ) -> Result<crate::commands::account::AccountQuotaEntryView, AccountError> {
-    let result = if args.live {
-        quota::refresh(ctx, account)
-    } else {
-        quota::get(
-            ctx,
-            account,
-            std::time::Duration::from_secs(ctx.config.account.quota_ttl_secs),
-        )
-    };
+    let result = quota::refresh(ctx, account);
 
     match result {
         Ok(result) => {
@@ -67,7 +58,6 @@ fn fetch_view(
                 active,
                 result,
                 &meta.unwrap_or_default(),
-                args.live,
             ))
         }
         Err(err) => {
@@ -78,8 +68,6 @@ fn fetch_view(
                     mode: "error".to_owned(),
                     fetched_at_unix: 0,
                     ttl_secs: 0,
-                    stale: false,
-                    live: args.live,
                     error: Some(AccountError::from(err).to_string()),
                     five_hour: None,
                     weekly: None,
@@ -96,19 +84,15 @@ fn view_from_result(
     active: bool,
     result: quota::QuotaResult,
     meta: &CacheMeta,
-    live: bool,
 ) -> crate::commands::account::AccountQuotaEntryView {
     match result {
-        quota::QuotaResult::Ok(quota) => quota_view(account, active, &quota, meta, live, false),
-        quota::QuotaResult::Stale(quota) => quota_view(account, active, &quota, meta, live, true),
+        quota::QuotaResult::Ok(quota) => quota_view(account, active, &quota, meta),
         quota::QuotaResult::ApiKeyMode => crate::commands::account::AccountQuotaEntryView {
             account: account.to_string(),
             active,
             mode: "api-key".to_owned(),
             fetched_at_unix: meta.fetched_at_unix,
             ttl_secs: meta.ttl_secs.max(300),
-            stale: false,
-            live,
             error: None,
             five_hour: None,
             weekly: None,
@@ -121,8 +105,6 @@ fn quota_view(
     active: bool,
     quota: &quota::Quota,
     meta: &CacheMeta,
-    live: bool,
-    stale: bool,
 ) -> crate::commands::account::AccountQuotaEntryView {
     crate::commands::account::AccountQuotaEntryView {
         account: account.to_string(),
@@ -130,8 +112,6 @@ fn quota_view(
         mode: "oauth".to_owned(),
         fetched_at_unix: meta.fetched_at_unix,
         ttl_secs: meta.ttl_secs,
-        stale,
-        live,
         error: None,
         five_hour: Some(crate::commands::account::AccountQuotaWindowView {
             percent_left: quota.five_hour.percent_left,

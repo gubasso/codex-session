@@ -53,15 +53,7 @@ async fn parses_iso_reset_at_and_tolerates_unknown_keys() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -87,7 +79,7 @@ async fn empty_body_is_missing_rate_limit() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work", "--live"])
+        .args(["account", "quota", "--account", "work"])
         .assert()
         .failure()
         .code(65)
@@ -115,7 +107,7 @@ async fn missing_five_hour_window_is_parse_error() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work", "--live"])
+        .args(["account", "quota", "--account", "work"])
         .assert()
         .failure()
         .code(65)
@@ -143,7 +135,7 @@ async fn missing_weekly_window_is_parse_error() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work", "--live"])
+        .args(["account", "quota", "--account", "work"])
         .assert()
         .failure()
         .code(65)
@@ -185,15 +177,7 @@ async fn new_shape_tolerates_extra_fields() {
     let output = env
         .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args([
-            "account",
-            "quota",
-            "--account",
-            "work",
-            "--live",
-            "--format",
-            "json",
-        ])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -225,7 +209,7 @@ async fn missing_primary_and_five_hour_is_parse_error() {
 
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work", "--live"])
+        .args(["account", "quota", "--account", "work"])
         .assert()
         .failure()
         .code(65)

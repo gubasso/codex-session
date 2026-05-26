@@ -6,11 +6,11 @@ depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
 - **Last verified:** 2026-05-26
-- **Codex version checked:** `codex-cli 0.132.0`
+- **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
   below and the spot-check greps before relying on these facts. Update the
-  date and version line when you do.
+  date line when you do.
 
 ## Re-verification recipe
 

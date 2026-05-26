@@ -313,27 +313,40 @@ fn parse_quota_body(body: &[u8]) -> Result<Quota, QuotaError> {
 
     Ok(Quota {
         five_hour: parse_window(
-            root.get("five_hour"),
-            root.get("primary_window"),
+            &[
+                root.get("five_hour"),
+                root.get("primary_window"),
+                root.get("primary"),
+            ],
             "five_hour",
         )?,
-        weekly: parse_window(root.get("weekly"), root.get("secondary_window"), "weekly")?,
+        weekly: parse_window(
+            &[
+                root.get("weekly"),
+                root.get("secondary_window"),
+                root.get("secondary"),
+            ],
+            "weekly",
+        )?,
     })
 }
 
-fn parse_window(
-    primary: Option<&Value>,
-    alias: Option<&Value>,
-    name: &'static str,
-) -> Result<Window, QuotaError> {
-    let window = primary
-        .filter(|value| value.is_object())
-        .or_else(|| alias.filter(|value| value.is_object()))
+fn parse_window(candidates: &[Option<&Value>], name: &'static str) -> Result<Window, QuotaError> {
+    let window = candidates
+        .iter()
+        .find_map(|c| c.filter(|v| v.is_object()))
         .ok_or(QuotaError::ParseMissingWindow(name))?;
 
     let percent_left = window
         .get("percent_left")
         .and_then(Value::as_f64)
+        .or_else(|| {
+            window
+                .get("used_percent")
+                .or_else(|| window.get("usedPercent"))
+                .and_then(Value::as_f64)
+                .map(|used| 100.0 - used)
+        })
         .ok_or(QuotaError::ParseMissingWindow(name))?;
     let reset_at_unix = parse_reset_at_unix(window).unwrap_or(0);
 
@@ -362,15 +375,51 @@ fn parse_reset_at_unix(window: &Value) -> Option<u64> {
         }
     }
 
-    let raw = window.get("reset_at")?.as_str()?;
-    let parsed = time::OffsetDateTime::parse(raw, &Rfc3339).ok()?;
-    let ts = parsed.unix_timestamp();
-    #[allow(
-        clippy::cast_sign_loss,
-        reason = "guarded by ts >= 0 check before the cast"
-    )]
-    let unsigned = (ts >= 0).then_some(ts as u64);
-    unsigned
+    if let Some(value) = window.get("resetsAt") {
+        if let Some(ts) = value.as_u64() {
+            return Some(ts);
+        }
+        if let Some(ts) = value.as_f64()
+            && ts.is_finite()
+            && ts >= 0.0
+        {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "ts is finite and non-negative; flooring to u64 is the intended truncation"
+            )]
+            return Some(ts.floor() as u64);
+        }
+    }
+
+    if let Some(value) = window.get("reset_at") {
+        if let Some(ts) = value.as_u64() {
+            return Some(ts);
+        }
+        if let Some(ts) = value.as_f64()
+            && ts.is_finite()
+            && ts >= 0.0
+        {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "ts is finite and non-negative; flooring to u64 is the intended truncation"
+            )]
+            return Some(ts.floor() as u64);
+        }
+        if let Some(raw) = value.as_str()
+            && let Ok(parsed) = time::OffsetDateTime::parse(raw, &Rfc3339)
+        {
+            let ts = parsed.unix_timestamp();
+            #[allow(
+                clippy::cast_sign_loss,
+                reason = "guarded by ts >= 0 check before the cast"
+            )]
+            return (ts >= 0).then_some(ts as u64);
+        }
+    }
+
+    None
 }
 
 fn resolve_auth(
@@ -487,4 +536,144 @@ fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_new_primary_secondary_shape() {
+        let body = br#"{
+            "rate_limits": {
+                "primary": {
+                    "usedPercent": 26.6,
+                    "resetsAt": 1716393600,
+                    "windowDurationMins": 300
+                },
+                "secondary": {
+                    "usedPercent": 12.9,
+                    "resetsAt": 1716998400,
+                    "windowDurationMins": 10080
+                }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!((quota.five_hour.percent_left - 73.4).abs() < 0.01);
+        assert!((quota.weekly.percent_left - 87.1).abs() < 0.01);
+        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
+        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+    }
+
+    #[test]
+    fn parse_used_percent_conversion() {
+        let body = br#"{
+            "rate_limit": {
+                "primary": { "usedPercent": 0.0, "resetsAt": 100 },
+                "secondary": { "usedPercent": 100.0, "resetsAt": 200 }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!((quota.five_hour.percent_left - 100.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.percent_left - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_percent_left_preferred_over_used_percent() {
+        let body = br#"{
+            "rate_limit": {
+                "five_hour": { "percent_left": 80.0, "usedPercent": 50.0, "reset_time_ms": 1000 },
+                "weekly": { "percent_left": 90.0, "usedPercent": 50.0, "reset_time_ms": 2000 }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!((quota.five_hour.percent_left - 80.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.percent_left - 90.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_resets_at_seconds() {
+        let body = br#"{
+            "rate_limit": {
+                "five_hour": { "percent_left": 50.0, "resetsAt": 1716393600 },
+                "weekly": { "percent_left": 60.0, "resetsAt": 1716998400 }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
+        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+    }
+
+    #[test]
+    fn parse_resets_at_float() {
+        let body = br#"{
+            "rate_limit": {
+                "five_hour": { "percent_left": 50.0, "resetsAt": 1716393600.7 },
+                "weekly": { "percent_left": 60.0, "resetsAt": 1716998400.3 }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
+        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+    }
+
+    #[test]
+    fn parse_reset_time_ms_preferred_over_resets_at() {
+        let body = br#"{
+            "rate_limit": {
+                "five_hour": {
+                    "percent_left": 50.0,
+                    "reset_time_ms": 1716393600000,
+                    "resetsAt": 9999999999
+                },
+                "weekly": {
+                    "percent_left": 60.0,
+                    "reset_time_ms": 1716998400000,
+                    "resetsAt": 9999999999
+                }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
+        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+    }
+
+    #[test]
+    fn parse_real_api_shape_with_used_percent_snake_case() {
+        let body = br#"{
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 1,
+                    "limit_window_seconds": 18000,
+                    "reset_after_seconds": 18000,
+                    "reset_at": 1779813200
+                },
+                "secondary_window": {
+                    "used_percent": 0,
+                    "limit_window_seconds": 604800,
+                    "reset_after_seconds": 604800,
+                    "reset_at": 1780400000
+                }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!((quota.five_hour.percent_left - 99.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.percent_left - 100.0).abs() < f64::EPSILON);
+        assert_eq!(quota.five_hour.reset_at_unix, 1_779_813_200);
+        assert_eq!(quota.weekly.reset_at_unix, 1_780_400_000);
+    }
+
+    #[test]
+    fn parse_reset_at_integer_preferred_over_string() {
+        let body = br#"{
+            "rate_limit": {
+                "five_hour": { "percent_left": 50.0, "reset_at": 1716393600 },
+                "weekly": { "percent_left": 60.0, "reset_at": 1716998400 }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
+        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+    }
 }

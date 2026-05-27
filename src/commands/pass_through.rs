@@ -55,7 +55,7 @@ pub(crate) fn run(
     }
 
     if ctx.global.dry_run {
-        let prepared = prepare_invocation(ctx, argv, &gated)?;
+        let prepared = prepare_invocation(ctx, argv, &gated, None)?;
         let dry_ctx = crate::domain::child_invocation::DryRunContext {
             account: gated.id.to_string(),
             account_source: crate::services::account::resolver::source_label(gated.source)
@@ -94,6 +94,7 @@ pub(crate) fn run_once(
     resolved: &crate::services::account::resolver::ResolvedAccount,
     session: &SignalSession,
     capture: bool,
+    group_id_override: Option<&str>,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
     let json_mode = has_json_flag(argv);
     let effective_capture = capture || json_mode;
@@ -104,7 +105,7 @@ pub(crate) fn run_once(
         argc = argv.len(),
         account = %account
     );
-    let prepared = prepare_invocation(ctx, argv, resolved)?;
+    let prepared = prepare_invocation(ctx, argv, resolved, group_id_override)?;
 
     let cache_settings = cache_settings_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
@@ -158,15 +159,32 @@ fn prepare_invocation(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
     resolved: &crate::services::account::resolver::ResolvedAccount,
+    group_id_override: Option<&str>,
 ) -> Result<PreparedInvocation, crate::error::AppError> {
     let child_binary = ctx.resolved_child().map_err(map_child_err)?;
 
-    let group = crate::services::session::group_id::current(ctx)?;
+    let group_id = if let Some(override_gid) = group_id_override {
+        match override_gid.parse::<crate::services::session::group_id::GroupId>() {
+            Ok(gid) => gid.as_str().to_owned(),
+            Err(reason) => {
+                tracing::warn!(
+                    op = "prepare.group_id_override",
+                    override_gid,
+                    reason = %reason,
+                    "invalid group_id in thread index; falling back to current"
+                );
+                let group = crate::services::session::group_id::current(ctx)?;
+                group.id.as_str().to_owned()
+            }
+        }
+    } else {
+        let group = crate::services::session::group_id::current(ctx)?;
+        group.id.as_str().to_owned()
+    };
     let root = crate::services::session::dir::resolve_session_root(
         ctx.config.paths.runtime_dir.as_deref(),
         &ctx.config.paths.state_dir,
     )?;
-    let group_id = group.id.as_str().to_owned();
     let account = &resolved.id;
     let session_dir = crate::services::session::dir::session_dir(&root.path, account, &group_id)?;
     let cwd = current_cwd()?;
@@ -410,7 +428,11 @@ fn rewrite_last_to_id(argv: &[std::ffi::OsString], thread_id: &str) -> Vec<std::
 fn resolve_resume_account(
     ctx: &crate::context::AppContext,
     intent: &ResumeIntent,
-) -> Option<(crate::services::account::resolver::ResolvedAccount, String)> {
+) -> Option<(
+    crate::services::account::resolver::ResolvedAccount,
+    String,
+    String,
+)> {
     let state_dir = &ctx.config.paths.state_dir;
 
     let entry = match intent {
@@ -487,6 +509,7 @@ fn resolve_resume_account(
         op = "resume.resolve",
         thread_id = %entry.thread_id,
         account = %account_id,
+        group_id = %entry.group_id,
         "thread index hit",
     );
 
@@ -496,6 +519,7 @@ fn resolve_resume_account(
             source: crate::services::account::resolver::AccountResolutionSource::ThreadIndex,
         },
         entry.thread_id,
+        entry.group_id,
     ))
 }
 
@@ -507,14 +531,16 @@ fn run_resume(
 ) -> Result<i32, crate::error::AppError> {
     tracing::info!(op = "resume", status = "start", ?intent);
 
-    if let Some((resolved, thread_id)) = resolve_resume_account(ctx, intent) {
+    if let Some((resolved, thread_id, original_group_id)) = resolve_resume_account(ctx, intent) {
         let effective_argv = match intent {
             ResumeIntent::Last { .. } => rewrite_last_to_id(argv, &thread_id),
             ResumeIntent::ById(_) => argv.to_vec(),
         };
 
+        let gid_override = Some(original_group_id.as_str());
+
         if ctx.global.dry_run {
-            let prepared = prepare_invocation(ctx, &effective_argv, &resolved)?;
+            let prepared = prepare_invocation(ctx, &effective_argv, &resolved, gid_override)?;
             let dry_ctx = crate::domain::child_invocation::DryRunContext {
                 account: resolved.id.to_string(),
                 account_source: crate::services::account::resolver::source_label(resolved.source)
@@ -531,8 +557,14 @@ fn run_resume(
         }
 
         let session = SignalSession::install()?;
-        let (exit_code, _stdout, _stderr) =
-            run_once(ctx, &effective_argv, &resolved, &session, false)?;
+        let (exit_code, _stdout, _stderr) = run_once(
+            ctx,
+            &effective_argv,
+            &resolved,
+            &session,
+            false,
+            gid_override,
+        )?;
         Ok(exit_code)
     } else {
         tracing::info!(
@@ -543,7 +575,7 @@ fn run_resume(
         let sanitized = strip_wrapper_resume_flags(argv);
         let fallback_argv = sanitized.as_deref().unwrap_or(argv);
         if ctx.global.dry_run {
-            let prepared = prepare_invocation(ctx, fallback_argv, gated)?;
+            let prepared = prepare_invocation(ctx, fallback_argv, gated, None)?;
             let dry_ctx = crate::domain::child_invocation::DryRunContext {
                 account: gated.id.to_string(),
                 account_source: crate::services::account::resolver::source_label(gated.source)

@@ -204,9 +204,10 @@ When the wrapper detects a resume intent (`exec resume <ID>`,
 1. Looks up the thread ID in the index (by exact ID for `ById`, by
     most-recent-in-group for `--last`, by most-recent-any for
     `--last --all-groups` or `resume --all`).
-2. If found, resolves the account from the index entry (source:
-    `ThreadIndex`) and rewrites `--last`/`--all` to the concrete
-    thread ID before forwarding to codex.
+2. If found, resolves the account **and original group-id** from the
+    index entry (source: `ThreadIndex`), sets `CODEX_HOME` to the
+    indexed group's session directory, and rewrites `--last`/`--all` to
+    the concrete thread ID before forwarding to codex.
 3. If not found, falls back to normal account resolution and forwards
     the original argv (stripping wrapper-only `--all-groups` flag).
 

@@ -120,6 +120,44 @@ fn routes_exec_resume_last_all_groups_via_thread_index() {
 }
 
 #[test]
+fn routes_exec_resume_by_id_from_original_group_when_current_group_differs() {
+    let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"work\"}\n");
+    let fixture = fixture_path("fake-codex-resume.sh");
+    let thread_id = "thread-cross-group";
+
+    write_thread_index_entry(&env, thread_id, "work", "original-group");
+    write_rollout_for(&env, "work", "original-group", thread_id);
+
+    env.cmd()
+        .env("CODEX_SESSION_GROUP", "different-group")
+        .env("CODEX_SESSION_CHILD_BIN", &fixture)
+        .args(["exec", "resume", thread_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("resumed:{thread_id}")));
+}
+
+#[test]
+fn routes_bare_resume_from_original_group_when_current_group_differs() {
+    let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"work\"}\n");
+    let fixture = fixture_path("fake-codex-resume.sh");
+    let thread_id = "thread-cross-bare";
+
+    write_thread_index_entry(&env, thread_id, "work", "original-group");
+    write_rollout_for(&env, "work", "original-group", thread_id);
+
+    env.cmd()
+        .env("CODEX_SESSION_GROUP", "different-group")
+        .env("CODEX_SESSION_CHILD_BIN", &fixture)
+        .args(["resume", thread_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("resumed:{thread_id}")));
+}
+
+#[test]
 fn falls_back_to_normal_resolution_when_thread_index_misses() {
     let env = TestEnv::new();
     let fixture = fixture_path("fake-codex-resume.sh");

@@ -101,7 +101,7 @@ functionally identical to the gate's seed-file check. A token that is
 invalidated or revoked server-side still has a local auth.json file, so
 `login status` would report "logged in" falsely.
 
-The heartbeat probe (`codex exec --model o4-mini --json "say ok"`) is
+The heartbeat probe (`codex --profile ping exec --json "say ok"`) is
 the only reliable way to confirm the token actually works. It runs with:
 
 - Isolated `CODEX_HOME` (tempdir with a copy of the account seed).
@@ -141,7 +141,7 @@ account `Ready`.
 **Login (`codex-session login`):**
 
 If the resolved account is already `Ready` (seed exists), the command
-runs a heartbeat probe (`codex exec --model o4-mini --json "say ok"`)
+runs a heartbeat probe (`codex --profile ping exec --json "say ok"`)
 to verify the token is still valid server-side:
 
 - Probe succeeds → "already authenticated", exit 0.

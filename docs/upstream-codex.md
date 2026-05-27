@@ -265,11 +265,14 @@ should treat the ID as an opaque string.
   [discussion #1076 — "Resuming a previous session"](https://github.com/openai/codex/discussions/1076).
 - **Implementation note:** `codex-session` maintains a cross-account
   `thread-index.jsonl` at `<state_dir>/thread-index.jsonl` that maps each
-  session's thread ID to the originating account and group.  On `resume`,
-  the wrapper looks up the thread ID (or resolves `--last`) from this
-  index to select the correct `CODEX_HOME` before forwarding to codex.
-  When the index has no hit, the wrapper falls back to normal account
-  resolution and forwards the resume command as-is.
+  session's thread ID to the originating account **and group-id**.  On
+  `resume`, the wrapper looks up the thread ID (or resolves `--last`) from
+  this index, using the stored account and group-id to select the correct
+  `CODEX_HOME` before forwarding to codex.  This means `exec resume <ID>`
+  works across terminals and PIDs because both account and group-id are
+  persisted in `thread-index.jsonl`.  When the index has no hit, the
+  wrapper falls back to normal account resolution and forwards the resume
+  command as-is.
 
 ## Sources (full list)
 

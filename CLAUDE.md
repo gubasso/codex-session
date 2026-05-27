@@ -29,6 +29,28 @@ gates) are fine to invoke as-is: `just build`, `just run -- <args>`,
 If you need a check the justfile doesn't cover, run raw `cargo` — but say so,
 and consider whether the recipe should be extended.
 
+## CLI Design System
+
+User-facing CLI output is governed by
+[`docs/design/cli-style-guide.md`](./docs/design/cli-style-guide.md).
+Consult it before changing any `Ui::write_*` renderer, error rendering,
+warning, prompt, runtime narration, or wrapper-owned command output. The
+guide is the source of truth for color semantics, table layout, JSON/text
+separation, and stdout/stderr ownership.
+
+## Breaking Changes Policy
+
+codex-session is pre-v1.0. Breaking changes are expected when they simplify
+the wrapper or prevent long-term CLI ambiguity; do not add compatibility
+layers for obsolete wrapper behavior. Prefer direct migrations to the
+intended interface.
+
+Wrapper-owned machine-readable output uses `--format json`, never `--json`.
+Known migration gap: `account cooldown show` still exposes a bare `--json`
+flag that will move to `--format json` in a later round. Avoid introducing
+wrapper flags that overlap with native `codex` flags unless the forwarding
+behavior is explicitly designed and documented.
+
 ## Upstream codex behavior reference
 
 When answering a question or making a change that depends on how upstream

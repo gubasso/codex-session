@@ -25,9 +25,14 @@ run *ARGS:
 watch:
     cargo watch -x 'nextest run --profile pre-commit'
 
-# Install codex-session into ~/.cargo/bin.
+# Install codex-session into ~/.cargo/bin (+ bash completions if running bash).
 install:
     cargo install --path .
+    @if echo "$SHELL" | grep -q 'bash$$'; then \
+        mkdir -p ~/.local/share/bash-completion/completions && \
+        codex-session completion bash > ~/.local/share/bash-completion/completions/codex-session && \
+        echo 'Installed bash completions for codex-session'; \
+    fi
 
 # Remove the cargo-installed codex-session binary.
 uninstall:

@@ -91,6 +91,8 @@ pub(crate) fn run_once(
     session: &SignalSession,
     capture: bool,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
+    let json_mode = has_json_flag(argv);
+    let effective_capture = capture || json_mode;
     let account = &resolved.id;
     tracing::info!(
         op = "pass-through.run-once",
@@ -102,13 +104,41 @@ pub(crate) fn run_once(
 
     let cache_settings = cache_settings_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
-    let result = run_child(ctx, prepared.invocation, session, capture);
-    sync_group_auth_to_seed(ctx, account, &prepared.session_dir);
-    persist_trust(
-        &session_config,
-        &cache_settings,
-        prepared.baseline_projects.as_ref(),
-    );
+    let PreparedInvocation {
+        invocation,
+        session_dir,
+        baseline_projects,
+        group_id,
+        cwd,
+    } = prepared;
+
+    let result = run_child(ctx, invocation, session, effective_capture);
+    sync_group_auth_to_seed(ctx, account, &session_dir);
+    persist_trust(&session_config, &cache_settings, baseline_projects.as_ref());
+
+    if json_mode
+        && let Ok((_, stdout_buf, _)) = &result
+        && let Some(thread_id) =
+            crate::services::session::thread_index::extract_thread_id(stdout_buf)
+    {
+        let entry = crate::services::session::thread_index::ThreadEntry {
+            thread_id,
+            account: resolved.id.to_string(),
+            group_id,
+            cwd,
+            created_at: crate::services::session::thread_index::utc_now_rfc3339(),
+        };
+        if let Err(err) =
+            crate::services::session::thread_index::append(&ctx.config.paths.state_dir, &entry)
+        {
+            tracing::warn!(
+                op = "thread_index.append",
+                thread_id = %entry.thread_id,
+                err = %err,
+                "failed to append thread index entry"
+            );
+        }
+    }
     result
 }
 
@@ -116,6 +146,8 @@ struct PreparedInvocation {
     invocation: ChildInvocation,
     session_dir: camino::Utf8PathBuf,
     baseline_projects: Option<toml::Table>,
+    group_id: String,
+    cwd: camino::Utf8PathBuf,
 }
 
 fn prepare_invocation(
@@ -188,6 +220,8 @@ fn prepare_invocation(
         invocation: inv,
         session_dir,
         baseline_projects,
+        group_id,
+        cwd,
     })
 }
 
@@ -328,6 +362,10 @@ fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {
         .map_err(crate::config::ConfigError::from)
 }
 
+fn has_json_flag(argv: &[std::ffi::OsString]) -> bool {
+    argv.iter().any(|arg| arg.to_str() == Some("--json"))
+}
+
 fn map_child_err(err: &crate::adapters::spawner::SpawnerError) -> crate::error::AppError {
     match err {
         crate::adapters::spawner::SpawnerError::NotFound {
@@ -365,4 +403,38 @@ fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> 
 /// Always `<cache_dir>/settings.toml`.
 fn cache_settings_target(ctx: &crate::context::AppContext) -> Utf8PathBuf {
     ctx.config.paths.cache_dir.join("settings.toml")
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn has_json_flag_present() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("--json"),
+            OsString::from("hello"),
+        ];
+        assert!(has_json_flag(&argv));
+    }
+
+    #[test]
+    fn has_json_flag_absent() {
+        let argv = vec![OsString::from("exec"), OsString::from("hello")];
+        assert!(!has_json_flag(&argv));
+    }
+
+    #[test]
+    fn has_json_flag_empty() {
+        assert!(!has_json_flag(&[]));
+    }
+
+    #[test]
+    fn has_json_flag_not_exact_match() {
+        let argv = vec![OsString::from("--json=true")];
+        assert!(!has_json_flag(&argv));
+    }
 }

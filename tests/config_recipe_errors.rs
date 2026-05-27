@@ -9,32 +9,34 @@ use predicates::prelude::*;
 use support::TestEnv;
 
 #[test]
-fn missing_profile_manifest_exits_seventy_eight() {
+fn missing_config_recipe_manifest_exits_seventy_eight() {
     let env = TestEnv::new();
     env.cmd()
-        .args(["--profile", "missing", "profile", "show"])
+        .args(["--config-recipe", "missing", "config-recipe", "show"])
         .assert()
         .code(78)
-        .stderr(predicate::str::contains("profile `missing` not found"));
+        .stderr(predicate::str::contains(
+            "config-recipe `missing` not found",
+        ));
 }
 
 #[test]
 fn malformed_manifest_schema_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.write_profile_manifest("default", "settings-layers: notalist\n");
+    env.write_config_recipe_manifest("default", "settings-layers: notalist\n");
     env.cmd()
-        .args(["profile", "show"])
+        .args(["config-recipe", "show"])
         .assert()
         .code(78)
-        .stderr(predicate::str::contains("invalid profile manifest"));
+        .stderr(predicate::str::contains("invalid config-recipe manifest"));
 }
 
 #[test]
 fn missing_layer_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.write_profile_manifest("default", "settings-layers:\n  - base\n");
+    env.write_config_recipe_manifest("default", "settings-layers:\n  - base\n");
     env.cmd()
-        .args(["profile", "compose"])
+        .args(["config-recipe", "compose"])
         .assert()
         .code(78)
         .stderr(predicate::str::contains("settings layer `base` not found"));
@@ -43,13 +45,13 @@ fn missing_layer_exits_seventy_eight() {
 #[test]
 fn malformed_toml_layer_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
         &[("base", "[model\n")],
     );
     env.cmd()
-        .args(["profile", "compose"])
+        .args(["config-recipe", "compose"])
         .assert()
         .code(78)
         .stderr(predicate::str::contains("settings layer parse error"));
@@ -58,25 +60,25 @@ fn malformed_toml_layer_exits_seventy_eight() {
 #[test]
 fn invalid_env_key_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
         &[("base", "[env]\nBAD-KEY = \"x\"\n")],
     );
     env.cmd()
-        .args(["profile", "compose"])
+        .args(["config-recipe", "compose"])
         .assert()
         .code(78)
-        .stderr(predicate::str::contains("invalid profile env key"));
+        .stderr(predicate::str::contains("invalid config-recipe env key"));
 }
 
 #[test]
 fn wrapper_private_env_key_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
-        &[("base", "[env]\nCODEX_SESSION_PROFILE = \"x\"\n")],
+        &[("base", "[env]\nCODEX_SESSION_CONFIG_RECIPE = \"x\"\n")],
     );
     env.cmd()
         .env(

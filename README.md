@@ -3,7 +3,7 @@
 ## Overview
 
 `codex-session` is a Unix-only Rust CLI wrapper around the `codex` binary.
-Instead of mutating `~/.codex`, it composes wrapper-owned profile layers into a
+Instead of mutating `~/.codex`, it composes wrapper-owned config-recipe layers into a
 per-terminal session directory and exports `CODEX_HOME=<session-dir>` to the
 wrapped child process.
 
@@ -56,7 +56,7 @@ paths for the current environment. The general structure:
 ```text
 $XDG_CONFIG_HOME/codex-session/
   config.toml                           wrapper config
-  profiles/*.yaml                       profile manifests
+  config-recipes/*.yaml                       config-recipe manifests
   settings/*.toml                       settings layers
 
 $XDG_CACHE_HOME/codex-session/
@@ -76,7 +76,7 @@ $XDG_STATE_HOME/codex-session/
       session-meta.json                 session metadata
 ```
 
-Profile manifests list ordered `settings-layers`. Each layer is parsed from
+ConfigRecipe manifests list ordered `settings-layers`. Each layer is parsed from
 `settings/<name>.toml`, deep-merged in order, stripped of its optional `[env]`
 table, then written into the session directory. Stock mode still creates a
 session directory with an empty `config.toml`.

@@ -1,4 +1,4 @@
-//! Profile settings layer parsing and merge logic.
+//! Config-recipe settings layer parsing and merge logic.
 //!
 //! What this is: TOML table parsing, deep merge, and `[env]` extraction.
 //! What this is not: manifest parsing or filesystem layout decisions.

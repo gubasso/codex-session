@@ -16,11 +16,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
+#[allow(clippy::struct_field_names)]
 pub(crate) struct Config {
     pub(crate) log: LogConfig,
     pub(crate) paths: PathsConfig,
     pub(crate) child: ChildConfig,
-    pub(crate) profile: ProfileConfig,
+    #[serde(rename = "config-recipe")]
+    pub(crate) config_recipe: ConfigRecipeConfig,
     pub(crate) account: AccountConfig,
     #[serde(skip)]
     pub(crate) sources: ConfigSources,
@@ -54,10 +56,10 @@ pub(crate) struct ChildConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
-pub(crate) struct ProfileConfig {
+pub(crate) struct ConfigRecipeConfig {
     pub(crate) default: Option<String>,
     pub(crate) config_dir: Utf8PathBuf,
-    pub(crate) profiles_dir: Utf8PathBuf,
+    pub(crate) recipes_dir: Utf8PathBuf,
     pub(crate) settings_dir: Utf8PathBuf,
     #[serde(skip)]
     pub(crate) active: Option<String>,
@@ -103,7 +105,7 @@ pub(crate) struct CliValueOverrides {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) child: Option<ChildOverrides>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) profile: Option<String>,
+    pub(crate) config_recipe: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -128,7 +130,8 @@ struct FileConfig {
     log: Option<FileLogConfig>,
     paths: Option<FilePathsConfig>,
     child: Option<FileChildConfig>,
-    profile: Option<FileProfileConfig>,
+    #[serde(rename = "config-recipe")]
+    config_recipe: Option<FileConfigRecipeConfig>,
     account: Option<FileAccountConfig>,
 }
 
@@ -159,10 +162,10 @@ struct FileChildConfig {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
-struct FileProfileConfig {
+struct FileConfigRecipeConfig {
     default: Option<String>,
     config_dir: Option<Utf8PathBuf>,
-    profiles_dir: Option<Utf8PathBuf>,
+    recipes_dir: Option<Utf8PathBuf>,
     settings_dir: Option<Utf8PathBuf>,
 }
 
@@ -190,7 +193,7 @@ impl CliOverrides {
                 || log.stderr_format.is_some())
             .then_some(log),
             child: None,
-            profile: global.profile.clone(),
+            config_recipe: global.config_recipe.clone(),
         };
 
         Self {
@@ -222,12 +225,12 @@ impl Default for PathsConfig {
     }
 }
 
-impl Default for ProfileConfig {
+impl Default for ConfigRecipeConfig {
     fn default() -> Self {
         Self {
             default: None,
             config_dir: Utf8PathBuf::new(),
-            profiles_dir: Utf8PathBuf::new(),
+            recipes_dir: Utf8PathBuf::new(),
             settings_dir: Utf8PathBuf::new(),
             active: None,
         }
@@ -270,9 +273,9 @@ impl Config {
             state_dir,
         };
 
-        let profile = ProfileConfig {
+        let config_recipe = ConfigRecipeConfig {
             default: None,
-            profiles_dir: config_dir.join("profiles"),
+            recipes_dir: config_dir.join("config-recipes"),
             settings_dir: config_dir.join("settings"),
             config_dir,
             active: None,
@@ -282,7 +285,7 @@ impl Config {
             log: LogConfig::default(),
             paths,
             child: ChildConfig::default(),
-            profile,
+            config_recipe,
             account: AccountConfig::default(),
             sources: ConfigSources::default(),
         })
@@ -317,7 +320,7 @@ impl Config {
         }
 
         apply_env_layer(&mut config)?;
-        config.profile.active = resolve_active_profile(&config, &cli.values);
+        config.config_recipe.active = resolve_active_config_recipe(&config, &cli.values);
         apply_cli_overrides(&mut config, &cli.values);
 
         config.sources = ConfigSources {
@@ -381,28 +384,28 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
         config.child.bin = Some(bin);
     }
 
-    if let Some(profile) = layer.profile {
-        if let Some(default) = profile.default {
-            config.profile.default = Some(default);
+    if let Some(config_recipe) = layer.config_recipe {
+        if let Some(default) = config_recipe.default {
+            config.config_recipe.default = Some(default);
         }
-        // When a layer sets `config_dir`, derive `profiles_dir` /
+        // When a layer sets `config_dir`, derive `recipes_dir` /
         // `settings_dir` from it unless the same layer also overrides them
         // explicitly. This keeps the documented invariant that pointing
-        // `config_dir` at a fresh tree re-roots the whole profile lookup.
-        if let Some(config_dir) = profile.config_dir {
-            if profile.profiles_dir.is_none() {
-                config.profile.profiles_dir = config_dir.join("profiles");
+        // `config_dir` at a fresh tree re-roots the whole config-recipe lookup.
+        if let Some(config_dir) = config_recipe.config_dir {
+            if config_recipe.recipes_dir.is_none() {
+                config.config_recipe.recipes_dir = config_dir.join("config-recipes");
             }
-            if profile.settings_dir.is_none() {
-                config.profile.settings_dir = config_dir.join("settings");
+            if config_recipe.settings_dir.is_none() {
+                config.config_recipe.settings_dir = config_dir.join("settings");
             }
-            config.profile.config_dir = config_dir;
+            config.config_recipe.config_dir = config_dir;
         }
-        if let Some(profiles_dir) = profile.profiles_dir {
-            config.profile.profiles_dir = profiles_dir;
+        if let Some(recipes_dir) = config_recipe.recipes_dir {
+            config.config_recipe.recipes_dir = recipes_dir;
         }
-        if let Some(settings_dir) = profile.settings_dir {
-            config.profile.settings_dir = settings_dir;
+        if let Some(settings_dir) = config_recipe.settings_dir {
+            config.config_recipe.settings_dir = settings_dir;
         }
     }
 
@@ -440,9 +443,9 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             continue;
         };
         // Keep env parsing manual here instead of delegating to
-        // `figment::providers::Env`: the wrapper now owns a `profile`
+        // `figment::providers::Env`: the wrapper now owns a `config-recipe`
         // namespace, and we do not want to engage figment's separate
-        // profile-key machinery.
+        // config-recipe-key machinery.
         //
         // Accept both flat (`LOG_VERBOSE`) and double-underscore-nested
         // (`LOG__VERBOSE`) leaf names. The flat form matches user intuition
@@ -485,8 +488,8 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             "PATHS_RUNTIME_DIR" => {
                 config.paths.runtime_dir = Some(Utf8PathBuf::from(value));
             }
-            "PROFILE" => {
-                config.profile.active = Some(value.to_owned());
+            "CONFIG_RECIPE" => {
+                config.config_recipe.active = Some(value.to_owned());
             }
             "ACCOUNT_PINNED" => {
                 config.account.pinned = Some(parse_account_id_env(key, value)?);
@@ -535,8 +538,8 @@ fn apply_cli_overrides(config: &mut Config, cli: &CliValueOverrides) {
         config.child.bin = Some(bin.clone());
     }
 
-    if let Some(profile) = cli.profile.as_ref() {
-        config.profile.active = Some(profile.clone());
+    if let Some(config_recipe) = cli.config_recipe.as_ref() {
+        config.config_recipe.active = Some(config_recipe.clone());
     }
 }
 
@@ -628,22 +631,22 @@ where
         })
 }
 
-fn resolve_active_profile(config: &Config, cli: &CliValueOverrides) -> Option<String> {
-    if let Some(profile) = cli.profile.as_ref() {
-        return Some(profile.clone());
+fn resolve_active_config_recipe(config: &Config, cli: &CliValueOverrides) -> Option<String> {
+    if let Some(config_recipe) = cli.config_recipe.as_ref() {
+        return Some(config_recipe.clone());
     }
 
-    if let Some(profile) = config.profile.active.as_ref() {
-        return Some(profile.clone());
+    if let Some(config_recipe) = config.config_recipe.active.as_ref() {
+        return Some(config_recipe.clone());
     }
 
-    if let Some(profile) = config.profile.default.as_ref() {
-        return Some(profile.clone());
+    if let Some(config_recipe) = config.config_recipe.default.as_ref() {
+        return Some(config_recipe.clone());
     }
 
     config
-        .profile
-        .profiles_dir
+        .config_recipe
+        .recipes_dir
         .join("default.yaml")
         .is_file()
         .then(|| "default".to_owned())

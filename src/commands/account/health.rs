@@ -26,7 +26,7 @@ pub(crate) fn run(
     }
 
     if !args.fast {
-        gate::validate_ping_profile(ctx)?;
+        gate::validate_ping_config_recipe(ctx)?;
     }
 
     let registry = Registry::from_config(&ctx.config);

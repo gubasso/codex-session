@@ -1,0 +1,15 @@
+---
+source: tests/cmd_config_recipe_list.rs
+expression: value
+---
+{
+  "recipes": [
+    {
+      "error": null,
+      "layer-count": 1,
+      "manifest-path": "<TMP>/config/codex-session/config-recipes/default.yaml",
+      "name": "default",
+      "valid": true
+    }
+  ]
+}

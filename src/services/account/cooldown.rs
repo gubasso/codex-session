@@ -131,11 +131,11 @@ mod tests {
     fn test_config(root: &camino::Utf8Path) -> crate::config::Config {
         crate::config::Config {
             child: crate::config::ChildConfig { bin: None },
-            profile: crate::config::ProfileConfig {
+            config_recipe: crate::config::ConfigRecipeConfig {
                 active: None,
                 default: None,
                 config_dir: root.join("config"),
-                profiles_dir: root.join("profiles"),
+                recipes_dir: root.join("config-recipes"),
                 settings_dir: root.join("settings"),
             },
             paths: crate::config::PathsConfig {

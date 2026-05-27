@@ -10,9 +10,9 @@ pub(crate) mod account;
 pub(crate) mod argv;
 pub(crate) mod completion;
 pub(crate) mod config;
+pub(crate) mod config_recipe;
 pub(crate) mod doctor;
 pub(crate) mod exit;
-pub(crate) mod profile;
 pub(crate) mod version;
 
 use clap::ValueEnum;
@@ -22,7 +22,7 @@ use clap::ValueEnum;
 #[command(
     name = "codex-session",
     bin_name = "codex-session",
-    about = "Wrapper around `codex` with profile-layered session composition.",
+    about = "Wrapper around `codex` with config-recipe-layered session composition.",
     long_about = None,
     after_long_help = include_str!("../ui/help_extras.txt"),
     disable_version_flag = true,
@@ -68,7 +68,7 @@ pub(crate) struct GlobalArgs {
     #[arg(short = 'V', long, global = true)]
     pub(crate) version: bool,
 
-    /// Output format for `version`, `config status`, `profile list/show`, and `--version`.
+    /// Output format for `version`, `config status`, `config-recipe list/show`, and `--version`.
     #[arg(long, value_name = "FMT", value_enum, global = true)]
     pub(crate) format: Option<OutputFormat>,
 
@@ -76,9 +76,9 @@ pub(crate) struct GlobalArgs {
     #[arg(long, value_name = "PATH", global = true)]
     pub(crate) config: Option<camino::Utf8PathBuf>,
 
-    /// Select the wrapper profile before any passthrough child argv begins.
-    #[arg(long, value_name = "NAME", global = true)]
-    pub(crate) profile: Option<String>,
+    /// Select the wrapper config-recipe before any passthrough child argv begins.
+    #[arg(long = "config-recipe", value_name = "NAME", global = true)]
+    pub(crate) config_recipe: Option<String>,
 
     /// Override the auto-derived group-id used for session-dir scoping.
     #[arg(long, value_name = "ID", global = true)]
@@ -109,8 +109,9 @@ pub(crate) enum Commands {
     /// Operate on config state managed by the wrapper.
     Config(config::ConfigArgs),
 
-    /// Inspect and compose wrapper-owned profiles.
-    Profile(profile::ProfileArgs),
+    /// Inspect and compose wrapper-owned config recipes.
+    #[command(name = "config-recipe")]
+    ConfigRecipe(config_recipe::ConfigRecipeArgs),
 
     /// Run full validation of the codex-session config setup.
     Doctor(doctor::DoctorArgs),

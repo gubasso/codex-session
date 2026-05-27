@@ -29,10 +29,10 @@ fn health_requires_ping_profile_when_not_fast() {
     env.seed_account("work", TEST_AUTH);
     std::fs::write(
         env.wrapper_user_config_path(),
-        "[profile]\ndefault = \"test\"\n",
+        "[config-recipe]\ndefault = \"test\"\n",
     )
     .unwrap();
-    env.install_profile(
+    env.install_config_recipe(
         "test",
         "settings-layers:\n  - base\n",
         &[("base", "[profiles.other]\nmodel = \"gpt-4.1-nano\"\n")],

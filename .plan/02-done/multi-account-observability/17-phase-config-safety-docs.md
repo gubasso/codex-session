@@ -257,7 +257,7 @@ if let Some(ref account) = view.account {
 - `--group <ID>` overrides the resolved group-id.
 ```
 
-**5c. Add a new "Multi-Account Management" section after "Profile Layout":**
+**5c. Add a new "Multi-Account Management" section after "ConfigRecipe Layout":**
 
 ```markdown
 ## Multi-Account Management
@@ -302,7 +302,7 @@ eligible account on 429 detection and records a 5-minute cooldown:
 - `CODEX_SESSION_ACCOUNT_FIVE_HOUR_THRESHOLD`: 5-hour quota threshold.
 ```
 
-**5e. Update the "Profile Layout" section to replace the stale path
+**5e. Update the "ConfigRecipe Layout" section to replace the stale path
 (`sessions/<terminal-id>/`) with the current account-based layout.**
 
 **5f. Add exit code `75` for "all accounts exhausted (failover)"** if not
@@ -328,7 +328,7 @@ cargo run -- doctor --format json | jq '.accounts'
 **6b. Update the repository layout section** to mention account services:
 
 ```markdown
-  services/     # business logic: profile merge, session management, account
+  services/     # business logic: config_recipe merge, session management, account
                 # registry, quota reader, selector, cooldown, failover
 ```
 

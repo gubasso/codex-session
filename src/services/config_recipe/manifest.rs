@@ -1,6 +1,6 @@
-//! Profile manifest parsing.
+//! Config-recipe manifest parsing.
 //!
-//! What this is: YAML parsing and schema validation for `profiles/*.yaml`.
+//! What this is: YAML parsing and schema validation for `config-recipes/*.yaml`.
 //! What this is not: TOML layer parsing or merge logic.
 
 #![allow(clippy::result_large_err)]

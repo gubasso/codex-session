@@ -37,7 +37,7 @@ surface actionable `next_steps` from WARN conditions, add account context to
   - `check_auth_native()` at lines 775–873: treats missing auth as `ok("auth.native", "no login yet")`.
 - `src/domain/child_invocation.rs` — `dry_run_report()` at lines 131–152: shows binary/argv/env but no account.
 - `src/commands/pass_through.rs` — dry-run path at lines 40–47, `run_once()` at lines 66–96.
-- `src/services/session/meta.rs` — `SessionMeta` at lines 14–19: has profile, group_id, cwd, started_at. No account.
+- `src/services/session/meta.rs` — `SessionMeta` at lines 14–19: has config_recipe, group_id, cwd, started_at. No account.
 - `src/services/account/cooldown.rs` — `read()` at lines 43–54, `is_active()` at lines 100–102.
 - `src/services/account/registry.rs` — `Registry::list()` returns `AccountEntry` with `has_auth`, `account_dir()` returns the path.
 - `src/services/account/retry.rs` — `run_with_retry()` at lines 12–136, calls `resolver::resolve()` and `run_once()`.
@@ -138,7 +138,7 @@ fn check_account_health(
 ```
 
 Insert the call into `build_report()` after the accounts are computed (after
-line 167, before the profile checks at line 170). The resolved account name
+line 167, before the config_recipe checks at line 170). The resolved account name
 is available from the `resolved_account` variable:
 
 ```rust
@@ -269,7 +269,7 @@ Add two fields:
 
 ```rust
 pub(crate) struct SessionMeta<'a> {
-    pub(crate) profile: Option<&'a str>,
+    pub(crate) config-recipe: Option<&'a str>,
     pub(crate) group_id: &'a str,
     pub(crate) cwd: &'a Utf8Path,
     pub(crate) started_at: String,

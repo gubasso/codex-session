@@ -6,6 +6,6 @@
 pub(crate) mod account;
 pub(crate) mod auth;
 pub(crate) mod auth_inspect;
-pub(crate) mod profile;
+pub(crate) mod config_recipe;
 pub(crate) mod session;
 pub(crate) mod trust_sync;

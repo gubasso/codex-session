@@ -142,21 +142,21 @@ exit 7
 }
 
 #[test]
-fn second_run_with_profile_observes_cached_trust_in_composed_config() {
+fn second_run_with_recipe_observes_cached_trust_in_composed_config() {
     // Round-trip across two wrapper invocations: the first one persists a
     // trust entry into the cache layer, the second `compose()` must replay
     // it into the session config so codex sees the dir as already
     // classified.
     //
-    // An active profile is required for the replay path: `compose()` is
+    // An active config-recipe is required for the replay path: `compose()` is
     // the only producer that reads the cache layer
-    // (`src/services/profile/mod.rs:38-48`). Stock mode is replay-blind by
+    // (`src/services/config_recipe/mod.rs:38-48`). Stock mode is replay-blind by
     // design (no compose step). The write half still happens in stock mode
     // — see `single_pass_persist_lands_trust_in_cache` — but replay is
-    // gated on profile activation. Document this in
+    // gated on config-recipe activation. Document this in
     // `docs/upstream-codex.md` if/when the limitation matters to users.
     let env = TestEnv::new();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
         &[("base", "model = \"gpt-5\"\n")],

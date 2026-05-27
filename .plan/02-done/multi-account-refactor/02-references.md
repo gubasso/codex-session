@@ -20,7 +20,7 @@ Verified facts about upstream codex CLI behavior that this refactor depends on. 
 
 | File / dir | Scope | Notes |
 |---|---|---|
-| `config.toml` | global per-`CODEX_HOME` | Composed from profile layers by our wrapper |
+| `config.toml` | global per-`CODEX_HOME` | Composed from config_recipe layers by our wrapper |
 | `auth.json` | global per-`CODEX_HOME` | OAuth tokens or API key; one credential at a time |
 | `history.jsonl` | global per-`CODEX_HOME` | Shell-prompt history accumulator |
 | `memories/` | global per-`CODEX_HOME` | Persistent user / project memories |
@@ -52,11 +52,11 @@ Upstream protocol `ThreadResumeParams` (unstable, internal) supports `history` a
 
 ## F4 — Multi-account: no native support
 
-Codex CLI has **no native multi-account support**. Login surface is single-credential: `codex login`, `codex login --device-auth`, `codex login --with-api-key`, `codex login status`, `codex logout`. `--profile` / `-p` selects *config* profiles, not auth identities. `~/.codex/auth.json` holds exactly one credential at a time.
+Codex CLI has **no native multi-account support**. Login surface is single-credential: `codex login`, `codex login --device-auth`, `codex login --with-api-key`, `codex login status`, `codex logout`. `--config-recipe` / `-p` selects *config* profiles, not auth identities. `~/.codex/auth.json` holds exactly one credential at a time.
 
 Two upstream feature requests track this need (no OpenAI engagement yet):
 
-- [openai/codex#4432](https://github.com/openai/codex/issues/4432) — "First-class multi-account auth via `--auth-profile`". Proposes `--auth-profile <name>`, `CODEX_PROFILE` env var, state under `~/.codex/profiles/<name>/`. Open since 2025-09-29.
+- [openai/codex#4432](https://github.com/openai/codex/issues/4432) — "First-class multi-account auth via `--auth-config_recipe`". Proposes `--auth-config_recipe <name>`, `CODEX_PROFILE` env var, state under `~/.codex/config-recipes/<name>/`. Open since 2025-09-29.
 - [openai/codex#9648](https://github.com/openai/codex/issues/9648) — "Multi-account ChatGPT OAuth rotation and management". Proposes cooldown skip, 401/403 refresh-and-retry, `Retry-After` honoring, `codex login accounts`, `codex logout --account/--all-accounts`, TUI health summary. Open since 2026-01-22. Has a draft branch `oauth-marathon`.
 
 **`CODEX_HOME` env var is the officially-supported lever for per-account isolation.**

@@ -61,7 +61,7 @@ This is the first round — no prior rounds.
   #[derive(Debug, Serialize)]
   #[serde(rename_all = "kebab-case")]
   pub(crate) struct SessionMeta<'a> {
-      pub(crate) profile: Option<&'a str>,
+      pub(crate) config-recipe: Option<&'a str>,
       pub(crate) group_id: &'a str,
       pub(crate) cwd: &'a Utf8Path,
       pub(crate) started_at: String,

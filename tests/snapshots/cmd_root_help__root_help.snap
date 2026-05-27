@@ -1,21 +1,20 @@
 ---
 source: tests/cmd_root_help.rs
-assertion_line: 46
 expression: normalized
 ---
-Wrapper around `codex` with profile-layered session composition.
+Wrapper around `codex` with config-recipe-layered session composition.
 
 Usage: codex-session [OPTIONS]
        codex-session [OPTIONS] <COMMAND>
 
 Commands:
-  version     Print wrapper and child version details
-  completion  Generate a shell-completion script
-  config      Operate on config state managed by the wrapper
-  profile     Inspect and compose wrapper-owned profiles
-  doctor      Run full validation of the codex-session config setup
-  account     Manage codex-session accounts (multi-credential pool)
-  help        Print this message or the help of the given subcommand(s)
+  version        Print wrapper and child version details
+  completion     Generate a shell-completion script
+  config         Operate on config state managed by the wrapper
+  config-recipe  Inspect and compose wrapper-owned config recipes
+  doctor         Run full validation of the codex-session config setup
+  account        Manage codex-session accounts (multi-credential pool)
+  help           Print this message or the help of the given subcommand(s)
 
 Options:
   -v, --verbose...
@@ -40,7 +39,7 @@ Options:
           Print wrapper + child version and exit
 
       --format <FMT>
-          Output format for `version`, `config status`, `profile list/show`, and `--version`
+          Output format for `version`, `config status`, `config-recipe list/show`, and `--version`
 
           Possible values:
           - text: Human-readable text output
@@ -49,8 +48,8 @@ Options:
       --config <PATH>
           Load wrapper config from this explicit path instead of the default user/project locations
 
-      --profile <NAME>
-          Select the wrapper profile before any passthrough child argv begins
+      --config-recipe <NAME>
+          Select the wrapper config-recipe before any passthrough child argv begins
 
       --group <ID>
           Override the auto-derived group-id used for session-dir scoping
@@ -70,14 +69,14 @@ Options:
           Print help (see a summary with '-h')
 
 WRAPPER OVERVIEW
-  codex-session wraps `codex` with persistent CODEX_HOME, profile-layered
+  codex-session wraps `codex` with persistent CODEX_HOME, config-recipe-layered
   session composition, multi-account support, and quota-aware selection.
 
 WRAPPER VERBS
   version       Print wrapper and child version details.
   completion    Generate a shell-completion script.
   config        Operate on wrapper-owned config (subcommand: status).
-  profile       Inspect and compose wrapper-owned profiles.
+  config-recipe Inspect and compose wrapper-owned config recipes.
   doctor        Run full validation of the codex-session setup.
   account       Manage codex-session accounts (subcommands: add, list,
                 current, use, remove, refresh, quota, health, cooldown).

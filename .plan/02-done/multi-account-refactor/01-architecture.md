@@ -28,7 +28,7 @@ $XDG_STATE_HOME/codex-session/
       groups/
         <group-id>/                  ← persistent CODEX_HOME
           auth.json                  ← per-account credential
-          config.toml                ← composed from profile layers (existing)
+          config.toml                ← composed from config_recipe layers (existing)
           sessions/                  ← native codex rollouts; resume works
           state_5.sqlite             ← native codex state DB
           session_index.jsonl
@@ -110,8 +110,8 @@ pass_through::run(ctx, argv)
   │   │   ├─ group_id = group_id::current(ctx, --group/env/tty/ppid/pid-N+warn)
   │   │   ├─ session_dir = state_root/accounts/<account_id>/groups/<group_id>/
   │   │   │      └─ secure_dir(session_dir)
-  │   │   ├─ profile::compose(profile_name, paths) [if --profile]
-  │   │   ├─ profile::write_session_artifacts(composition, session_dir)
+  │   │   ├─ config-recipe::compose(recipe_name, paths) [if --config-recipe]
+  │   │   ├─ config-recipe::write_session_artifacts(composition, session_dir)
   │   │   ├─ session::meta::write(session_dir, meta)
   │   │   ├─ AuthBridge::import_if_missing(session_dir, native_home)
   │   │   ├─ child_env = ChildEnv::scrubbed_default()
@@ -173,7 +173,7 @@ src/
 
 - `src/adapters/fs.rs` — atomic-rename helper (used by cooldown.json, quota cache)
 - `src/adapters/spawner.rs` — fork/exec/wait (R4 keeps the same Spawner; failover observes post-wait)
-- `src/services/profile/` — profile composition engine
+- `src/services/config_recipe/` — config_recipe composition engine
 - `src/services/trust_sync.rs` — post-flight trust diff
 - `src/ui/` — rendering layer
 - `src/logging.rs` — tracing setup; new `op=` keys added (`account.select`, `account.switch`, `quota.fetch`, `failover.match`, `group_id.fallback`)

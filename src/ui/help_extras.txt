@@ -1,12 +1,12 @@
 WRAPPER OVERVIEW
-  codex-session wraps `codex` with persistent CODEX_HOME, profile-layered
+  codex-session wraps `codex` with persistent CODEX_HOME, config-recipe-layered
   session composition, multi-account support, and quota-aware selection.
 
 WRAPPER VERBS
   version       Print wrapper and child version details.
   completion    Generate a shell-completion script.
   config        Operate on wrapper-owned config (subcommand: status).
-  profile       Inspect and compose wrapper-owned profiles.
+  config-recipe Inspect and compose wrapper-owned config recipes.
   doctor        Run full validation of the codex-session setup.
   account       Manage codex-session accounts (subcommands: add, list,
                 current, use, remove, refresh, quota, health, cooldown).

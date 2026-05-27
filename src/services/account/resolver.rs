@@ -119,11 +119,11 @@ mod tests {
         let base = camino::Utf8PathBuf::try_from(temp.path().to_path_buf()).unwrap();
         let config = crate::config::Config {
             child: crate::config::ChildConfig { bin: None },
-            profile: crate::config::ProfileConfig {
+            config_recipe: crate::config::ConfigRecipeConfig {
                 active: None,
                 default: None,
                 config_dir: base.join("config"),
-                profiles_dir: base.join("profiles"),
+                recipes_dir: base.join("config-recipes"),
                 settings_dir: base.join("settings"),
             },
             paths: crate::config::PathsConfig {

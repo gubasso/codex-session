@@ -8,7 +8,7 @@ use support::{TestEnv, fixture_path};
 #[test]
 fn passthrough_sets_codex_home_and_profile_env_without_leaking_wrapper_namespace() {
     let env = TestEnv::new();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
         &[("base", "[env]\nHELLO = \"world\"\n")],
@@ -28,7 +28,7 @@ fn passthrough_sets_codex_home_and_profile_env_without_leaking_wrapper_namespace
     assert!(stdout.contains("CODEX_HOME="));
     assert!(stdout.contains("HELLO=world"));
     assert!(stdout.contains("CODEX_SESSION_REENTRY=1"));
-    assert!(!stdout.contains("LEAKED:CODEX_SESSION_PROFILE"));
+    assert!(!stdout.contains("LEAKED:CODEX_SESSION_CONFIG_RECIPE"));
 }
 
 #[test]

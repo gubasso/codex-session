@@ -170,27 +170,27 @@ fn prepare_invocation(
     let account = &resolved.id;
     let session_dir = crate::services::session::dir::session_dir(&root.path, account, &group_id)?;
     let cwd = current_cwd()?;
-    let profile = ctx.config.profile.active.clone();
+    let config_recipe = ctx.config.config_recipe.active.clone();
     materialize_account_auth_seed(ctx, account, &session_dir)?;
 
-    let (env, baseline_projects) = if let Some(profile_name) = profile.as_deref() {
-        let composition = crate::services::profile::compose(
-            profile_name,
-            &crate::services::profile::ProfilePaths {
-                profiles_dir: ctx.config.profile.profiles_dir.clone(),
-                settings_dir: ctx.config.profile.settings_dir.clone(),
+    let (env, baseline_projects) = if let Some(recipe_name) = config_recipe.as_deref() {
+        let composition = crate::services::config_recipe::compose(
+            recipe_name,
+            &crate::services::config_recipe::ConfigRecipePaths {
+                recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
+                settings_dir: ctx.config.config_recipe.settings_dir.clone(),
                 cache_settings: cache_settings_path(ctx),
             },
         )?;
-        crate::services::profile::write_session_artifacts(&composition, &session_dir)?;
+        crate::services::config_recipe::write_session_artifacts(&composition, &session_dir)?;
         (composition.env, composition.baseline_projects)
     } else {
-        crate::services::profile::write_stock_session_artifacts(&session_dir)?;
+        crate::services::config_recipe::write_stock_session_artifacts(&session_dir)?;
         (std::collections::BTreeMap::new(), None)
     };
 
     let meta = crate::services::session::meta::SessionMeta::new(
-        profile.as_deref(),
+        config_recipe.as_deref(),
         &group_id,
         cwd.as_ref(),
         account.as_str(),

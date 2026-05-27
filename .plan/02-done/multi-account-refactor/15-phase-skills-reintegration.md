@@ -1,5 +1,5 @@
 > **COMPLETED 2026-05-23.** All skills migrated back to `codex-session exec` with
-> profile-based model pinning. Dotfiles commits: `fb60aed` (main migration),
+> config_recipe-based model pinning. Dotfiles commits: `fb60aed` (main migration),
 > `44278ea` (model pin fix gpt-5.4 -> gpt-5.3-codex).
 
 # Round 5 — Reintegrate Claude skills with the new `codex-session` wrapper API
@@ -32,7 +32,7 @@ longer the source of truth for the wrapper's workflows.
 Reverse the temporary stock-codex mode that was applied to the user's Claude skills while the
 refactor was in flight, and switch every skill back to calling `codex-session exec` (with the new
 account-aware API). Drop the per-call `-m <model> -c model_reasoning_effort="medium"` pins in
-favor of profile composition where possible, otherwise keep them as explicit flags but route them
+favor of config_recipe composition where possible, otherwise keep them as explicit flags but route them
 through the wrapper.
 
 This round is **strictly a dotfiles change**. No code changes in `codex-session` itself.
@@ -65,25 +65,25 @@ This round is **strictly a dotfiles change**. No code changes in `codex-session`
       - `auth.json` lives per-account at `<state>/accounts/<account>/auth.json` and is owned by
         the wrapper; codex writes refresh rotations in place. No write-back to `~/.codex/`.
       - Wrapper-owned verbs: `version`, `completion`, `config status`,
-        `profile list|show|compose`, `doctor`, plus the new `account` verb tree from R2 and the
+        `config_recipe list|show|compose`, `doctor`, plus the new `account` verb tree from R2 and the
         new `account cooldown` verb tree from R4.
       - Wrapper-owned global flags: existing list plus `--account` (from R2).
     - Update **Version Baseline** to the post-R4 wrapper version (whatever ships from R4) and bump
       `Last verified` to the date R5 is implemented.
     - Replace every `codex exec` snippet in the document with `codex-session exec`. Drop the
-      per-call `-m gpt-5.4 -c model_reasoning_effort="medium"` flags **only if** a profile is
+      per-call `-m gpt-5.4 -c model_reasoning_effort="medium"` flags **only if** a config_recipe is
       established to pin model + effort (see step 2); otherwise leave them inline and call them out.
     - Drop the "Trade-offs vs. `codex-session`" section — it is no longer relevant once the
       wrapper is back in use.
     - Restore the **Wrapper Exit Codes** table (sysexits-aligned).
 
-2. **Decide on profile vs. inline pinning for model + reasoning effort.**
-    - Option A (preferred if R2's profile design supports it): create
-      `~/.config/codex-session/profiles/skills.yaml` that composes a `settings/<layer>.toml` with
+2. **Decide on config_recipe vs. inline pinning for model + reasoning effort.**
+    - Option A (preferred if R2's config_recipe design supports it): create
+      `~/.config/codex-session/config-recipes/skills.yaml` that composes a `settings/<layer>.toml` with
       `model = "gpt-5.4"` and `model_reasoning_effort = "medium"`. Every skill invocation then
-      uses `codex-session --profile skills exec ...` and drops the `-m`/`-c model_reasoning_effort`
+      uses `codex-session --config-recipe skills exec ...` and drops the `-m`/`-c model_reasoning_effort`
       flags entirely.
-    - Option B (fallback if profile composition does not cover these keys cleanly): keep
+    - Option B (fallback if config_recipe composition does not cover these keys cleanly): keep
       `-m gpt-5.4 -c model_reasoning_effort="medium"` inline at each call site, exactly as the
       stock-codex mode does today, but on top of `codex-session exec`.
     - Pick one and apply it consistently across all skills below. Document the chosen path in the
@@ -93,12 +93,12 @@ This round is **strictly a dotfiles change**. No code changes in `codex-session`
     - Replace the "Temporary stock-codex mode" wording in the **Inputs** section with the original
       wrapper-based wording (the install requirement is `codex-session` on `PATH`).
     - Replace every `codex exec ...` and `codex exec resume ...` call with the wrapper form
-      chosen in step 2 (e.g. `codex-session --profile skills exec ...` or
+      chosen in step 2 (e.g. `codex-session --config-recipe skills exec ...` or
       `codex-session exec -m gpt-5.4 -c model_reasoning_effort="medium" ...`).
     - Update the sandbox-detection probe identically.
     - Restore the **Guardrails** bullet that requires `codex-session exec`, never bare
       `codex exec`. Word it to match the post-R4 wrapper rationale (per-account isolation,
-      profile composition, account-aware failover) rather than the pre-R1 reasons.
+      config_recipe composition, account-aware failover) rather than the pre-R1 reasons.
     - Remove the link to `15-phase-skills-reintegration.md` once R5 is complete — replace it with
       a one-line history note in a `<!-- -->` comment at the bottom of the file documenting the
       migration date.
@@ -149,7 +149,7 @@ This round is **strictly a dotfiles change**. No code changes in `codex-session`
 - `~/.dotfiles/claude/.claude/skills/prex-resume/SKILL.md` (frontmatter description, snippets)
 - `~/.dotfiles/claude/.claude/skills/plan-exec/SKILL.md` (snippets, stage 4 wording, guardrails)
 - `~/.dotfiles/claude/.claude/skills/review-loop/SKILL.md` (snippets, guardrails)
-- `~/.config/codex-session/profiles/skills.yaml` (NEW, if option A in step 2 is chosen)
+- `~/.config/codex-session/config-recipes/skills.yaml` (NEW, if option A in step 2 is chosen)
 - `~/.config/codex-session/settings/<layer>.toml` (NEW or extended, if option A)
 - `codex-session/.plan/multi-account-refactor/99-execution-plan.md` (mark R5 complete)
 - `codex-session/.plan/multi-account-refactor/15-phase-skills-reintegration.md` (this file —
@@ -184,7 +184,7 @@ Plus the smoke tests in step 8 above.
 ## Out of scope for Round 5
 
 - Any further changes to `codex-session` source code. R5 is dotfiles-only.
-- Adding new skills or new account/profile features. R5 only restores parity.
+- Adding new skills or new account/config_recipe features. R5 only restores parity.
 - Migrating the user's interactive `~/.codex/config.toml` defaults. The user's bare-terminal
   `codex` invocations stay independent of the wrapper.
 

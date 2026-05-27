@@ -34,13 +34,14 @@ pub(crate) fn legacy_self_invocation(argv: &[OsString]) -> bool {
             "--" => return false,
             "--verbose" | "--log-stderr" | "--quiet" | "-q" | "--silent" | "--version" | "-V"
             | "--dry-run" => {}
-            "--config" | "--log-format" | "--format" | "--profile" | "--group" | "--account" => {
+            "--config" | "--log-format" | "--format" | "--config-recipe" | "--group"
+            | "--account" => {
                 let _ = iter.next();
             }
             _ if s.starts_with("--config=") => {}
             _ if s.starts_with("--log-format=") => {}
             _ if s.starts_with("--format=") => {}
-            _ if s.starts_with("--profile=") => {}
+            _ if s.starts_with("--config-recipe=") => {}
             _ if s.starts_with("--group=") => {}
             _ if s.starts_with("--account=") => {}
             "self" => return true,
@@ -75,7 +76,7 @@ mod tests {
         let argv = vec![
             OsString::from("--account"),
             OsString::from("work"),
-            OsString::from("--profile=fast"),
+            OsString::from("--config-recipe=fast"),
             OsString::from("self"),
             OsString::from("version"),
         ];

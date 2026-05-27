@@ -1,6 +1,5 @@
 ---
 source: tests/cmd_config_status.rs
-assertion_line: 59
 expression: value
 ---
 {
@@ -9,7 +8,7 @@ expression: value
   "accounts-count": 1,
   "accounts-in-cooldown": 0,
   "active-account-has-auth": true,
-  "active-profile": "default",
+  "active-config-recipe": "default",
   "child-bin": "<TMP>/bin/codex",
   "codex-home": "<TMP>/state/codex-session/accounts/default/groups/stable",
   "group-id": "stable",
@@ -29,11 +28,11 @@ expression: value
     "stderr-format": null,
     "verbose": 0
   },
-  "manifest-path": "<TMP>/config/codex-session/profiles/default.yaml",
+  "manifest-path": "<TMP>/config/codex-session/config-recipes/default.yaml",
   "session-root": "<TMP>/state/codex-session",
   "session-root-source": "state",
   "sources": {
-    "cli": "CliValueOverrides { log: None, child: None, profile: None }",
+    "cli": "CliValueOverrides { log: None, child: None, config_recipe: None }",
     "defaults": true,
     "env": "CODEX_SESSION_*",
     "project": null,

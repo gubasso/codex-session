@@ -14,7 +14,7 @@ reads *first* to understand the tool.
 
 Someone who has installed `codex-session` and run `codex-session --help` but
 doesn't yet understand what `--group`, `--account auto`, `--max-retries`,
-`--profile`, `--dry-run`, etc. actually *do* under the hood.
+`--config-recipe`, `--dry-run`, etc. actually *do* under the hood.
 
 ## Deliverables
 
@@ -33,7 +33,7 @@ One section per flag, each covering:
 | `--group <ID>` | What a group-id is, why it exists, session-dir scoping, the 5-step resolution chain (flag → env → tty → ppid → pid) with source table, validation rules (1–32 chars, `[a-z0-9][a-z0-9_-]*`), pid-N fallback warning, practical consequences of shared vs. isolated groups, examples. Source: `src/services/session/group_id.rs`. |
 | `--account <NAME\|auto>` | What an account is, `auto` vs. named, the 7-step resolution chain (flag → env(auto/named) → lru → config-pinned → default → fallback), how `auto` triggers the quota-aware selector, `CODEX_SESSION_ACCOUNT` env override. Source: `src/services/account/resolver.rs`. |
 | `--max-retries <N>` | What is retried (the entire child invocation), requires `--account auto`, total attempts = N+1, 429 pattern detection (6 patterns from `failover.rs`), 300s cooldown write, exit code 75 on exhaustion, warning when used without `auto`. Source: `src/services/account/retry.rs`, `failover.rs`. |
-| `--profile <NAME>` | What a profile is, how settings-layers are composed, `CODEX_SESSION_PROFILE` env override. Source: `src/cli/profile.rs`, profile compose logic. |
+| `--config-recipe <NAME>` | What a config_recipe is, how settings-layers are composed, `CODEX_SESSION_CONFIG_RECIPE` env override. Source: `src/cli/config_recipe.rs`, config_recipe compose logic. |
 | `--dry-run` | Prints resolved invocation and exits, useful for debugging session-dir and env composition. |
 | `-v` / `--verbose` | Verbosity levels: `-v` info, `-vv` debug, `-vvv` trace. Goes to log file and optionally stderr. |
 | `--log-stderr` | Mirror wrapper logs to stderr. |
@@ -41,7 +41,7 @@ One section per flag, each covering:
 | `--silent` | Suppress all stderr including errors; log file unaffected. Conflicts with `--quiet`. |
 | `--log-format <FMT>` | Controls stderr mirror format; file sink is always JSON. |
 | `-V` / `--version` | Print wrapper + child version. |
-| `--format <text\|json>` | Output format for `version`, `config status`, `profile list/show`. |
+| `--format <text\|json>` | Output format for `version`, `config status`, `config_recipe list/show`. |
 | `--config <PATH>` | Load wrapper config from explicit path instead of default XDG locations. |
 
 ### 3. `docs/guide/subcommands.md` — wrapper-owned subcommands
@@ -53,10 +53,10 @@ One section per subcommand:
 | `version` | `--format` option, what "wrapper + child" means. |
 | `completion <SHELL>` | Supported shells, how to install. |
 | `config status` | What it reports, `--format` option. |
-| `profile list` | Lists available profiles, `--format` option. |
-| `profile show [NAME]` | Shows manifest and resolved layers, `--format` option. |
-| `profile compose [NAME]` | Composes into current session-dir. |
-| `doctor` | Health checks, `--all-profiles`, `--show-env` (redaction rules). |
+| `config_recipe list` | Lists available profiles, `--format` option. |
+| `config_recipe show [NAME]` | Shows manifest and resolved layers, `--format` option. |
+| `config_recipe compose [NAME]` | Composes into current session-dir. |
+| `doctor` | Health checks, `--all-config-recipes`, `--show-env` (redaction rules). |
 | `account add <NAME>` | Registers account, `--from-native` seeds from `~/.codex/auth.json`, name validation. |
 | `account list` | Lists registered accounts, `--format`. |
 | `account current` | Prints active account and its resolution source, `--format`. |
@@ -112,7 +112,7 @@ the README. Cross-reference actual code to ensure accuracy.
 |---|---|
 | `src/cli/mod.rs` | All global flags (clap `GlobalArgs` struct) |
 | `src/cli/account.rs` | Account subcommand tree |
-| `src/cli/profile.rs` | Profile subcommand tree |
+| `src/cli/config_recipe.rs` | ConfigRecipe subcommand tree |
 | `src/cli/doctor.rs` | Doctor flags |
 | `src/cli/config.rs` | Config subcommand tree |
 | `src/cli/completion.rs` | Completion args |

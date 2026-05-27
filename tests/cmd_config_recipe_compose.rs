@@ -8,9 +8,9 @@ use std::os::unix::fs::PermissionsExt as _;
 use support::TestEnv;
 
 #[test]
-fn profile_compose_writes_session_artifacts_and_secure_mode() {
+fn config_recipe_compose_writes_session_artifacts_and_secure_mode() {
     let env = TestEnv::new();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
         &[(
@@ -19,7 +19,10 @@ fn profile_compose_writes_session_artifacts_and_secure_mode() {
         )],
     );
 
-    env.cmd().args(["profile", "compose"]).assert().success();
+    env.cmd()
+        .args(["config-recipe", "compose"])
+        .assert()
+        .success();
 
     let session_dir = env.session_dir();
     let config = std::fs::read_to_string(session_dir.join("config.toml")).unwrap();
@@ -34,6 +37,6 @@ fn profile_compose_writes_session_artifacts_and_secure_mode() {
     assert!(config.contains("gpt-5"));
     assert!(!config.contains("[env]"));
     assert!(sidecar.contains("\"HELLO\""));
-    assert!(meta.contains("\"profile\": \"default\""));
+    assert!(meta.contains("\"config-recipe\": \"default\""));
     assert_eq!(mode, 0o700);
 }

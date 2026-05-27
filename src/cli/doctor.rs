@@ -7,9 +7,9 @@
 /// Run full validation of the codex-session config setup.
 #[derive(Debug, Clone, Copy, Default, clap::Args)]
 pub(crate) struct DoctorArgs {
-    /// Validate every profile in `profiles/` instead of just the active one.
-    #[arg(long)]
-    pub(crate) all_profiles: bool,
+    /// Validate every config recipe in `config-recipes/` instead of just the active one.
+    #[arg(long = "all-config-recipes")]
+    pub(crate) all_config_recipes: bool,
 
     /// Include resolved merged env in the report (secrets redacted by
     /// key suffix: `*_TOKEN`, `*_SECRET`, `*_KEY`, `*_PASSWORD`).

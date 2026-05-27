@@ -1,7 +1,7 @@
 //! Secure session-root resolution.
 //!
 //! What this is: secure creation and validation of runtime/state-backed session roots.
-//! What this is not: profile composition or child-env handling.
+//! What this is not: config-recipe composition or child-env handling.
 
 #![allow(clippy::result_large_err)]
 

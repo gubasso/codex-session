@@ -585,6 +585,7 @@ pub(crate) fn detect_resume(argv: &[std::ffi::OsString]) -> Option<ResumeIntent>
             Some("--all-groups"),
             ..,
         ]
+        | [Some("exec"), Some("resume"), Some("--all"), ..]
         | [Some("resume"), Some("--all"), ..] => Some(ResumeIntent::Last { all_groups: true }),
         // exec resume --last [...]
         [Some("exec"), Some("resume"), Some("--last"), ..] => {
@@ -729,6 +730,19 @@ mod tests {
     #[test]
     fn detect_resume_bare_resume_all() {
         let argv = vec![OsString::from("resume"), OsString::from("--all")];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: true })
+        );
+    }
+
+    #[test]
+    fn detect_resume_exec_resume_all() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("--all"),
+        ];
         assert_eq!(
             detect_resume(&argv),
             Some(ResumeIntent::Last { all_groups: true })

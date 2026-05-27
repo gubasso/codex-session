@@ -94,6 +94,7 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
             &resolved,
             &signal_session,
             capture,
+            None,
         )?;
         let (exit_code, stdout_buf, stderr_buf) = result;
 
@@ -196,8 +197,14 @@ pub(crate) fn run_with_retry(ctx: &AppContext, argv: &[OsString]) -> Result<i32,
 fn single_attempt(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppError> {
     let resolved = resolver::resolve(ctx)?;
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
-    let (exit_code, _stdout_buf, _stderr_buf) =
-        crate::commands::pass_through::run_once(ctx, argv, &resolved, &signal_session, false)?;
+    let (exit_code, _stdout_buf, _stderr_buf) = crate::commands::pass_through::run_once(
+        ctx,
+        argv,
+        &resolved,
+        &signal_session,
+        false,
+        None,
+    )?;
     Ok(exit_code)
 }
 

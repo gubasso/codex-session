@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-05-26
+- **Last verified:** 2026-05-27
 - **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -233,10 +233,50 @@ it returns `refresh_token_reused`.
   [Issue #10332 — "Race condition in OAuth token refresh"](https://github.com/openai/codex/issues/10332),
   [Issue #4432 — "First-class multi-account auth"](https://github.com/openai/codex/issues/4432).
 
+## F14 — Thread/session resume
+
+`codex resume` reopens an earlier session by ID or with convenience flags:
+
+- `codex resume` — interactive picker of recent sessions.
+- `codex resume <SESSION_ID>` — target a specific session.
+- `codex resume --last` — most recent session from current working directory.
+- `codex resume --all` — picker across all directories (not cwd-scoped).
+- `codex exec resume <SESSION_ID> [PROMPT]` — non-interactive resume.
+- `codex exec resume --last [PROMPT]` — non-interactive, most recent.
+
+Session transcripts are stored as date-sharded JSONL rollout files under
+`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`.  A separate
+`$CODEX_HOME/session_index.jsonl` indexes sessions for the picker.
+`CODEX_HOME` fully scopes session storage (see F6); there are no
+cross-`CODEX_HOME` lookups.
+
+Thread IDs are client-generated UUIDs (currently v7 via `UUID::now_v7()`
+in `Session::new`).  The format is an implementation detail — callers
+should treat the ID as an opaque string.
+
+- **Sources:** [docs: features](https://developers.openai.com/codex/cli/features),
+  [docs: CLI reference](https://developers.openai.com/codex/cli/reference),
+  [docs: non-interactive mode](https://developers.openai.com/codex/noninteractive),
+  [issue #15538 — "Ephemeral resume"](https://github.com/openai/codex/issues/15538),
+  [issue #15767 — "Support custom session ID for new threads"](https://github.com/openai/codex/issues/15767),
+  [issue #13242 — "Feature request: --session-id flag"](https://github.com/openai/codex/issues/13242),
+  [issue #19661 — "Resume fails with encrypted_content"](https://github.com/openai/codex/issues/19661),
+  [issue #21196 — "Missing rollout files"](https://github.com/openai/codex/issues/21196),
+  [discussion #1076 — "Resuming a previous session"](https://github.com/openai/codex/discussions/1076).
+- **Implementation note:** `codex-session` maintains a cross-account
+  `thread-index.jsonl` at `<state_dir>/thread-index.jsonl` that maps each
+  session's thread ID to the originating account and group.  On `resume`,
+  the wrapper looks up the thread ID (or resolves `--last`) from this
+  index to select the correct `CODEX_HOME` before forwarding to codex.
+  When the index has no hit, the wrapper falls back to normal account
+  resolution and forwards the resume command as-is.
+
 ## Sources (full list)
 
 - Docs: <https://developers.openai.com/codex/local-config/>,
-  <https://developers.openai.com/codex/config-reference>
+  <https://developers.openai.com/codex/config-reference>,
+  <https://developers.openai.com/codex/cli/features>,
+  <https://developers.openai.com/codex/noninteractive>
 - Issues: [#4407](https://github.com/openai/codex/issues/4407),
   [#4432](https://github.com/openai/codex/issues/4432),
   [#4940](https://github.com/openai/codex/issues/4940),
@@ -245,11 +285,17 @@ it returns `refresh_token_reused`.
   [#10332](https://github.com/openai/codex/issues/10332),
   [#10347](https://github.com/openai/codex/issues/10347),
   [#10389](https://github.com/openai/codex/issues/10389),
+  [#13242](https://github.com/openai/codex/issues/13242),
   [#14547](https://github.com/openai/codex/issues/14547),
   [#15433](https://github.com/openai/codex/issues/15433),
+  [#15538](https://github.com/openai/codex/issues/15538),
+  [#15767](https://github.com/openai/codex/issues/15767),
   [#18065](https://github.com/openai/codex/issues/18065),
   [#18483](https://github.com/openai/codex/issues/18483),
-  [#18771](https://github.com/openai/codex/issues/18771)
+  [#18771](https://github.com/openai/codex/issues/18771),
+  [#19661](https://github.com/openai/codex/issues/19661),
+  [#21196](https://github.com/openai/codex/issues/21196)
+- Discussions: [#1076](https://github.com/openai/codex/discussions/1076)
 - PRs: [#14718](https://github.com/openai/codex/pull/14718),
   [#14849](https://github.com/openai/codex/pull/14849),
   [#17595](https://github.com/openai/codex/pull/17595),

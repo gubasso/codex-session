@@ -116,6 +116,7 @@ acknowledgment.  Not yet merged as of 2026-05-26.
 | Routing | Budget-safe + health-tier | Smart/round-robin | Health-aware | **Quota-aware auto** |
 | Deployment | Docker/K8s | `brew` | Binary | **Cargo** |
 | Complexity | High (daemon + DB) | Medium | Medium | **Low** |
+| Thread resume | Not built-in (proxy-scoped) | Not documented | Not documented | **Cross-account index (`thread-index.jsonl`)** |
 
 ## 5. What codex-session adopted and why
 
@@ -159,3 +160,70 @@ for upstream to ship `--auth-profile`.
 - Round-robin rotation: we already have quota-aware `--account auto`.
 - Proactive background refresh: adds complexity; on-demand 401-retry is
   simpler and sufficient.
+
+## 6. Thread resume across accounts
+
+### Problem
+
+Upstream codex scopes all session storage to `$CODEX_HOME/sessions/`
+(see F6, F14 in `docs/upstream-codex.md`).  When a multi-account wrapper
+uses different `CODEX_HOME` directories per account, `resume --last`
+resolves within a single account's session directory — it cannot find a
+session that ran under a different account.
+
+### Solution
+
+`codex-session` maintains an append-only JSONL thread index at
+`<state_dir>/thread-index.jsonl`, outside any per-account `CODEX_HOME`.
+Each entry records:
+
+| Field | Type | Description |
+|---|---|---|
+| `thread-id` | String | Session UUID from `thread.started` JSON event |
+| `account` | String | Account ID that owned the session |
+| `group-id` | String | Terminal/group ID at session creation time |
+| `cwd` | String | Working directory at session creation time |
+| `created-at` | String | RFC 3339 UTC timestamp |
+
+Field names use kebab-case in the JSONL file (serde `rename_all`).
+
+### Capture
+
+During `codex exec --json` runs, the wrapper tee-captures stdout and
+scans for the `{"type":"thread.started","thread_id":"..."}` JSON event.
+When found, a `ThreadEntry` is appended to the index.  Non-`--json` runs
+do not emit structured events and are not indexed.  This means interactive
+TUI sessions are invisible to the thread index; `--last` resolution only
+considers `exec --json` runs.
+
+### Resume routing
+
+When the wrapper detects a resume intent (`exec resume <ID>`,
+`exec resume --last`, `resume --last`, `resume --all`), it:
+
+1. Looks up the thread ID in the index (by exact ID for `ById`, by
+    most-recent-in-group for `--last`, by most-recent-any for
+    `--last --all-groups` or `resume --all`).
+2. If found, resolves the account from the index entry (source:
+    `ThreadIndex`) and rewrites `--last`/`--all` to the concrete
+    thread ID before forwarding to codex.
+3. If not found, falls back to normal account resolution and forwards
+    the original argv (stripping wrapper-only `--all-groups` flag).
+
+### Wrapper-specific flags
+
+- `--all-groups`: wrapper-only flag on `exec resume --last --all-groups`.
+  Expands the `--last` search to all terminal groups, not just the
+  current one.  Stripped before forwarding to codex.
+- `resume --all`: upstream flag meaning "show sessions from any
+  directory".  The wrapper intercepts this as `Last { all_groups: true }`
+  for index lookup, then rewrites to a concrete thread ID for codex.
+  Note: this bypasses upstream's interactive session picker — the wrapper
+  auto-selects the most recent session instead.
+
+### Community comparison
+
+None of the surveyed community projects (`codex-lb`, `CAAM`,
+`codex-multi-auth`) document cross-account resume support.  `codex-lb`
+inherits whatever resume the upstream CLI provides, scoped to its
+proxy-managed `CODEX_HOME`.

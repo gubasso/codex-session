@@ -33,6 +33,21 @@ codex-session doctor                                 # full setup validation
 
 Any verb not owned by the wrapper is forwarded verbatim to `codex`.
 
+### Thread resume
+
+Resume a previous `exec --json` session, routing to the correct account
+automatically:
+
+```bash
+codex-session exec resume <SESSION_ID>       # resume by ID
+codex-session exec resume --last             # most recent in current terminal group
+codex-session exec resume --last --all-groups # most recent across all groups
+codex-session resume --last                  # wrapper intercepts for cross-account routing
+```
+
+The wrapper resolves account and group from its thread index when
+possible, then falls back to normal account resolution.
+
 ## Filesystem layout
 
 Run `codex-session config status` or `codex-session doctor` to see resolved
@@ -50,6 +65,7 @@ $XDG_CACHE_HOME/codex-session/
 
 $XDG_STATE_HOME/codex-session/
   state/last-account                    LRU pointer (plain text)
+  thread-index.jsonl                    cross-account session resume index (JSONL)
   accounts/<account>/
     auth.json                           account seed (auth source of truth)
     cooldown.json                       failover cooldown state

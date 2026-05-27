@@ -50,6 +50,10 @@ pub(crate) fn run(
 
     let gated = crate::services::account::gate::ensure(ctx)?;
 
+    if let Some(intent) = detect_resume(argv) {
+        return run_resume(ctx, argv, &intent, &gated);
+    }
+
     if ctx.global.dry_run {
         let prepared = prepare_invocation(ctx, argv, &gated)?;
         let dry_ctx = crate::domain::child_invocation::DryRunContext {
@@ -366,6 +370,232 @@ fn has_json_flag(argv: &[std::ffi::OsString]) -> bool {
     argv.iter().any(|arg| arg.to_str() == Some("--json"))
 }
 
+/// Strip codex-session-only resume flags (`--all-groups`) from argv before
+/// forwarding to codex on the fallback path. `--all` is a real codex flag
+/// and must be preserved. Returns `None` if no stripping was needed
+/// (original argv is clean).
+fn strip_wrapper_resume_flags(argv: &[std::ffi::OsString]) -> Option<Vec<std::ffi::OsString>> {
+    let has_wrapper_flags = argv
+        .iter()
+        .any(|a| matches!(a.to_str(), Some("--all-groups")));
+    if !has_wrapper_flags {
+        return None;
+    }
+    Some(
+        argv.iter()
+            .filter(|a| !matches!(a.to_str(), Some("--all-groups")))
+            .cloned()
+            .collect(),
+    )
+}
+
+fn rewrite_last_to_id(argv: &[std::ffi::OsString], thread_id: &str) -> Vec<std::ffi::OsString> {
+    let mut result = Vec::with_capacity(argv.len());
+    let mut replaced = false;
+    for arg in argv {
+        match arg.to_str() {
+            Some("--last" | "--all") if !replaced => {
+                result.push(std::ffi::OsString::from(thread_id));
+                replaced = true;
+            }
+            Some("--all-groups") => {
+                // Strip: wrapper-only flag, not forwarded to codex
+            }
+            _ => result.push(arg.clone()),
+        }
+    }
+    result
+}
+
+fn resolve_resume_account(
+    ctx: &crate::context::AppContext,
+    intent: &ResumeIntent,
+) -> Option<(crate::services::account::resolver::ResolvedAccount, String)> {
+    let state_dir = &ctx.config.paths.state_dir;
+
+    let entry = match intent {
+        ResumeIntent::ById(id) => {
+            match crate::services::session::thread_index::lookup(state_dir, id) {
+                Ok(opt) => opt,
+                Err(err) => {
+                    tracing::warn!(
+                        op = "resume.resolve", thread_id = %id,
+                        err = %err, "thread index lookup failed",
+                    );
+                    return None;
+                }
+            }
+        }
+        ResumeIntent::Last { all_groups } => {
+            if *all_groups {
+                match crate::services::session::thread_index::last_any(state_dir) {
+                    Ok(opt) => opt,
+                    Err(err) => {
+                        tracing::warn!(
+                            op = "resume.resolve",
+                            err = %err, "thread index last_any failed",
+                        );
+                        return None;
+                    }
+                }
+            } else {
+                let group = match crate::services::session::group_id::current(ctx) {
+                    Ok(g) => g,
+                    Err(err) => {
+                        tracing::warn!(
+                            op = "resume.resolve",
+                            err = %err, "group_id resolution failed",
+                        );
+                        return None;
+                    }
+                };
+                match crate::services::session::thread_index::last_for_group(
+                    state_dir,
+                    group.id.as_str(),
+                ) {
+                    Ok(opt) => opt,
+                    Err(err) => {
+                        tracing::warn!(
+                            op = "resume.resolve",
+                            group_id = %group.id.as_str(),
+                            err = %err,
+                            "thread index last_for_group failed",
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+    };
+
+    let entry = entry?;
+    let account_id: crate::services::account::AccountId = match entry.account.parse() {
+        Ok(id) => id,
+        Err(reason) => {
+            tracing::warn!(
+                op = "resume.resolve",
+                thread_id = %entry.thread_id,
+                account = %entry.account,
+                reason = %reason,
+                "malformed account in thread index; falling back",
+            );
+            return None;
+        }
+    };
+
+    tracing::info!(
+        op = "resume.resolve",
+        thread_id = %entry.thread_id,
+        account = %account_id,
+        "thread index hit",
+    );
+
+    Some((
+        crate::services::account::resolver::ResolvedAccount {
+            id: account_id,
+            source: crate::services::account::resolver::AccountResolutionSource::ThreadIndex,
+        },
+        entry.thread_id,
+    ))
+}
+
+fn run_resume(
+    ctx: &crate::context::AppContext,
+    argv: &[std::ffi::OsString],
+    intent: &ResumeIntent,
+    gated: &crate::services::account::resolver::ResolvedAccount,
+) -> Result<i32, crate::error::AppError> {
+    tracing::info!(op = "resume", status = "start", ?intent);
+
+    if let Some((resolved, thread_id)) = resolve_resume_account(ctx, intent) {
+        let effective_argv = match intent {
+            ResumeIntent::Last { .. } => rewrite_last_to_id(argv, &thread_id),
+            ResumeIntent::ById(_) => argv.to_vec(),
+        };
+
+        if ctx.global.dry_run {
+            let prepared = prepare_invocation(ctx, &effective_argv, &resolved)?;
+            let dry_ctx = crate::domain::child_invocation::DryRunContext {
+                account: resolved.id.to_string(),
+                account_source: crate::services::account::resolver::source_label(resolved.source)
+                    .to_owned(),
+            };
+            ctx.ui.write_dry_run(
+                &crate::domain::child_invocation::dry_run_report_with_context(
+                    &prepared.invocation,
+                    Some(&dry_ctx),
+                ),
+            )?;
+            tracing::info!(op = "resume", status = "ok", outcome = "dry-run");
+            return Ok(0);
+        }
+
+        let session = SignalSession::install()?;
+        let (exit_code, _stdout, _stderr) =
+            run_once(ctx, &effective_argv, &resolved, &session, false)?;
+        Ok(exit_code)
+    } else {
+        tracing::info!(
+            op = "resume",
+            status = "fallback",
+            "no thread index hit; falling back to normal resolution"
+        );
+        let sanitized = strip_wrapper_resume_flags(argv);
+        let fallback_argv = sanitized.as_deref().unwrap_or(argv);
+        if ctx.global.dry_run {
+            let prepared = prepare_invocation(ctx, fallback_argv, gated)?;
+            let dry_ctx = crate::domain::child_invocation::DryRunContext {
+                account: gated.id.to_string(),
+                account_source: crate::services::account::resolver::source_label(gated.source)
+                    .to_owned(),
+            };
+            ctx.ui.write_dry_run(
+                &crate::domain::child_invocation::dry_run_report_with_context(
+                    &prepared.invocation,
+                    Some(&dry_ctx),
+                ),
+            )?;
+            tracing::info!(op = "resume", status = "ok", outcome = "dry-run-fallback");
+            return Ok(0);
+        }
+        crate::services::account::retry::run_with_retry(ctx, fallback_argv)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ResumeIntent {
+    ById(String),
+    Last { all_groups: bool },
+}
+
+pub(crate) fn detect_resume(argv: &[std::ffi::OsString]) -> Option<ResumeIntent> {
+    let strs: Vec<Option<&str>> = argv.iter().map(|a| a.to_str()).collect();
+    match strs.as_slice() {
+        // exec resume <SESSION_ID> [...]
+        [Some("exec"), Some("resume"), Some(id), ..] | [Some("resume"), Some(id), ..]
+            if !id.starts_with('-') =>
+        {
+            Some(ResumeIntent::ById((*id).to_owned()))
+        }
+        // exec resume --last --all-groups [...]
+        [
+            Some("exec"),
+            Some("resume"),
+            Some("--last"),
+            Some("--all-groups"),
+            ..,
+        ]
+        | [Some("resume"), Some("--all"), ..] => Some(ResumeIntent::Last { all_groups: true }),
+        // exec resume --last [...]
+        [Some("exec"), Some("resume"), Some("--last"), ..] => {
+            Some(ResumeIntent::Last { all_groups: false })
+        }
+        // resume --last [...]
+        [Some("resume"), Some("--last"), ..] => Some(ResumeIntent::Last { all_groups: false }),
+        _ => None,
+    }
+}
+
 fn map_child_err(err: &crate::adapters::spawner::SpawnerError) -> crate::error::AppError {
     match err {
         crate::adapters::spawner::SpawnerError::NotFound {
@@ -436,5 +666,153 @@ mod tests {
     fn has_json_flag_not_exact_match() {
         let argv = vec![OsString::from("--json=true")];
         assert!(!has_json_flag(&argv));
+    }
+
+    #[test]
+    fn detect_resume_exec_resume_by_id() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("abc123"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::ById("abc123".into()))
+        );
+    }
+
+    #[test]
+    fn detect_resume_exec_resume_last() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("--last"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: false })
+        );
+    }
+
+    #[test]
+    fn detect_resume_exec_resume_last_all_groups() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("--last"),
+            OsString::from("--all-groups"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: true })
+        );
+    }
+
+    #[test]
+    fn detect_resume_bare_resume_by_id() {
+        let argv = vec![OsString::from("resume"), OsString::from("abc123")];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::ById("abc123".into()))
+        );
+    }
+
+    #[test]
+    fn detect_resume_bare_resume_last() {
+        let argv = vec![OsString::from("resume"), OsString::from("--last")];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: false })
+        );
+    }
+
+    #[test]
+    fn detect_resume_bare_resume_all() {
+        let argv = vec![OsString::from("resume"), OsString::from("--all")];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: true })
+        );
+    }
+
+    #[test]
+    fn detect_resume_non_resume_returns_none() {
+        let argv = vec![OsString::from("exec"), OsString::from("status")];
+        assert_eq!(detect_resume(&argv), None);
+    }
+
+    #[test]
+    fn detect_resume_exec_resume_by_id_with_trailing_flags() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("abc123"),
+            OsString::from("--json"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::ById("abc123".into()))
+        );
+    }
+
+    #[test]
+    fn rewrite_last_to_id_replaces_last() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("--last"),
+        ];
+        let rewritten = rewrite_last_to_id(&argv, "tid-1");
+        assert_eq!(
+            rewritten,
+            vec![
+                OsString::from("exec"),
+                OsString::from("resume"),
+                OsString::from("tid-1")
+            ]
+        );
+    }
+
+    #[test]
+    fn rewrite_last_to_id_strips_all_groups() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("--last"),
+            OsString::from("--all-groups"),
+            OsString::from("--json"),
+        ];
+        let rewritten = rewrite_last_to_id(&argv, "tid-1");
+        assert_eq!(
+            rewritten,
+            vec![
+                OsString::from("exec"),
+                OsString::from("resume"),
+                OsString::from("tid-1"),
+                OsString::from("--json")
+            ]
+        );
+    }
+
+    #[test]
+    fn rewrite_last_to_id_preserves_non_last_argv() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("resume"),
+            OsString::from("abc123"),
+            OsString::from("--json"),
+        ];
+        let rewritten = rewrite_last_to_id(&argv, "tid-1");
+        assert_eq!(rewritten, argv);
+    }
+
+    #[test]
+    fn rewrite_last_to_id_strips_bare_all() {
+        let argv = vec![OsString::from("resume"), OsString::from("--all")];
+        let rewritten = rewrite_last_to_id(&argv, "tid-1");
+        assert_eq!(
+            rewritten,
+            vec![OsString::from("resume"), OsString::from("tid-1")]
+        );
     }
 }

@@ -12,6 +12,7 @@ pub(crate) enum AccountResolutionSource {
     Lru,
     ConfigPinned,
     Interactive,
+    ThreadIndex,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,7 @@ pub(crate) const fn source_label(source: AccountResolutionSource) -> &'static st
         AccountResolutionSource::Lru => "lru",
         AccountResolutionSource::ConfigPinned => "config-pinned",
         AccountResolutionSource::Interactive => "interactive",
+        AccountResolutionSource::ThreadIndex => "thread-index",
     }
 }
 

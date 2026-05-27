@@ -80,7 +80,6 @@ fn read_entries(state_dir: &Utf8Path) -> std::io::Result<Vec<ThreadEntry>> {
     Ok(entries)
 }
 
-#[allow(dead_code)] // consumers added in round 03
 pub(crate) fn lookup(
     state_dir: &Utf8Path,
     thread_id: &str,
@@ -89,7 +88,6 @@ pub(crate) fn lookup(
     Ok(entries.into_iter().rfind(|e| e.thread_id == thread_id))
 }
 
-#[allow(dead_code)] // consumers added in round 03
 pub(crate) fn last_for_group(
     state_dir: &Utf8Path,
     group_id: &str,
@@ -98,7 +96,6 @@ pub(crate) fn last_for_group(
     Ok(entries.into_iter().rfind(|e| e.group_id == group_id))
 }
 
-#[allow(dead_code)] // consumers added in round 03
 pub(crate) fn last_any(state_dir: &Utf8Path) -> std::io::Result<Option<ThreadEntry>> {
     let entries = read_entries(state_dir)?;
     Ok(entries.into_iter().last())

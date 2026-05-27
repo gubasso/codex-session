@@ -13,7 +13,6 @@ use std::io::{BufRead, BufReader, Write as _};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[allow(dead_code)] // consumers added in round 02
 pub(crate) struct ThreadEntry {
     pub(crate) thread_id: String,
     pub(crate) account: String,
@@ -22,12 +21,10 @@ pub(crate) struct ThreadEntry {
     pub(crate) created_at: String,
 }
 
-#[allow(dead_code)] // consumers added in round 02
 pub(crate) fn index_path(state_dir: &Utf8Path) -> Utf8PathBuf {
     state_dir.join("thread-index.jsonl")
 }
 
-#[allow(dead_code)] // consumers added in round 02
 pub(crate) fn append(state_dir: &Utf8Path, entry: &ThreadEntry) -> std::io::Result<()> {
     let path = index_path(state_dir);
     if let Some(parent) = path.parent() {
@@ -40,6 +37,27 @@ pub(crate) fn append(state_dir: &Utf8Path, entry: &ThreadEntry) -> std::io::Resu
     let json = serde_json::to_string(entry)?;
     writeln!(file, "{json}")?;
     Ok(())
+}
+
+pub(crate) fn extract_thread_id(stdout: &[u8]) -> Option<String> {
+    for line in stdout.split(|b| *b == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(|v| v.as_str()) == Some("thread.started")
+            && let Some(tid) = value.get("thread_id").and_then(|v| v.as_str())
+        {
+            return Some(tid.to_owned());
+        }
+    }
+    None
+}
+
+pub(crate) fn utc_now_rfc3339() -> String {
+    super::time_util::utc_now_rfc3339()
 }
 
 fn read_entries(state_dir: &Utf8Path) -> std::io::Result<Vec<ThreadEntry>> {
@@ -62,7 +80,7 @@ fn read_entries(state_dir: &Utf8Path) -> std::io::Result<Vec<ThreadEntry>> {
     Ok(entries)
 }
 
-#[allow(dead_code)] // consumers added in round 02
+#[allow(dead_code)] // consumers added in round 03
 pub(crate) fn lookup(
     state_dir: &Utf8Path,
     thread_id: &str,
@@ -71,7 +89,7 @@ pub(crate) fn lookup(
     Ok(entries.into_iter().rfind(|e| e.thread_id == thread_id))
 }
 
-#[allow(dead_code)] // consumers added in round 02
+#[allow(dead_code)] // consumers added in round 03
 pub(crate) fn last_for_group(
     state_dir: &Utf8Path,
     group_id: &str,
@@ -80,7 +98,7 @@ pub(crate) fn last_for_group(
     Ok(entries.into_iter().rfind(|e| e.group_id == group_id))
 }
 
-#[allow(dead_code)] // consumers added in round 02
+#[allow(dead_code)] // consumers added in round 03
 pub(crate) fn last_any(state_dir: &Utf8Path) -> std::io::Result<Option<ThreadEntry>> {
     let entries = read_entries(state_dir)?;
     Ok(entries.into_iter().last())
@@ -225,5 +243,43 @@ mod tests {
 
         let last = last_any(&dir).expect("last_any").expect("entry");
         assert_eq!(last.thread_id, "t2");
+    }
+
+    #[test]
+    fn extract_thread_id_valid_event() {
+        let input = b"{\"type\":\"thread.started\",\"thread_id\":\"t-123\"}\n";
+        assert_eq!(extract_thread_id(input).as_deref(), Some("t-123"));
+    }
+
+    #[test]
+    fn extract_thread_id_among_multiple_events() {
+        let mut input = Vec::new();
+        input.extend_from_slice(b"{\"type\":\"turn.started\"}\n");
+        input.extend_from_slice(b"{\"type\":\"thread.started\",\"thread_id\":\"t-456\"}\n");
+        input.extend_from_slice(b"{\"type\":\"item.completed\"}\n");
+        assert_eq!(extract_thread_id(&input).as_deref(), Some("t-456"));
+    }
+
+    #[test]
+    fn extract_thread_id_no_thread_event() {
+        let input = b"{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\"}\n";
+        assert_eq!(extract_thread_id(input), None);
+    }
+
+    #[test]
+    fn extract_thread_id_empty_input() {
+        assert_eq!(extract_thread_id(b""), None);
+    }
+
+    #[test]
+    fn extract_thread_id_malformed_json() {
+        let input = b"NOT JSON\n{garbage\n";
+        assert_eq!(extract_thread_id(input), None);
+    }
+
+    #[test]
+    fn extract_thread_id_mixed_malformed_and_valid() {
+        let input = b"NOT JSON\n{\"type\":\"thread.started\",\"thread_id\":\"t-789\"}\n";
+        assert_eq!(extract_thread_id(input).as_deref(), Some("t-789"));
     }
 }

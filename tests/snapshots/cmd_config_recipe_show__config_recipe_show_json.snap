@@ -1,10 +1,9 @@
 ---
-source: tests/cmd_profile_show.rs
-assertion_line: 42
+source: tests/cmd_config_recipe_show.rs
 expression: value
 ---
 {
-  "active-profile": "default",
+  "active-config-recipe": "default",
   "layer-paths": [
     {
       "exists": true,
@@ -12,6 +11,6 @@ expression: value
       "path": "<TMP>/config/codex-session/settings/base.toml"
     }
   ],
-  "manifest-path": "<TMP>/config/codex-session/profiles/default.yaml",
+  "manifest-path": "<TMP>/config/codex-session/config-recipes/default.yaml",
   "stock-mode": false
 }

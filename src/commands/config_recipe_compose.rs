@@ -1,4 +1,4 @@
-//! `profile compose` command.
+//! `config-recipe compose` command.
 //!
 //! What this is: explicit session-dir composition for inspection.
 //! What this is not: pass-through exec.
@@ -8,9 +8,9 @@ use camino::Utf8PathBuf;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub(crate) struct ProfileComposeView {
+pub(crate) struct ConfigRecipeComposeView {
     pub(crate) stock_mode: bool,
-    pub(crate) profile: Option<String>,
+    pub(crate) config_recipe: Option<String>,
     pub(crate) group_id: String,
     pub(crate) session_dir: Utf8PathBuf,
     pub(crate) config_path: Utf8PathBuf,
@@ -20,24 +20,26 @@ pub(crate) struct ProfileComposeView {
 
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
-    args: crate::cli::profile::ProfileComposeArgs,
+    args: crate::cli::config_recipe::ConfigRecipeComposeArgs,
 ) -> Result<(), crate::error::AppError> {
     let session = ctx.session()?;
     let group_id = session.group_id.as_str().to_owned();
     let session_dir = session.dir.clone();
     let cwd = current_cwd()?;
 
-    let profile = args.name.or_else(|| ctx.config.profile.active.clone());
-    if let Some(name) = profile.as_deref() {
-        let composition = crate::services::profile::compose(
+    let config_recipe = args
+        .name
+        .or_else(|| ctx.config.config_recipe.active.clone());
+    if let Some(name) = config_recipe.as_deref() {
+        let composition = crate::services::config_recipe::compose(
             name,
-            &crate::services::profile::ProfilePaths {
-                profiles_dir: ctx.config.profile.profiles_dir.clone(),
-                settings_dir: ctx.config.profile.settings_dir.clone(),
+            &crate::services::config_recipe::ConfigRecipePaths {
+                recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
+                settings_dir: ctx.config.config_recipe.settings_dir.clone(),
                 cache_settings: cache_settings_path(ctx),
             },
         )?;
-        crate::services::profile::write_session_artifacts(&composition, &session_dir)?;
+        crate::services::config_recipe::write_session_artifacts(&composition, &session_dir)?;
         let meta = crate::services::session::meta::SessionMeta::new(
             Some(name),
             &group_id,
@@ -47,9 +49,9 @@ pub(crate) fn run(
         );
         crate::services::session::meta::write(&session_dir, &meta)?;
         let view = build_view(Some(name.to_owned()), false, group_id, session_dir);
-        ctx.ui.write_profile_compose(&view)?;
+        ctx.ui.write_config_recipe_compose(&view)?;
     } else {
-        crate::services::profile::write_stock_session_artifacts(&session_dir)?;
+        crate::services::config_recipe::write_stock_session_artifacts(&session_dir)?;
         let meta = crate::services::session::meta::SessionMeta::new(
             None,
             &group_id,
@@ -59,21 +61,21 @@ pub(crate) fn run(
         );
         crate::services::session::meta::write(&session_dir, &meta)?;
         let view = build_view(None, true, group_id, session_dir);
-        ctx.ui.write_profile_compose(&view)?;
+        ctx.ui.write_config_recipe_compose(&view)?;
     }
 
     Ok(())
 }
 
 fn build_view(
-    profile: Option<String>,
+    config_recipe: Option<String>,
     stock_mode: bool,
     group_id: String,
     session_dir: Utf8PathBuf,
-) -> ProfileComposeView {
-    ProfileComposeView {
+) -> ConfigRecipeComposeView {
+    ConfigRecipeComposeView {
         stock_mode,
-        profile,
+        config_recipe,
         group_id,
         config_path: session_dir.join("config.toml"),
         sidecar_path: session_dir.join(".codex-session-compose.json"),

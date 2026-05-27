@@ -245,15 +245,15 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         dir
     }
 
-    pub fn install_profile(&self, name: &str, manifest: &str, layers: &[(&str, &str)]) {
-        self.write_profile_manifest(name, manifest);
+    pub fn install_config_recipe(&self, name: &str, manifest: &str, layers: &[(&str, &str)]) {
+        self.write_config_recipe_manifest(name, manifest);
         for (layer_name, body) in layers {
             self.write_settings_layer(layer_name, body);
         }
     }
 
-    pub fn write_profile_manifest(&self, name: &str, manifest: &str) {
-        let path = self.profiles_dir().join(format!("{name}.yaml"));
+    pub fn write_config_recipe_manifest(&self, name: &str, manifest: &str) {
+        let path = self.recipes_dir().join(format!("{name}.yaml"));
         Self::write_file(&path, manifest);
     }
 
@@ -286,8 +286,8 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.runtime.clone()
     }
 
-    pub fn profiles_dir(&self) -> PathBuf {
-        self.config_home.join("codex-session/profiles")
+    pub fn recipes_dir(&self) -> PathBuf {
+        self.config_home.join("codex-session/config-recipes")
     }
 
     pub fn settings_dir(&self) -> PathBuf {

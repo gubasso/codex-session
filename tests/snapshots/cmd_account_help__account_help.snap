@@ -1,6 +1,5 @@
 ---
 source: tests/cmd_account_help.rs
-assertion_line: 21
 expression: normalized
 ---
 Manage codex-session accounts (multi-credential pool)
@@ -42,7 +41,7 @@ Options:
           Print wrapper + child version and exit
 
       --format <FMT>
-          Output format for `version`, `config status`, `profile list/show`, and `--version`
+          Output format for `version`, `config status`, `config-recipe list/show`, and `--version`
 
           Possible values:
           - text: Human-readable text output
@@ -51,8 +50,8 @@ Options:
       --config <PATH>
           Load wrapper config from this explicit path instead of the default user/project locations
 
-      --profile <NAME>
-          Select the wrapper profile before any passthrough child argv begins
+      --config-recipe <NAME>
+          Select the wrapper config-recipe before any passthrough child argv begins
 
       --group <ID>
           Override the auto-derived group-id used for session-dir scoping

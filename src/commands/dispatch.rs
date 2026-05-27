@@ -24,7 +24,7 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error:
         Some(cli::Commands::Version(args)) => commands::version::run(ctx, args).map(|()| 0),
         Some(cli::Commands::Completion(args)) => commands::completion::run(ctx, args).map(|()| 0),
         Some(cli::Commands::Config(args)) => run_config(ctx, &args).map(|()| 0),
-        Some(cli::Commands::Profile(args)) => run_profile(ctx, args).map(|()| 0),
+        Some(cli::Commands::ConfigRecipe(args)) => run_config_recipe(ctx, args).map(|()| 0),
         Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx, args),
         Some(cli::Commands::Account(args)) => commands::account::dispatch(ctx, args).map(|()| 0),
         Some(cli::Commands::External(argv)) => {
@@ -58,14 +58,14 @@ fn run_config(
     }
 }
 
-fn run_profile(
+fn run_config_recipe(
     ctx: &context::AppContext,
-    args: cli::profile::ProfileArgs,
+    args: cli::config_recipe::ConfigRecipeArgs,
 ) -> Result<(), error::AppError> {
-    use cli::profile::ProfileCommand;
+    use cli::config_recipe::ConfigRecipeCommand;
     match args.command {
-        ProfileCommand::List(list) => commands::profile_list::run(ctx, list),
-        ProfileCommand::Show(show) => commands::profile_show::run(ctx, &show),
-        ProfileCommand::Compose(compose) => commands::profile_compose::run(ctx, compose),
+        ConfigRecipeCommand::List(list) => commands::config_recipe_list::run(ctx, list),
+        ConfigRecipeCommand::Show(show) => commands::config_recipe_show::run(ctx, &show),
+        ConfigRecipeCommand::Compose(compose) => commands::config_recipe_compose::run(ctx, compose),
     }
 }

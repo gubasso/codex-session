@@ -184,5 +184,5 @@ fn mark_legacy_pruned(marker: &Utf8Path) -> Result<(), crate::config::ConfigErro
     if let Some(parent) = marker.parent() {
         std::fs::create_dir_all(parent.as_std_path())?;
     }
-    crate::services::profile::composition::write_atomic(marker, "v1\n")
+    crate::services::config_recipe::composition::write_atomic(marker, "v1\n")
 }

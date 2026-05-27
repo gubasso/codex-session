@@ -1,4 +1,4 @@
-//! Profile composition services.
+//! Config-recipe composition services.
 //!
 //! What this is: pure manifest/layer composition plus session-artifact writing.
 //! What this is not: CLI parsing or child-process execution.
@@ -10,7 +10,7 @@ pub(crate) mod layer;
 pub(crate) mod manifest;
 
 pub(crate) use composition::{
-    Composition, LayerRef, LayerSource, ProfilePaths, write_session_artifacts,
+    Composition, ConfigRecipePaths, LayerRef, LayerSource, write_session_artifacts,
     write_stock_session_artifacts,
 };
 pub(crate) use layer::{deep_merge, extract_env, is_valid_env_key, read_layer};
@@ -18,15 +18,15 @@ pub(crate) use manifest::Manifest;
 
 use camino::Utf8PathBuf;
 
-/// Compose a named profile without writing any session artifacts.
+/// Compose a named config-recipe without writing any session artifacts.
 pub(crate) fn compose(
-    profile_name: &str,
-    paths: &ProfilePaths,
+    recipe_name: &str,
+    paths: &ConfigRecipePaths,
 ) -> Result<Composition, crate::config::ConfigError> {
-    let manifest_path = paths.profiles_dir.join(format!("{profile_name}.yaml"));
+    let manifest_path = paths.recipes_dir.join(format!("{recipe_name}.yaml"));
     if !manifest_path.is_file() {
-        return Err(crate::config::ConfigError::ProfileNotFound {
-            name: profile_name.to_owned(),
+        return Err(crate::config::ConfigError::ConfigRecipeNotFound {
+            name: recipe_name.to_owned(),
             path: manifest_path,
         });
     }
@@ -60,7 +60,7 @@ pub(crate) fn compose(
         layer_refs.push(LayerRef {
             name: layer_name.clone(),
             path: layer_path,
-            source: LayerSource::Profile,
+            source: LayerSource::ConfigRecipe,
         });
     }
 
@@ -79,18 +79,18 @@ pub(crate) fn compose(
     })
 }
 
-/// Resolve the named profile manifest path if it exists.
+/// Resolve the named config-recipe manifest path if it exists.
 #[allow(
     clippy::manual_map,
     clippy::option_if_let_else,
     clippy::single_option_map
 )]
 pub(crate) fn resolve(
-    profile_name: Option<&str>,
-    profiles_dir: &camino::Utf8Path,
+    recipe_name: Option<&str>,
+    recipes_dir: &camino::Utf8Path,
 ) -> Option<Utf8PathBuf> {
-    match profile_name {
-        Some(name) => Some(profiles_dir.join(format!("{name}.yaml"))),
+    match recipe_name {
+        Some(name) => Some(recipes_dir.join(format!("{name}.yaml"))),
         None => None,
     }
 }

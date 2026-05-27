@@ -1,10 +1,9 @@
 ---
-source: tests/cmd_profile_show.rs
-assertion_line: 25
+source: tests/cmd_config_recipe_show.rs
 expression: "env.normalize_text(&String::from_utf8(output).unwrap())"
 ---
-profile: default
-manifest: <TMP>/config/codex-session/profiles/default.yaml
+config-recipe: default
+manifest: <TMP>/config/codex-session/config-recipes/default.yaml
 layers:
   base => <TMP>/config/codex-session/settings/base.toml (exists=true)
   work => <TMP>/config/codex-session/settings/work.toml (exists=true)

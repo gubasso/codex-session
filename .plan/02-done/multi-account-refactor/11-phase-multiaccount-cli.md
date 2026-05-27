@@ -22,13 +22,13 @@ Add the **top-level** `account` subcommand with sub-verbs `add / list / current 
 - `.plan/multi-account-refactor/05-cli-design.md` — full subcommand tree, global flags, conformance checklist.
 - `/home/gu/Projects/docs-n-notes/tech/languages/rust/cli-spec/02-subcommand-pattern.md` — the four-edit rule + help rendering tiers.
 - `/home/gu/Projects/docs-n-notes/tech/programming/cli-design/06-cli-wrapper-design/process-and-posix.md` §5 (sub­command namespacing).
-- Existing `src/cli/profile.rs` + `src/commands/profile_{list,show,compose}.rs` — the **template** for this round's `account` shape. Match the pattern.
+- Existing `src/cli/config_recipe.rs` + `src/commands/profile_{list,show,compose}.rs` — the **template** for this round's `account` shape. Match the pattern.
 - `src/cli/argv.rs::legacy_self_invocation` — do **NOT** loosen the legacy `self` reject. R2 adds top-level verbs, not `self <verb>`.
 
 ## Numbered implementation steps
 
 1. **Add `cli::Commands::Account(AccountArgs)` variant.**
-    - New file `src/cli/account.rs` (parse-shape only; matches existing `src/cli/profile.rs`).
+    - New file `src/cli/account.rs` (parse-shape only; matches existing `src/cli/config_recipe.rs`).
     - `AccountArgs` has `#[command(subcommand)] sub: AccountSubcommand`.
     - `AccountSubcommand` enum variants: `Add(AddArgs)`, `List(ListArgs)`, `Current(CurrentArgs)`, `Use(UseArgs)`, `Remove(RemoveArgs)`.
     - Each sub-args struct has its own `#[derive(clap::Args)]` block with `about = "..."` per the cli-spec Tier 1 help convention.
@@ -46,7 +46,7 @@ Add the **top-level** `account` subcommand with sub-verbs `add / list / current 
 
 4. **Add `--account <name>` global flag.**
     - In `src/cli/mod.rs::GlobalArgs`, add `pub(crate) account: Option<AccountSelector>` where `AccountSelector` is an enum: `Named(AccountId) | Auto`. Custom `FromStr`: `"auto"` → `AccountSelector::Auto`; anything else → parses through `AccountId::from_str`.
-    - Env mirror: `CODEX_SESSION_ACCOUNT`. Apply the same mirroring pattern the existing `--profile` flag uses.
+    - Env mirror: `CODEX_SESSION_ACCOUNT`. Apply the same mirroring pattern the existing `--config-recipe` flag uses.
 
 5. **Add `[account]` section to `Config` (`src/config/mod.rs`).**
     - `pub(crate) struct AccountConfig { pub default: Option<AccountId>, pub pinned: Option<AccountId>, pub registry_dir: Option<Utf8PathBuf> }`.
@@ -84,7 +84,7 @@ Add the **top-level** `account` subcommand with sub-verbs `add / list / current 
 10. **Create / extend `src/ui/help_extras.txt`** and wire `#[command(after_long_help = include_str!("../ui/help_extras.txt"))]` on `Cli` in `src/cli/mod.rs`.
     - Content sections:
       - `WRAPPER OVERVIEW` — one paragraph: "codex-session wraps `codex` with persistent CODEX_HOME, multi-account support, and quota-aware selection."
-      - `WRAPPER VERBS` — bulleted: `version`, `completion`, `config`, `profile`, `doctor`, `account`. One-liner each.
+      - `WRAPPER VERBS` — bulleted: `version`, `completion`, `config`, `config_recipe`, `doctor`, `account`. One-liner each.
       - `PASSTHROUGH` — "Any verb not listed above is forwarded verbatim to codex. Use `--` to disambiguate."
       - `ACCOUNT MANAGEMENT` — `codex-session account add work --from-native`, `account list`, `account use <name>`, `--account <name>` flag.
       - `ENV VARS` — `CODEX_SESSION_GROUP`, `CODEX_SESSION_ACCOUNT`, `CODEX_SESSION_CHILD_BIN`.

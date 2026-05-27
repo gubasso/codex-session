@@ -234,7 +234,7 @@ Stripping `self` mentally from `self account list` yields `account list`. Still 
 
 ### Decision
 
-All new wrapper-owned subcommands live at the **top level**. `codex-session account add/list/current/use/remove/quota/cooldown`. This also matches the precedent the wrapper already set with its existing `version` / `completion` / `config` / `profile` / `doctor` verbs.
+All new wrapper-owned subcommands live at the **top level**. `codex-session account add/list/current/use/remove/quota/cooldown`. This also matches the precedent the wrapper already set with its existing `version` / `completion` / `config` / `config_recipe` / `doctor` verbs.
 
 ### Consequences
 

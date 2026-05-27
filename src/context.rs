@@ -85,7 +85,7 @@ impl LazySession {
     }
 }
 
-/// Session-scoped state shared by profile composition commands.
+/// Session-scoped state shared by config-recipe composition commands.
 pub(crate) struct SessionContext {
     #[allow(dead_code)]
     pub(crate) account: crate::services::account::AccountId,
@@ -96,7 +96,7 @@ pub(crate) struct SessionContext {
     #[allow(dead_code)]
     pub(crate) group_id_source: crate::services::session::group_id::GroupIdSource,
     #[allow(dead_code)]
-    pub(crate) composition: Option<crate::services::profile::Composition>,
+    pub(crate) composition: Option<crate::services::config_recipe::Composition>,
 }
 
 /// Shared application state.

@@ -377,17 +377,17 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
 /// only that section, suitable for writing to the probe's isolated
 /// `CODEX_HOME`.
 fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
-    let profile_name = ctx.config.profile.active.as_deref().ok_or_else(|| {
+    let recipe_name = ctx.config.config_recipe.active.as_deref().ok_or_else(|| {
         AppError::Account(AccountError::PingProfileMissing {
-            detail: "no active codex-session profile".to_owned(),
+            detail: "no active codex-session config-recipe".to_owned(),
         })
     })?;
 
-    let composition = crate::services::profile::compose(
-        profile_name,
-        &crate::services::profile::ProfilePaths {
-            profiles_dir: ctx.config.profile.profiles_dir.clone(),
-            settings_dir: ctx.config.profile.settings_dir.clone(),
+    let composition = crate::services::config_recipe::compose(
+        recipe_name,
+        &crate::services::config_recipe::ConfigRecipePaths {
+            recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
+            settings_dir: ctx.config.config_recipe.settings_dir.clone(),
             cache_settings: cache_settings_path(ctx),
         },
     )?;
@@ -401,7 +401,7 @@ fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
         .ok_or_else(|| {
             let detail = format!(
                 "[profiles.{PING_PROFILE}] not found in \
-                composed settings for profile `{profile_name}`"
+                composed settings for config-recipe `{recipe_name}`"
             );
             AppError::Account(AccountError::PingProfileMissing { detail })
         })?;
@@ -422,7 +422,7 @@ fn cache_settings_path(ctx: &AppContext) -> Option<Utf8PathBuf> {
     path.is_file().then_some(path)
 }
 
-pub(crate) fn validate_ping_profile(ctx: &AppContext) -> Result<(), AppError> {
+pub(crate) fn validate_ping_config_recipe(ctx: &AppContext) -> Result<(), AppError> {
     extract_ping_config(ctx).map(|_| ())
 }
 

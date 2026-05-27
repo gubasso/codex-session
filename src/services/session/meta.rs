@@ -1,7 +1,7 @@
 //! Session metadata writing.
 //!
 //! What this is: serializable metadata for a composed wrapper session.
-//! What this is not: profile composition or group-id resolution.
+//! What this is not: config-recipe composition or group-id resolution.
 
 #![allow(clippy::result_large_err)]
 
@@ -12,7 +12,7 @@ use std::io::Write as _;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct SessionMeta<'a> {
-    pub(crate) profile: Option<&'a str>,
+    pub(crate) config_recipe: Option<&'a str>,
     pub(crate) group_id: &'a str,
     pub(crate) cwd: &'a Utf8Path,
     pub(crate) started_at: String,
@@ -22,14 +22,14 @@ pub(crate) struct SessionMeta<'a> {
 
 impl<'a> SessionMeta<'a> {
     pub(crate) fn new(
-        profile: Option<&'a str>,
+        config_recipe: Option<&'a str>,
         group_id: &'a str,
         cwd: &'a Utf8Path,
         account: &'a str,
         account_source: &'a str,
     ) -> Self {
         Self {
-            profile,
+            config_recipe,
             group_id,
             cwd,
             started_at: started_at_now(),

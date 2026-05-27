@@ -42,7 +42,7 @@ pub(crate) struct CheckSummary {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct DoctorReport {
-    pub(crate) profile: Option<String>,
+    pub(crate) config_recipe: Option<String>,
     pub(crate) account: String,
     pub(crate) account_source: String,
     pub(crate) group_id: String,
@@ -53,10 +53,10 @@ pub(crate) struct DoctorReport {
     pub(crate) checks: Vec<CheckResult>,
     pub(crate) summary: CheckSummary,
     pub(crate) next_steps: Vec<String>,
-    /// Per-profile merged env, keyed by profile name. Empty unless
-    /// `--show-env` was passed. In single-profile mode this contains at
-    /// most one entry (the active profile); in `--all-profiles` mode it
-    /// can contain one entry per profile whose composition succeeded.
+    /// Per-config-recipe merged env, keyed by config-recipe name. Empty unless
+    /// `--show-env` was passed. In single-config-recipe mode this contains at
+    /// most one entry (the active config-recipe); in `--all-config-recipes` mode it
+    /// can contain one entry per config-recipe whose composition succeeded.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) env: BTreeMap<String, BTreeMap<String, String>>,
 }
@@ -192,60 +192,60 @@ fn build_report(
     let active_name = resolved_account.as_ref().map(|a| a.id.as_str());
     checks.extend(check_account_health(&accounts, active_name));
 
-    // 1. Active profile resolution + source.
-    let active = ctx.config.profile.active.clone();
-    checks.push(check_active_profile(ctx, active.as_deref()));
+    // 1. Active config-recipe resolution + source.
+    let active = ctx.config.config_recipe.active.clone();
+    checks.push(check_active_config_recipe(ctx, active.as_deref()));
 
-    // 2-8. Per-profile checks: manifest, layers, composition, env extraction.
-    if args.all_profiles {
-        match discover_profiles(&ctx.config.profile.profiles_dir) {
-            DiscoveredProfiles::Found(profiles) if profiles.is_empty() => {
+    // 2-8. Per-config-recipe checks: manifest, layers, composition, env extraction.
+    if args.all_config_recipes {
+        match discover_recipes(&ctx.config.config_recipe.recipes_dir) {
+            DiscoveredRecipes::Found(recipes) if recipes.is_empty() => {
                 checks.push(warn(
-                    "profiles.all",
+                    "config-recipes.all",
                     format!(
-                        "no profile manifests found in {}",
-                        ctx.config.profile.profiles_dir
+                        "no config-recipe manifests found in {}",
+                        ctx.config.config_recipe.recipes_dir
                     ),
                 ));
                 next_steps.push(format!(
                     "create a manifest at {}/<name>.yaml",
-                    ctx.config.profile.profiles_dir
+                    ctx.config.config_recipe.recipes_dir
                 ));
             }
-            DiscoveredProfiles::Found(profiles) => {
-                for name in &profiles {
-                    check_one_profile(ctx, name, &mut checks, &mut env_dump, args.show_env);
+            DiscoveredRecipes::Found(recipes) => {
+                for name in &recipes {
+                    check_one_recipe(ctx, name, &mut checks, &mut env_dump, args.show_env);
                 }
             }
-            DiscoveredProfiles::NotFound => {
+            DiscoveredRecipes::NotFound => {
                 checks.push(warn(
-                    "profiles.all",
+                    "config-recipes.all",
                     format!(
-                        "profiles directory does not exist: {}",
-                        ctx.config.profile.profiles_dir
+                        "config-recipes directory does not exist: {}",
+                        ctx.config.config_recipe.recipes_dir
                     ),
                 ));
                 next_steps.push(format!(
                     "create a manifest at {}/<name>.yaml",
-                    ctx.config.profile.profiles_dir
+                    ctx.config.config_recipe.recipes_dir
                 ));
             }
-            DiscoveredProfiles::Unreadable(reason) => {
+            DiscoveredRecipes::Unreadable(reason) => {
                 checks.push(fail(
-                    "profiles.all",
+                    "config-recipes.all",
                     format!(
-                        "could not read profiles directory {}: {reason}",
-                        ctx.config.profile.profiles_dir
+                        "could not read config-recipes directory {}: {reason}",
+                        ctx.config.config_recipe.recipes_dir
                     ),
                 ));
             }
         }
     } else if let Some(name) = active.as_deref() {
-        check_one_profile(ctx, name, &mut checks, &mut env_dump, args.show_env);
+        check_one_recipe(ctx, name, &mut checks, &mut env_dump, args.show_env);
     } else {
         next_steps.push(format!(
-            "create a manifest at {}/default.yaml or pass --profile NAME",
-            ctx.config.profile.profiles_dir
+            "create a manifest at {}/default.yaml or pass --config-recipe NAME",
+            ctx.config.config_recipe.recipes_dir
         ));
     }
 
@@ -280,7 +280,7 @@ fn build_report(
         },
     );
     DoctorReport {
-        profile: active,
+        config_recipe: active,
         account: account_name.clone(),
         account_source: account_source.clone(),
         group_id,
@@ -298,14 +298,18 @@ fn build_report(
     }
 }
 
-fn check_one_profile(
+fn check_one_recipe(
     ctx: &crate::context::AppContext,
     name: &str,
     checks: &mut Vec<CheckResult>,
     env_dump: &mut BTreeMap<String, BTreeMap<String, String>>,
     show_env: bool,
 ) {
-    let manifest_path = ctx.config.profile.profiles_dir.join(format!("{name}.yaml"));
+    let manifest_path = ctx
+        .config
+        .config_recipe
+        .recipes_dir
+        .join(format!("{name}.yaml"));
 
     // 2. Manifest exists.
     let exists = match std::fs::metadata(manifest_path.as_std_path()) {
@@ -334,7 +338,7 @@ fn check_one_profile(
     ));
 
     // 3+4. Parse + schema (combined in Manifest::parse).
-    let manifest = match crate::services::profile::Manifest::parse(manifest_path) {
+    let manifest = match crate::services::config_recipe::Manifest::parse(manifest_path) {
         Ok(m) => {
             checks.push(ok(
                 format!("manifest.{name}.parse"),
@@ -354,12 +358,12 @@ fn check_one_profile(
     }
 
     // 8. Composition dry-run.
-    let paths = crate::services::profile::ProfilePaths {
-        profiles_dir: ctx.config.profile.profiles_dir.clone(),
-        settings_dir: ctx.config.profile.settings_dir.clone(),
+    let paths = crate::services::config_recipe::ConfigRecipePaths {
+        recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
+        settings_dir: ctx.config.config_recipe.settings_dir.clone(),
         cache_settings: cache_settings_path(ctx),
     };
-    match crate::services::profile::compose(name, &paths) {
+    match crate::services::config_recipe::compose(name, &paths) {
         Ok(composition) => {
             checks.push(ok(
                 format!("composition.{name}.dry-run"),
@@ -382,16 +386,16 @@ fn check_one_profile(
 
 fn check_one_layer(
     ctx: &crate::context::AppContext,
-    profile_name: &str,
+    recipe_name: &str,
     layer_name: &str,
     checks: &mut Vec<CheckResult>,
 ) {
     let layer_path = ctx
         .config
-        .profile
+        .config_recipe
         .settings_dir
         .join(format!("{layer_name}.toml"));
-    let check_id = format!("layer.{profile_name}.{layer_name}");
+    let check_id = format!("layer.{recipe_name}.{layer_name}");
 
     match std::fs::metadata(layer_path.as_std_path()) {
         Ok(meta) if meta.is_file() => {}
@@ -412,7 +416,7 @@ fn check_one_layer(
     }
     checks.push(ok(format!("{check_id}.exists"), layer_path.to_string()));
 
-    match crate::services::profile::read_layer(&layer_path) {
+    match crate::services::config_recipe::read_layer(&layer_path) {
         Ok(table) => {
             checks.push(ok(
                 format!("{check_id}.parse"),
@@ -428,25 +432,28 @@ fn check_one_layer(
     }
 }
 
-fn check_active_profile(ctx: &crate::context::AppContext, active: Option<&str>) -> CheckResult {
+fn check_active_config_recipe(
+    ctx: &crate::context::AppContext,
+    active: Option<&str>,
+) -> CheckResult {
     let Some(name) = active else {
         return warn(
-            "profile.active",
-            "stock mode (no active profile)".to_owned(),
+            "config-recipe.active",
+            "stock mode (no active config-recipe)".to_owned(),
         );
     };
-    let source = active_profile_source(ctx, name);
-    ok("profile.active", format!("{name} (source: {source})"))
+    let source = active_config_recipe_source(ctx, name);
+    ok("config-recipe.active", format!("{name} (source: {source})"))
 }
 
-fn active_profile_source(ctx: &crate::context::AppContext, name: &str) -> &'static str {
-    if ctx.global.profile.as_deref() == Some(name) {
+fn active_config_recipe_source(ctx: &crate::context::AppContext, name: &str) -> &'static str {
+    if ctx.global.config_recipe.as_deref() == Some(name) {
         return "cli";
     }
-    if std::env::var("CODEX_SESSION_PROFILE").ok().as_deref() == Some(name) {
+    if std::env::var("CODEX_SESSION_CONFIG_RECIPE").ok().as_deref() == Some(name) {
         return "env";
     }
-    if ctx.config.profile.default.as_deref() == Some(name) {
+    if ctx.config.config_recipe.default.as_deref() == Some(name) {
         return "config.default";
     }
     "fallback"
@@ -461,7 +468,7 @@ fn check_layer_env(check_id: &str, env_value: &toml::Value) -> CheckResult {
     };
     let mut problems = Vec::new();
     for (key, value) in table {
-        if !crate::services::profile::is_valid_env_key(key) {
+        if !crate::services::config_recipe::is_valid_env_key(key) {
             problems.push(format!("`{key}` must match ^[A-Za-z_][A-Za-z0-9_]*$"));
             continue;
         }
@@ -484,8 +491,8 @@ fn check_layer_env(check_id: &str, env_value: &toml::Value) -> CheckResult {
 }
 
 fn check_orphan_layers(ctx: &crate::context::AppContext) -> CheckResult {
-    let settings_dir = &ctx.config.profile.settings_dir;
-    let profiles_dir = &ctx.config.profile.profiles_dir;
+    let settings_dir = &ctx.config.config_recipe.settings_dir;
+    let recipes_dir = &ctx.config.config_recipe.recipes_dir;
     if !settings_dir.is_dir() {
         return ok("layers.orphan", "no settings/ directory".to_owned());
     }
@@ -503,13 +510,13 @@ fn check_orphan_layers(ctx: &crate::context::AppContext) -> CheckResult {
     let ReferencedLayers {
         names: referenced,
         unparsed,
-        profiles_dir_unreadable,
-    } = collect_referenced_layers(profiles_dir);
+        recipes_dir_unreadable,
+    } = collect_referenced_layers(recipes_dir);
 
-    if let Some(reason) = profiles_dir_unreadable {
+    if let Some(reason) = recipes_dir_unreadable {
         return fail(
             "layers.orphan",
-            format!("could not read profiles directory {profiles_dir}: {reason}"),
+            format!("could not read config-recipes directory {recipes_dir}: {reason}"),
         );
     }
 
@@ -555,33 +562,33 @@ struct ReferencedLayers {
     /// is non-empty, `names` is incomplete and orphan detection is best
     /// effort.
     unparsed: Vec<String>,
-    /// `Some(err)` when the profiles directory itself could not be read.
+    /// `Some(err)` when the `config-recipes` directory itself could not be read.
     /// In that case `names` is empty and `unparsed` is meaningless;
     /// callers should bubble this up as a hard failure instead of
     /// computing orphans.
-    profiles_dir_unreadable: Option<String>,
+    recipes_dir_unreadable: Option<String>,
 }
 
-fn collect_referenced_layers(profiles_dir: &Utf8Path) -> ReferencedLayers {
+fn collect_referenced_layers(recipes_dir: &Utf8Path) -> ReferencedLayers {
     let mut names = BTreeSet::new();
     let mut unparsed: Vec<String> = Vec::new();
     // Treat "directory does not exist" as the empty reference set (it's
     // a legitimate fresh-install state). Anything else — permission
     // denied, NotADirectory, IO error — is reported back to the caller.
-    let entries = match std::fs::read_dir(profiles_dir.as_std_path()) {
+    let entries = match std::fs::read_dir(recipes_dir.as_std_path()) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             return ReferencedLayers {
                 names,
                 unparsed,
-                profiles_dir_unreadable: None,
+                recipes_dir_unreadable: None,
             };
         }
         Err(err) => {
             return ReferencedLayers {
                 names,
                 unparsed,
-                profiles_dir_unreadable: Some(err.to_string()),
+                recipes_dir_unreadable: Some(err.to_string()),
             };
         }
     };
@@ -599,7 +606,7 @@ fn collect_referenced_layers(profiles_dir: &Utf8Path) -> ReferencedLayers {
             unparsed.push(stem);
             continue;
         };
-        match crate::services::profile::Manifest::parse(utf8) {
+        match crate::services::config_recipe::Manifest::parse(utf8) {
             Ok(m) => {
                 for name in m.settings_layers {
                     names.insert(name);
@@ -612,7 +619,7 @@ fn collect_referenced_layers(profiles_dir: &Utf8Path) -> ReferencedLayers {
     ReferencedLayers {
         names,
         unparsed,
-        profiles_dir_unreadable: None,
+        recipes_dir_unreadable: None,
     }
 }
 
@@ -924,11 +931,11 @@ fn dir_size(path: &std::path::Path) -> u64 {
     total
 }
 
-enum DiscoveredProfiles {
+enum DiscoveredRecipes {
     /// `read_dir` succeeded; the vec may be empty if no `.yaml` files
     /// matched.
     Found(Vec<String>),
-    /// The profiles directory does not exist yet (legitimate fresh-install
+    /// The `config-recipes` directory does not exist yet (legitimate fresh-install
     /// state).
     NotFound,
     /// `read_dir` failed for a reason other than `NotFound` (permission
@@ -936,26 +943,26 @@ enum DiscoveredProfiles {
     Unreadable(String),
 }
 
-fn discover_profiles(profiles_dir: &Utf8Path) -> DiscoveredProfiles {
-    let entries = match std::fs::read_dir(profiles_dir.as_std_path()) {
+fn discover_recipes(recipes_dir: &Utf8Path) -> DiscoveredRecipes {
+    let entries = match std::fs::read_dir(recipes_dir.as_std_path()) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return DiscoveredProfiles::NotFound;
+            return DiscoveredRecipes::NotFound;
         }
-        Err(err) => return DiscoveredProfiles::Unreadable(err.to_string()),
+        Err(err) => return DiscoveredRecipes::Unreadable(err.to_string()),
     };
-    let mut profiles = Vec::new();
+    let mut recipes = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_none_or(|ext| ext != "yaml") {
             continue;
         }
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            profiles.push(stem.to_owned());
+            recipes.push(stem.to_owned());
         }
     }
-    profiles.sort();
-    DiscoveredProfiles::Found(profiles)
+    recipes.sort();
+    DiscoveredRecipes::Found(recipes)
 }
 
 fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
@@ -984,7 +991,7 @@ fn hint_for(name: &str) -> &'static str {
     let suffix = name.rsplit('.').next().unwrap_or("");
     if name.starts_with("manifest.") {
         match suffix {
-            "exists" => "create the missing manifest under profiles/",
+            "exists" => "create the missing manifest under config-recipes/",
             "parse" => "fix the YAML schema (settings-layers: [..])",
             _ => "see check detail",
         }

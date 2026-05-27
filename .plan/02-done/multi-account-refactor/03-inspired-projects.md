@@ -13,16 +13,16 @@ GitHub stats verified via `gh api repos/<owner>/<repo>` on 2026-05-17. Consolida
 - **Repo:** <https://github.com/Dicklesworthstone/coding_agent_account_manager>
 - **Stars / last push:** 124★ / 2026-05-06
 - **Lang / license:** Go / MIT-ish (with OpenAI/Anthropic Rider)
-- **What it does:** Sub-100 ms file-based auth swap across Claude Code / Codex / Gemini. `caam activate <tool> --auto` picks best profile via multi-factor scoring. `caam run` is a transparent wrapper that auto-detects rate limits and fails over to the next profile. Two modes:
+- **What it does:** Sub-100 ms file-based auth swap across Claude Code / Codex / Gemini. `caam activate <tool> --auto` picks best config_recipe via multi-factor scoring. `caam run` is a transparent wrapper that auto-detects rate limits and fails over to the next config_recipe. Two modes:
   - **Vault Profiles** — swaps `auth.json` in place (the dominant abstraction).
-  - **Isolated Profiles** (`caam exec`) — per-profile `$HOME` + `$CODEX_HOME` (effectively Option C).
+  - **Isolated Profiles** (`caam exec`) — per-config_recipe `$HOME` + `$CODEX_HOME` (effectively Option C).
 - **Fit:** 4/5 — closest transparent-wrapper UX; multi-tool; sub-100ms swap. Rotation is reactive (post-429), NOT proactive at 50%.
 
 **What we borrowed:**
 
 - **Regex 429 detector** (verbatim): `(?i)\b(429|rate[- ]limit|too many requests|quota exceeded|slow down)\b`. Source: `raw.githubusercontent.com/Dicklesworthstone/coding_agent_account_manager/refs/heads/main/internal/ratelimit/detector.go`.
 - **Scoring formula** (verbatim): cooldown disqualifying; health `±100/±50`; `penalty * 10` subtraction; plan bonus `+30` enterprise / `+20` pro|team; recency penalty for recent use, reward for long-idle; real-time availability `availScore - 50`, additional `-30` if weekly is high. Source: `raw.githubusercontent.com/Dicklesworthstone/coding_agent_account_manager/refs/heads/main/internal/rotation/rotation.go`.
-- **Retry-with-rotation harness shape** (`caam run` wraps exec, scans stdout/stderr, retries on 429 with the next eligible profile). Source: `raw.githubusercontent.com/Dicklesworthstone/coding_agent_account_manager/refs/heads/main/internal/wrap/wrap.go`.
+- **Retry-with-rotation harness shape** (`caam run` wraps exec, scans stdout/stderr, retries on 429 with the next eligible config_recipe). Source: `raw.githubusercontent.com/Dicklesworthstone/coding_agent_account_manager/refs/heads/main/internal/wrap/wrap.go`.
 
 **What we left:**
 
@@ -122,7 +122,7 @@ GitHub stats verified via `gh api repos/<owner>/<repo>` on 2026-05-17. Consolida
 - **Repo:** <https://github.com/Spielewoy/multi-codex>
 - **Stars / last push:** 65★ / 2026-05-13
 - **Lang / license:** Shell / no clear license
-- **What it does:** Run multiple isolated Codex CLI instances at once via `CODEX_HOME`. Each profile gets its own account, config, sessions, skills, agents. No quota balancing.
+- **What it does:** Run multiple isolated Codex CLI instances at once via `CODEX_HOME`. Each config_recipe gets its own account, config, sessions, skills, agents. No quota balancing.
 - **Validates:** the per-`CODEX_HOME` isolation pattern (the foundation of our two-axis layout). Single-axis (account-only); doesn't solve the group-id problem.
 
 ### `Ducksss/codex-profiles`
@@ -130,7 +130,7 @@ GitHub stats verified via `gh api repos/<owner>/<repo>` on 2026-05-17. Consolida
 - **Repo:** <https://github.com/Ducksss/codex-profiles>
 - **Stars / last push:** 1★ / 2026-05-13
 - **Lang / license:** Shell / MIT
-- **What it does:** Launches Codex CLI/Desktop with a named `CODEX_HOME`. Each profile fully isolated (auth + config + sessions + logs). Manual selection (`codex-profile login work`, `codex-profile app personal`); no rotation, no quota.
+- **What it does:** Launches Codex CLI/Desktop with a named `CODEX_HOME`. Each config_recipe fully isolated (auth + config + sessions + logs). Manual selection (`codex-config_recipe login work`, `codex-config_recipe app personal`); no rotation, no quota.
 - **Validates:** the *cleanest* expression of the per-`CODEX_HOME` pattern. Architectural template referenced by `.plan/codex-session-multi-account-research.md` §6.
 
 **Announcement:** [codex-profiles — OpenAI Developer Community](https://community.openai.com/t/codex-profiles-switch-codex-accounts-without-copying-auth-json/1380415)
@@ -192,4 +192,4 @@ GitHub stats verified via `gh api repos/<owner>/<repo>` on 2026-05-17. Consolida
 
 ## Unique novelty in this design
 
-**No reviewed project solves the `(account × group_id)` two-axis problem.** caam, ndycode, Loongphy, codex-profiles, multi-codex, prakersh all collapse to one axis (account, profile, or project). The group axis (per-terminal / per-PPID stable id) is unique to codex-session because we're the only wrapper acting as a transparent shim for headless agent flows (`/prex`, `/review-loop`). ADR [D2](04-decisions.md) documents the rationale.
+**No reviewed project solves the `(account × group_id)` two-axis problem.** caam, ndycode, Loongphy, codex-profiles, multi-codex, prakersh all collapse to one axis (account, config_recipe, or project). The group axis (per-terminal / per-PPID stable id) is unique to codex-session because we're the only wrapper acting as a transparent shim for headless agent flows (`/prex`, `/review-loop`). ADR [D2](04-decisions.md) documents the rationale.

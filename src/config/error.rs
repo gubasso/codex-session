@@ -20,7 +20,7 @@ impl ConfigError {
             Self::NonUtf8Path(_) => "config-non-utf8-path",
             Self::Io(_) => "config-io",
             Self::EnvParse { .. } => "config-env-parse",
-            Self::ProfileNotFound { .. } => "profile-not-found",
+            Self::ConfigRecipeNotFound { .. } => "config-recipe-not-found",
             Self::ManifestParse { .. } => "manifest-parse",
             Self::ManifestSchema { .. } => "manifest-schema",
             Self::LayerNotFound { .. } => "layer-not-found",
@@ -87,23 +87,23 @@ pub(crate) enum ConfigError {
         expected: &'static str,
     },
 
-    /// A named profile manifest was not found.
-    #[error("config: profile `{name}` not found")]
-    ProfileNotFound {
+    /// A named config-recipe manifest was not found.
+    #[error("config: config-recipe `{name}` not found")]
+    ConfigRecipeNotFound {
         name: String,
         path: camino::Utf8PathBuf,
     },
 
-    /// A profile manifest could not be parsed as YAML.
-    #[error("config: failed to parse profile manifest {path}")]
+    /// A config-recipe manifest could not be parsed as YAML.
+    #[error("config: failed to parse config-recipe manifest {path}")]
     ManifestParse {
         path: camino::Utf8PathBuf,
         #[source]
         source: serde_yaml_ng::Error,
     },
 
-    /// A profile manifest was syntactically valid YAML but failed schema validation.
-    #[error("config: invalid profile manifest {path}")]
+    /// A config-recipe manifest was syntactically valid YAML but failed schema validation.
+    #[error("config: invalid config-recipe manifest {path}")]
     ManifestSchema {
         path: camino::Utf8PathBuf,
         reason: String,
@@ -136,8 +136,8 @@ pub(crate) enum ConfigError {
         reason: String,
     },
 
-    /// An invalid key/value pair appeared in a profile `[env]` table.
-    #[error("config: invalid profile env key `{key}`")]
+    /// An invalid key/value pair appeared in a config-recipe `[env]` table.
+    #[error("config: invalid config-recipe env key `{key}`")]
     EnvKeyInvalid { key: String, reason: String },
 
     /// An invalid account config value could not be parsed into `AccountId`.

@@ -9,7 +9,7 @@ use support::TestEnv;
 fn dry_run_prints_invocation_session_and_codex_home_without_exec() {
     let env = TestEnv::new();
     env.make_fake_codex();
-    env.install_profile(
+    env.install_config_recipe(
         "default",
         "settings-layers:\n  - base\n",
         &[("base", "[env]\nHELLO = \"world\"\n")],

@@ -1,10 +1,9 @@
 ---
 source: tests/cmd_config_status.rs
-assertion_line: 32
 expression: stdout
 ---
-active-profile: default
-manifest-path:  <TMP>/config/codex-session/profiles/default.yaml
+active-config-recipe: default
+manifest-path:  <TMP>/config/codex-session/config-recipes/default.yaml
 account:        default
 account-source: lru
 group-id:       stable
@@ -28,4 +27,4 @@ sources:
   user:    none
   project: none
   env:     CODEX_SESSION_*
-  cli:     CliValueOverrides { log: None, child: None, profile: None }
+  cli:     CliValueOverrides { log: None, child: None, config_recipe: None }

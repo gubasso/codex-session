@@ -29,10 +29,10 @@ fn config_status_with_trailing_args_returns_ex_usage() {
 }
 
 #[test]
-fn profile_show_with_trailing_args_returns_ex_usage() {
+fn config_recipe_show_with_trailing_args_returns_ex_usage() {
     TestEnv::new()
         .cmd()
-        .args(["profile", "show", "one", "extra"])
+        .args(["config-recipe", "show", "one", "extra"])
         .assert()
         .code(64)
         .stdout("")

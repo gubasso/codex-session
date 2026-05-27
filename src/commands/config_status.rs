@@ -1,7 +1,7 @@
 //! `config status` command.
 //!
-//! What this is: read-only reporting for active profile and session-root state.
-//! What this is not: pass-through execution or profile composition writes.
+//! What this is: read-only reporting for active config-recipe and session-root state.
+//! What this is not: pass-through execution or config-recipe composition writes.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use camino::Utf8PathBuf;
@@ -9,7 +9,7 @@ use camino::Utf8PathBuf;
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct ConfigStatusView {
-    pub(crate) active_profile: Option<String>,
+    pub(crate) active_config_recipe: Option<String>,
     pub(crate) manifest_path: Option<Utf8PathBuf>,
     pub(crate) layer_paths: Vec<LayerEntry>,
     pub(crate) account: String,
@@ -93,13 +93,13 @@ pub(crate) fn build_view(
         }
     };
 
-    // `config status` is an introspection command: even if the active profile
+    // `config status` is an introspection command: even if the active config-recipe
     // is missing or its manifest is malformed, still report what we resolved
     // and surface the error inline via a synthetic layer entry. The plan
     // (Phase 12, Step D6) locks in this degraded-status behavior.
-    let (manifest_path, layer_paths) = ctx.config.profile.active.as_deref().map_or_else(
+    let (manifest_path, layer_paths) = ctx.config.config_recipe.active.as_deref().map_or_else(
         || (None, Vec::new()),
-        |active_profile| profile_layers_or_error(ctx, active_profile),
+        |active_config_recipe| config_recipe_layers_or_error(ctx, active_config_recipe),
     );
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
     let account_list = registry.list().unwrap_or_default();
@@ -125,7 +125,7 @@ pub(crate) fn build_view(
         .count();
 
     Ok(ConfigStatusView {
-        active_profile: ctx.config.profile.active.clone(),
+        active_config_recipe: ctx.config.config_recipe.active.clone(),
         manifest_path,
         layer_paths,
         account: resolved_account
@@ -182,35 +182,39 @@ const fn group_id_source_label(
     }
 }
 
-fn profile_layers_or_error(
+fn config_recipe_layers_or_error(
     ctx: &crate::context::AppContext,
-    active_profile: &str,
+    active_config_recipe: &str,
 ) -> (Option<Utf8PathBuf>, Vec<LayerEntry>) {
     let manifest_path = ctx
         .config
-        .profile
-        .profiles_dir
-        .join(format!("{active_profile}.yaml"));
+        .config_recipe
+        .recipes_dir
+        .join(format!("{active_config_recipe}.yaml"));
 
     if !manifest_path.is_file() {
         // Report missing manifest as a synthetic entry so JSON consumers still
-        // see the active profile + an error message instead of a hard failure.
+        // see the active config-recipe + an error message instead of a hard failure.
         let entry = LayerEntry {
-            name: active_profile.to_owned(),
+            name: active_config_recipe.to_owned(),
             path: manifest_path.clone(),
             exists: false,
-            error: Some(format!("profile `{active_profile}` not found")),
+            error: Some(format!("config-recipe `{active_config_recipe}` not found")),
         };
         return (Some(manifest_path), vec![entry]);
     }
 
-    match crate::services::profile::Manifest::parse(manifest_path.clone()) {
+    match crate::services::config_recipe::Manifest::parse(manifest_path.clone()) {
         Ok(manifest) => {
             let entries = manifest
                 .settings_layers
                 .into_iter()
                 .map(|name| {
-                    let path = ctx.config.profile.settings_dir.join(format!("{name}.toml"));
+                    let path = ctx
+                        .config
+                        .config_recipe
+                        .settings_dir
+                        .join(format!("{name}.toml"));
                     LayerEntry {
                         name,
                         exists: path.is_file(),
@@ -223,7 +227,7 @@ fn profile_layers_or_error(
         }
         Err(err) => {
             let entry = LayerEntry {
-                name: active_profile.to_owned(),
+                name: active_config_recipe.to_owned(),
                 path: manifest_path.clone(),
                 exists: true,
                 error: Some(err.to_string()),

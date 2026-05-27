@@ -168,16 +168,16 @@ wrapper aligned with codex.
 
 - **Cache layer is the trust persistence home.** `codex-session` writes
   trust decisions to `<XDG_CACHE_HOME>/codex-session/settings.toml`, which
-  is loaded first by `compose()` (`src/services/profile/mod.rs`). The
+  is loaded first by `compose()` (`src/services/config_recipe/mod.rs`). The
   stow-managed user layers in `<XDG_CONFIG_HOME>/codex-session/settings/`
   are **never** modified by the wrapper — that's the composeability
   contract.
-- **Replay requires an active profile.** `compose()` is the only producer
-  that reads the cache layer. Stock-mode invocations (no profile) still
+- **Replay requires an active config-recipe.** `compose()` is the only producer
+  that reads the cache layer. Stock-mode invocations (no config-recipe) still
   *write* trust to the cache (the post-flight sync runs unconditionally),
   but they do not replay it on the next launch — codex re-prompts. Users
-  who want trust persistence should ensure a profile is active (typically
-  by having a `default.yaml` manifest in `profiles/`).
+  who want trust persistence should ensure a config-recipe is active (typically
+  by having a `default.yaml` manifest in `config-recipes/`).
 - **Hardened-write parity with `auth.json`.** All cache-layer writes go
   through `src/services/auth.rs` primitives (`with_lock`,
   `secure_file_read`, `secure_file_write_atomic`, `ensure_owned_dir_0700`)

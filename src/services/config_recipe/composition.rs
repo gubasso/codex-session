@@ -1,7 +1,7 @@
 //! Composition data structures and session-artifact writing.
 //!
-//! What this is: the serializable output of profile composition.
-//! What this is not: active-profile resolution or command rendering.
+//! What this is: the serializable output of config-recipe composition.
+//! What this is not: active config-recipe resolution or command rendering.
 
 #![allow(clippy::result_large_err)]
 
@@ -12,8 +12,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 #[derive(Debug, Clone)]
-pub(crate) struct ProfilePaths {
-    pub(crate) profiles_dir: Utf8PathBuf,
+pub(crate) struct ConfigRecipePaths {
+    pub(crate) recipes_dir: Utf8PathBuf,
     pub(crate) settings_dir: Utf8PathBuf,
     pub(crate) cache_settings: Option<Utf8PathBuf>,
 }
@@ -43,7 +43,7 @@ pub(crate) struct LayerRef {
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum LayerSource {
     CacheBootstrap,
-    Profile,
+    ConfigRecipe,
 }
 
 #[derive(Debug, Serialize)]

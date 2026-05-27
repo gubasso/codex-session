@@ -359,28 +359,28 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
             what: format!("config: invalid environment override {key}={value}"),
             why_line: format!("expected {expected}"),
         },
-        ConfigError::ProfileNotFound { name, .. } => ErrorDetail {
-            what: format!("config: profile `{name}` not found"),
-            why_line: "the requested profile manifest does not exist".to_owned(),
+        ConfigError::ConfigRecipeNotFound { name, .. } => ErrorDetail {
+            what: format!("config: config-recipe `{name}` not found"),
+            why_line: "the requested config-recipe manifest does not exist".to_owned(),
         },
         ConfigError::ManifestParse { .. } => ErrorDetail {
-            what: "config: profile manifest parse error".to_owned(),
+            what: "config: config-recipe manifest parse error".to_owned(),
             why_line: "the YAML manifest could not be parsed".to_owned(),
         },
         ConfigError::ManifestSchema { reason, .. } => ErrorDetail {
-            what: "config: invalid profile manifest".to_owned(),
+            what: "config: invalid config-recipe manifest".to_owned(),
             why_line: reason.clone(),
         },
         ConfigError::LayerNotFound { name, .. } => ErrorDetail {
             what: format!("config: settings layer `{name}` not found"),
-            why_line: "the profile references a missing settings layer".to_owned(),
+            why_line: "the config-recipe references a missing settings layer".to_owned(),
         },
         ConfigError::LayerParse { .. } => ErrorDetail {
             what: "config: settings layer parse error".to_owned(),
             why_line: "the TOML settings layer could not be parsed".to_owned(),
         },
         ConfigError::MergeFailed { reason } => ErrorDetail {
-            what: "config: profile composition failed".to_owned(),
+            what: "config: config-recipe composition failed".to_owned(),
             why_line: reason.clone(),
         },
         ConfigError::SessionDirUnresolvable { reason, .. } => ErrorDetail {
@@ -388,7 +388,7 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
             why_line: reason.clone(),
         },
         ConfigError::EnvKeyInvalid { key, reason } => ErrorDetail {
-            what: format!("config: invalid profile env key `{key}`"),
+            what: format!("config: invalid config-recipe env key `{key}`"),
             why_line: reason.clone(),
         },
         ConfigError::AccountConfigParse {
@@ -515,7 +515,7 @@ fn error_path(err: &AppError) -> Option<String> {
             ConfigError::Parse { path, .. }
             | ConfigError::UnknownKey { path, .. }
             | ConfigError::ExplicitConfigMissing(path)
-            | ConfigError::ProfileNotFound { path, .. }
+            | ConfigError::ConfigRecipeNotFound { path, .. }
             | ConfigError::ManifestParse { path, .. }
             | ConfigError::ManifestSchema { path, .. }
             | ConfigError::LayerNotFound { path, .. }
@@ -585,8 +585,8 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Config(ConfigError::ExplicitConfigMissing(_)) => {
             Some("pass --config PATH to an existing file or remove the override")
         }
-        AppError::Config(ConfigError::ProfileNotFound { .. }) => {
-            Some("run `codex-session profile list` to inspect available profiles")
+        AppError::Config(ConfigError::ConfigRecipeNotFound { .. }) => {
+            Some("run `codex-session config-recipe list` to inspect available config recipes")
         }
         AppError::Auth(AuthError::SymlinkRefused { .. }) => {
             Some("replace ~/.codex/auth.json with a regular file owned by you (mode 0600)")

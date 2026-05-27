@@ -32,7 +32,7 @@ fn exec_foo_bar_is_passed_through_to_codex() {
 
 #[test]
 fn stock_mode_writes_stable_empty_compose_sidecar() {
-    // Stock mode (no active profile, no manifest) must still produce a
+    // Stock mode (no active config-recipe, no manifest) must still produce a
     // sidecar with the canonical shape so downstream consumers can read one
     // schema in both stock and composed modes.
     let env = TestEnv::new();
@@ -56,9 +56,9 @@ fn stock_mode_writes_stable_empty_compose_sidecar() {
 fn wrapper_profile_flag_is_not_forwarded_to_child() {
     let env = TestEnv::new();
     env.make_fake_codex();
-    env.install_profile("work", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("work", "settings-layers:\n  - base\n", &[("base", "")]);
     env.cmd()
-        .args(["--profile", "work", "exec", "foo"])
+        .args(["--config-recipe", "work", "exec", "foo"])
         .assert()
         .success();
     assert_eq!(env.argv(), vec!["exec".to_string(), "foo".to_string()]);

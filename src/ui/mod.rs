@@ -91,8 +91,10 @@ impl Ui {
             crate::cli::OutputFormat::Text => {
                 writeln!(
                     stdout,
-                    "active-profile: {}",
-                    view.active_profile.as_deref().unwrap_or("(stock mode)")
+                    "active-config-recipe: {}",
+                    view.active_config_recipe
+                        .as_deref()
+                        .unwrap_or("(stock mode)")
                 )?;
                 writeln!(
                     stdout,
@@ -165,24 +167,27 @@ impl Ui {
     }
 
     #[allow(clippy::unused_self)]
-    pub(crate) fn write_profile_list(
+    pub(crate) fn write_config_recipe_list(
         &self,
-        view: &crate::commands::profile_list::ProfileListView,
+        view: &crate::commands::config_recipe_list::ConfigRecipeListView,
         fmt: crate::cli::OutputFormat,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match fmt {
             crate::cli::OutputFormat::Text => {
-                if view.profiles.is_empty() {
-                    writeln!(stdout, "(no profiles)")
+                if view.recipes.is_empty() {
+                    writeln!(stdout, "(no config recipes)")
                 } else {
-                    for profile in &view.profiles {
+                    for config_recipe in &view.recipes {
                         writeln!(
                             stdout,
                             "{}: {} layers={} valid={}",
-                            profile.name, profile.manifest_path, profile.layer_count, profile.valid
+                            config_recipe.name,
+                            config_recipe.manifest_path,
+                            config_recipe.layer_count,
+                            config_recipe.valid
                         )?;
-                        if let Some(error) = profile.error.as_deref() {
+                        if let Some(error) = config_recipe.error.as_deref() {
                             writeln!(stdout, "  error: {error}")?;
                         }
                     }
@@ -194,9 +199,9 @@ impl Ui {
     }
 
     #[allow(clippy::unused_self)]
-    pub(crate) fn write_profile_show(
+    pub(crate) fn write_config_recipe_show(
         &self,
-        view: &crate::commands::profile_show::ProfileShowView,
+        view: &crate::commands::config_recipe_show::ConfigRecipeShowView,
         fmt: crate::cli::OutputFormat,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
@@ -207,8 +212,8 @@ impl Ui {
                 }
                 writeln!(
                     stdout,
-                    "profile: {}",
-                    view.active_profile.as_deref().unwrap_or("(none)")
+                    "config-recipe: {}",
+                    view.active_config_recipe.as_deref().unwrap_or("(none)")
                 )?;
                 writeln!(
                     stdout,
@@ -309,8 +314,8 @@ impl Ui {
                     }
                 }
                 if !report.env.is_empty() {
-                    for (profile, env) in &report.env {
-                        writeln!(stdout, "\nMerged env for {profile}:")?;
+                    for (config_recipe, env) in &report.env {
+                        writeln!(stdout, "\nMerged env for {config_recipe}:")?;
                         for (key, value) in env {
                             writeln!(stdout, "  {key}={value}")?;
                         }
@@ -505,15 +510,15 @@ impl Ui {
     }
 
     #[allow(clippy::unused_self)]
-    pub(crate) fn write_profile_compose(
+    pub(crate) fn write_config_recipe_compose(
         &self,
-        view: &crate::commands::profile_compose::ProfileComposeView,
+        view: &crate::commands::config_recipe_compose::ConfigRecipeComposeView,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         writeln!(
             stdout,
-            "profile:      {}",
-            view.profile.as_deref().unwrap_or("(stock mode)")
+            "config-recipe:      {}",
+            view.config_recipe.as_deref().unwrap_or("(stock mode)")
         )?;
         writeln!(stdout, "group-id:     {}", view.group_id)?;
         writeln!(stdout, "session-dir:  {}", view.session_dir)?;

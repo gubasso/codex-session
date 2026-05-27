@@ -17,7 +17,7 @@ codex-session [GLOBAL-FLAGS] <verb> [...]
 │   ├── completion
 │   ├── config
 │   │   └── status
-│   ├── profile
+│   ├── config_recipe
 │   │   ├── list
 │   │   ├── show
 │   │   └── compose
@@ -45,7 +45,7 @@ Applying `process-and-posix.md` §5.1:
 
 > `self` is justified only when (1) the verb's object is the running binary itself — it updates, uninstalls, or otherwise mutates the wrapper — AND (2) the same verb name plausibly exists on the wrapped child.
 
-Stripping `self` from `self account list` → `account list`. Still unambiguous. No collision with codex's verb set: `exec / review / login / logout / mcp / plugin / mcp-server / app-server / remote-control / completion / update / doctor / sandbox / debug / apply / resume / fork / cloud / exec-server / features / help` (verified from `codex --help`). Therefore `self` adds noise. ADR [D8](04-decisions.md) records this; the wrapper's existing verbs (`version`, `completion`, `config`, `profile`, `doctor`) already follow the same top-level convention.
+Stripping `self` from `self account list` → `account list`. Still unambiguous. No collision with codex's verb set: `exec / review / login / logout / mcp / plugin / mcp-server / app-server / remote-control / completion / update / doctor / sandbox / debug / apply / resume / fork / cloud / exec-server / features / help` (verified from `codex --help`). Therefore `self` adds noise. ADR [D8](04-decisions.md) records this; the wrapper's existing verbs (`version`, `completion`, `config`, `config_recipe`, `doctor`) already follow the same top-level convention.
 
 ### Precedent survey (§5.3 of `process-and-posix.md`)
 
@@ -79,7 +79,7 @@ No new short flags. Codex's short flags (`-c`, `-m`, `-i`, `-p`, `-h`, `-V`) are
 Per `process-and-posix.md` §6 ("default to verbatim pass-through; translate only when you must") and §10 ("greedy flag consumption" anti-pattern), the wrapper parses the **minimum subset** of argv:
 
 1. Global flags listed above.
-2. The verb token, if it matches the wrapper's denylist of owned verbs: `{version, completion, config, profile, doctor, account, --help, -h, --version, -V}` → wrapper handles.
+2. The verb token, if it matches the wrapper's denylist of owned verbs: `{version, completion, config, config_recipe, doctor, account, --help, -h, --version, -V}` → wrapper handles.
 3. Anything else → forwarded verbatim to codex via the existing `External(argv)` mechanism.
 
 The wrapper does **NOT** parse codex's own grammar (`-c key=value`, `--enable feature`, `-m model`, etc.) — those flags reach codex untouched, even if they syntactically clash with wrapper flag names (the wrapper's claim ends at the verb boundary).
@@ -92,7 +92,7 @@ R1 audits `src/domain/child_invocation.rs::ChildEnv::scrubbed_default()` and con
 
 - `CODEX_HOME` (set by us to the resolved group dir).
 - The user's normal environment minus our namespace.
-- Any `[env]` keys the active profile contributes (existing behavior).
+- Any `[env]` keys the active config_recipe contributes (existing behavior).
 
 R1 adds a regression test for this scrubbing.
 

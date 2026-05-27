@@ -33,7 +33,7 @@ Path-layout change touches everything downstream that resolves session paths (do
 
 ### R2 — Medium
 
-Largely additive code (`services/account/`, `commands/account/`). The four-edit rule + `cli/profile.rs` template make the CLI shape mechanical. No `self` namespace work — just a top-level verb registration like the existing `profile` verb.
+Largely additive code (`services/account/`, `commands/account/`). The four-edit rule + `cli/config_recipe.rs` template make the CLI shape mechanical. No `self` namespace work — just a top-level verb registration like the existing `config_recipe` verb.
 
 **Risks:**
 

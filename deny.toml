@@ -4,6 +4,10 @@ all-features = true
 [advisories]
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
+ignore = [
+    # fxhash unmaintained — transitive dep via inquire; no upgrade path yet
+    "RUSTSEC-2025-0057",
+]
 
 [licenses]
 allow = [
@@ -17,6 +21,8 @@ allow = [
     "Unicode-3.0",
     "CC0-1.0",
     "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
 

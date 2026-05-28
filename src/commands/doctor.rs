@@ -249,8 +249,9 @@ fn build_report(
         ));
     }
 
-    // 9. Orphan settings files.
+    // 9. Orphan config layers.
     checks.push(check_orphan_layers(ctx));
+    checks.extend(check_legacy_profile_forms(ctx));
 
     // 11. XDG paths.
     checks.push(check_xdg_paths());
@@ -361,7 +362,7 @@ fn check_one_recipe(
     let paths = crate::services::config_recipe::ConfigRecipePaths {
         recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
         configs_dir: ctx.config.config_recipe.configs_dir.clone(),
-        cache_settings: cache_settings_path(ctx),
+        cache_config: cache_config_path(ctx),
     };
     match crate::services::config_recipe::compose(name, &paths) {
         Ok(composition) => {
@@ -559,6 +560,130 @@ fn check_orphan_layers(ctx: &crate::context::AppContext) -> CheckResult {
         // If any manifests failed to parse, the orphan set may include
         // false positives, so the overall check is at best advisory.
         warn("layers.orphan", details.join("; "))
+    }
+}
+
+/// Sweep the user-config tree for legacy shapes that pre-date the codex
+/// v0.134+ profile contract. Each finding becomes a single WARN row that
+/// cites docs/upstream-codex.md §F6c and names the migration step.
+///
+/// Scope: every `*.toml` under `configs_dir/` and every `*.config.toml`
+/// under `configs_dir/profiles/`, regardless of whether the active
+/// manifest references them — `compose()` already validates the
+/// referenced subset, this catches the orphans.
+fn check_legacy_profile_forms(ctx: &crate::context::AppContext) -> Vec<CheckResult> {
+    let mut checks: Vec<CheckResult> = Vec::new();
+    let mut seen: BTreeSet<Utf8PathBuf> = BTreeSet::new();
+
+    let cfg_recipe = &ctx.config.config_recipe;
+    let configs_dir = cfg_recipe.configs_dir.clone();
+    let legacy_settings_dir = cfg_recipe.config_dir.join("settings");
+    let legacy_cache_file = ctx.config.paths.cache_dir.join("settings.toml");
+
+    if legacy_settings_dir.is_dir() {
+        checks.push(warn(
+            "legacy-settings-dir",
+            format!(
+                "legacy `{legacy_settings_dir}` directory detected; move \
+                its layer files to `{configs_dir}` and extract any \
+                `[profiles.<name>]` tables into \
+                `{configs_dir}/profiles/<name>.config.toml`. \
+                See docs/upstream-codex.md §F6c."
+            ),
+        ));
+    }
+
+    if legacy_cache_file.is_file() {
+        let new = ctx.config.paths.cache_dir.join("configs.toml");
+        let detail = if new.is_file() {
+            format!(
+                "legacy cache file `{legacy_cache_file}` detected alongside \
+                live cache `{new}`; merge any `[projects]` rows from the \
+                legacy file into the live one and delete the legacy file. \
+                Do not blindly rename — `{new}` is the live cache. \
+                See docs/upstream-codex.md §F6c."
+            )
+        } else {
+            format!(
+                "legacy cache file `{legacy_cache_file}` detected; rename \
+                to `{new}` BEFORE the next codex-session run (running \
+                codex-session creates `{new}` from baseline and the legacy \
+                file is no longer consulted). See docs/upstream-codex.md §F6c."
+            )
+        };
+        checks.push(warn("legacy-cache-config", detail));
+    }
+
+    sweep_dir_for_legacy(&configs_dir, &configs_dir, false, &mut seen, &mut checks);
+    sweep_dir_for_legacy(
+        &configs_dir.join("profiles"),
+        &configs_dir,
+        true,
+        &mut seen,
+        &mut checks,
+    );
+
+    checks
+}
+
+fn sweep_dir_for_legacy(
+    dir: &Utf8Path,
+    configs_dir: &Utf8Path,
+    is_profiles_subdir: bool,
+    seen: &mut BTreeSet<Utf8PathBuf>,
+    checks: &mut Vec<CheckResult>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir.as_std_path()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(path) = Utf8PathBuf::try_from(entry.path()) else {
+            continue;
+        };
+        if !path.is_file() {
+            continue;
+        }
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+        let matches_suffix = if is_profiles_subdir {
+            file_name.ends_with(".config.toml")
+        } else {
+            // Top-level sweep: any `*.toml` EXCEPT `*.config.toml`, which
+            // belongs under `profiles/`. A misplaced `*.config.toml` here
+            // is a different problem and should not be confused with a
+            // legacy base-layer with `[profiles.*]`.
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+                && !file_name.ends_with(".config.toml")
+        };
+        if !matches_suffix {
+            continue;
+        }
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+
+        let Ok(text) = std::fs::read_to_string(path.as_std_path()) else {
+            continue;
+        };
+        let Ok(table) = toml::from_str::<toml::Table>(&text) else {
+            continue;
+        };
+
+        if let Err(err) = crate::services::config_recipe::layer::reject_legacy_profile_syntax(
+            &table,
+            path.as_ref(),
+        ) {
+            checks.push(warn(
+                "legacy-profile-form",
+                format!(
+                    "{err}. Move profile keys to \
+                    `{configs_dir}/profiles/<name>.config.toml` (bare top-level keys, \
+                    no `[profiles.<name>]` header). See docs/upstream-codex.md §F6c.",
+                ),
+            ));
+        }
     }
 }
 
@@ -971,8 +1096,8 @@ fn discover_recipes(recipes_dir: &Utf8Path) -> DiscoveredRecipes {
     DiscoveredRecipes::Found(recipes)
 }
 
-fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
-    let path = ctx.config.paths.cache_dir.join("settings.toml");
+fn cache_config_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
+    let path = ctx.config.paths.cache_dir.join("configs.toml");
     path.is_file().then_some(path)
 }
 

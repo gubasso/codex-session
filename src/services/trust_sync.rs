@@ -1,9 +1,9 @@
 //! Trust-decision sync between session-side codex writes and the
-//! machine-local settings layer.
+//! machine-local config layer.
 //!
 //! What this is: AST-level diff of `[projects]` post-session vs.
 //! compose-time baseline, plus a flock-serialized atomic merge into
-//! `<cache_dir>/settings.toml`. `cache_dir` is the app-scoped path
+//! `<cache_dir>/configs.toml`. `cache_dir` is the app-scoped path
 //! returned by `directories::ProjectDirs::cache_dir()` — on Linux that
 //! resolves to `<XDG_CACHE_HOME>/codex-session/`.
 //! What this is not: trust UX, prompting the user, or modifying any
@@ -26,9 +26,9 @@ use crate::services::auth::{AuthError, ensure_owned_dir_0700, secure_file_read};
 /// Result of a single post-flight sync attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TrustSyncOutcome {
-    /// No new or changed `[projects]` entries; cache settings untouched.
+    /// No new or changed `[projects]` entries; cache config untouched.
     Unchanged,
-    /// Cache settings updated with `added` brand-new keys and `changed`
+    /// Cache config updated with `added` brand-new keys and `changed`
     /// updated keys.
     Wrote { added: usize, changed: usize },
 }
@@ -62,7 +62,7 @@ pub(crate) enum TrustSyncError {
     HardlinkRefused { path: Utf8PathBuf },
     #[error("trust-sync: bad ownership at {path}")]
     BadOwnership { path: Utf8PathBuf },
-    #[error("trust-sync: failed to serialize merged cache settings")]
+    #[error("trust-sync: failed to serialize merged cache config")]
     TomlSerialize {
         path: Utf8PathBuf,
         #[source]
@@ -102,7 +102,7 @@ impl TrustSyncError {
 impl TrustSyncError {
     fn from_auth(err: AuthError, _fallback_path: &Utf8Path) -> Self {
         // Map auth's hardened-IO variants to our equivalents. Preserves the
-        // path the auth primitive reported on (the cache settings file or its
+        // path the auth primitive reported on (the cache config file or its
         // parent directory).
         let owned = err.path().to_path_buf();
         match err {
@@ -136,14 +136,14 @@ impl TrustSyncError {
 }
 
 /// Sync trust decisions written by codex during a session back into the
-/// machine-local cache settings layer.
+/// machine-local cache config layer.
 ///
 /// On Unchanged, the cache file is not opened and the lock is not acquired.
 /// On Wrote, the cache file is created if missing (with mode 0o600 in a
 /// 0o700 parent directory) and updated under flock.
 pub(crate) fn persist_projects(
     session_config: &Utf8Path,
-    cache_settings: &Utf8Path,
+    cache_config: &Utf8Path,
     baseline: Option<&toml::Table>,
 ) -> Result<TrustSyncOutcome, TrustSyncError> {
     // 1. Read & parse the post-session config (where codex wrote trust).
@@ -162,12 +162,12 @@ pub(crate) fn persist_projects(
     // 3. Ensure parent dir exists with the same ownership/mode contract the
     // auth bridge uses for `~/.codex/`. The parent is `cache_dir` itself
     // (e.g. `<XDG_CACHE_HOME>/codex-session/`).
-    let Some(parent) = cache_settings.parent() else {
+    let Some(parent) = cache_config.parent() else {
         return Err(TrustSyncError::Io {
-            path: cache_settings.to_path_buf(),
+            path: cache_config.to_path_buf(),
             source: std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "cache settings path has no parent",
+                "cache config path has no parent",
             ),
         });
     };
@@ -179,11 +179,11 @@ pub(crate) fn persist_projects(
     // cache table is byte-equivalent to the pre-existing cache — that lets
     // us collapse "stock-mode re-confirms an already-cached trust entry"
     // into `Unchanged` instead of a redundant fsync/rename round-trip.
-    let lockfile = parent.join(".settings.toml.lock");
+    let lockfile = parent.join(".configs.toml.lock");
     let write_outcome = with_lock(
         &lockfile,
         || -> Result<Option<(usize, usize)>, TrustSyncError> {
-            let mut cache_table = read_table_or_empty(cache_settings)?;
+            let mut cache_table = read_table_or_empty(cache_config)?;
             let cache_before = cache_table.clone();
             merge_into_cache(&mut cache_table, &delta);
             if cache_table == cache_before {
@@ -196,12 +196,12 @@ pub(crate) fn persist_projects(
             let counts = count_added_changed_vs_cache(&cache_before, &delta);
             let serialized = toml::to_string_pretty(&cache_table).map_err(|source| {
                 TrustSyncError::TomlSerialize {
-                    path: cache_settings.to_path_buf(),
+                    path: cache_config.to_path_buf(),
                     source,
                 }
             })?;
-            crate::adapters::fs::atomic_write(cache_settings, serialized.as_bytes())
-                .map_err(|e| TrustSyncError::from_fs(e, cache_settings))?;
+            crate::adapters::fs::atomic_write(cache_config, serialized.as_bytes())
+                .map_err(|e| TrustSyncError::from_fs(e, cache_config))?;
             Ok(Some(counts))
         },
     )?;
@@ -284,7 +284,7 @@ fn count_added_changed_vs_cache(cache_before: &toml::Table, delta: &toml::Table)
     (added, changed)
 }
 
-/// Read the cache settings file as a `toml::Table`, or return an empty
+/// Read the cache config file as a `toml::Table`, or return an empty
 /// table when the file does not yet exist. Uses the hardened reader from
 /// the auth bridge: `O_NOFOLLOW`, ownership/mode checks, no hardlinks.
 fn read_table_or_empty(path: &Utf8Path) -> Result<toml::Table, TrustSyncError> {
@@ -394,16 +394,16 @@ mod tests {
     fn fixture_paths(td: &tempfile::TempDir) -> (Utf8PathBuf, Utf8PathBuf) {
         let base = Utf8PathBuf::from_path_buf(td.path().to_path_buf()).unwrap();
         let session_config = base.join("session/config.toml");
-        let cache_settings = base.join("cache/codex-session/settings.toml");
+        let cache_config = base.join("cache/codex-session/configs.toml");
         std::fs::create_dir_all(session_config.parent().unwrap().as_std_path()).unwrap();
-        std::fs::create_dir_all(cache_settings.parent().unwrap().as_std_path()).unwrap();
+        std::fs::create_dir_all(cache_config.parent().unwrap().as_std_path()).unwrap();
         // The auth-style 0o700 parent contract.
         std::fs::set_permissions(
-            cache_settings.parent().unwrap().as_std_path(),
+            cache_config.parent().unwrap().as_std_path(),
             std::fs::Permissions::from_mode(0o700),
         )
         .unwrap();
-        (session_config, cache_settings)
+        (session_config, cache_config)
     }
 
     #[test]
@@ -519,7 +519,7 @@ mod tests {
             !cache
                 .parent()
                 .unwrap()
-                .join(".settings.toml.lock")
+                .join(".configs.toml.lock")
                 .as_std_path()
                 .exists()
         );
@@ -689,10 +689,10 @@ mod tests {
     }
 
     #[test]
-    fn persist_refuses_symlinked_cache_settings() {
+    fn persist_refuses_symlinked_cache_config() {
         let td = tempfile::tempdir().unwrap();
         let (session, cache) = fixture_paths(&td);
-        // Pre-create a symlink at the cache settings path.
+        // Pre-create a symlink at the cache config path.
         let target = td.path().join("decoy");
         std::fs::write(&target, "model = \"decoy\"\n").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();

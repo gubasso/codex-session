@@ -15,7 +15,7 @@ use serde::Serialize;
 pub(crate) struct ConfigRecipePaths {
     pub(crate) recipes_dir: Utf8PathBuf,
     pub(crate) configs_dir: Utf8PathBuf,
-    pub(crate) cache_settings: Option<Utf8PathBuf>,
+    pub(crate) cache_config: Option<Utf8PathBuf>,
 }
 
 impl ConfigRecipePaths {

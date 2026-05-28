@@ -271,8 +271,8 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         path
     }
 
-    pub fn write_cache_settings(&self, body: &str) {
-        Self::write_file(&self.cache_settings_path(), body);
+    pub fn write_cache_config(&self, body: &str) {
+        Self::write_file(&self.cache_config_path(), body);
     }
 
     pub fn argc(&self) -> String {
@@ -303,8 +303,8 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.config_home.join("codex-session/configs")
     }
 
-    pub fn cache_settings_path(&self) -> PathBuf {
-        self.cache.join("codex-session/settings.toml")
+    pub fn cache_config_path(&self) -> PathBuf {
+        self.cache.join("codex-session/configs.toml")
     }
 
     pub fn runtime_session_root(&self) -> PathBuf {

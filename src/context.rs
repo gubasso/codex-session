@@ -10,6 +10,8 @@ use std::sync::{Arc, OnceLock};
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::adapters::spawner::{Spawner as _, SpawnerError, StdSpawner};
+use crate::codex_compat::VersionCheck;
+use crate::error::AppError;
 
 /// Lazy resolver for the child binary path.
 ///
@@ -19,6 +21,7 @@ use crate::adapters::spawner::{Spawner as _, SpawnerError, StdSpawner};
 /// at most once per process; both Ok and Err are cached.
 pub(crate) struct LazyChild {
     cell: OnceLock<Result<Utf8PathBuf, SpawnerError>>,
+    version: OnceLock<VersionCheck>,
 }
 
 impl LazyChild {
@@ -26,6 +29,7 @@ impl LazyChild {
     pub(crate) const fn new() -> Self {
         Self {
             cell: OnceLock::new(),
+            version: OnceLock::new(),
         }
     }
 
@@ -151,8 +155,52 @@ impl AppContext {
             .get_or_resolve(self.spawner, &self.config.child)
     }
 
+    /// Borrow the resolved child path and cached version compatibility check.
+    pub(crate) fn resolved_child_with_version_check(
+        &self,
+    ) -> Result<(&Utf8PathBuf, &VersionCheck), &SpawnerError> {
+        let path = self.resolved_child()?;
+        let check = self
+            .resolved_child
+            .version
+            .get_or_init(|| self.spawner.child_version_parsed(path));
+        Ok((path, check))
+    }
+
+    /// Ensure the resolved child binary satisfies codex-session's codex contract.
+    pub(crate) fn ensure_child_version(&self) -> Result<(), AppError> {
+        match self.resolved_child_with_version_check() {
+            Ok((_, VersionCheck::Ok(_) | VersionCheck::Unparseable(_))) => Ok(()),
+            Ok((_, VersionCheck::TooOld(version))) => Err(AppError::ChildVersionTooOld {
+                found: version.to_string(),
+                required: crate::codex_compat::REQUIRED_CODEX_VERSION,
+            }),
+            Err(err) => Err(map_spawner_error_ref(err)),
+        }
+    }
+
     /// Borrow the resolved session context, resolving on first access.
     pub(crate) fn session(&self) -> Result<Arc<SessionContext>, crate::error::AppError> {
         self.session.get_or_resolve(self)
+    }
+}
+
+fn map_spawner_error_ref(err: &SpawnerError) -> AppError {
+    match err {
+        SpawnerError::NotFound {
+            tried,
+            path_searched,
+        } => AppError::ChildNotFound {
+            tried: tried.clone().into_std_path_buf(),
+            path_searched: path_searched.clone(),
+        },
+        SpawnerError::NotExecutable { path } => AppError::ChildNotExecutable {
+            path: path.clone().into_std_path_buf(),
+        },
+        SpawnerError::Exec(io) => {
+            AppError::ChildExec(std::io::Error::new(io.kind(), io.to_string()))
+        }
+        SpawnerError::Recursion { path } => AppError::ChildRecursion { path: path.clone() },
+        SpawnerError::NonUtf8Path(_) => AppError::Other(anyhow::anyhow!("non-utf8 child path")),
     }
 }

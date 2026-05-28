@@ -36,6 +36,12 @@ pub(crate) enum SpawnerError {
 pub(crate) trait Spawner {
     fn resolve_child(&self, cfg: &ChildConfig) -> Result<Utf8PathBuf, SpawnerError>;
     fn child_version_line(&self, child: &Utf8Path) -> Option<String>;
+    fn child_version_parsed(&self, child: &Utf8Path) -> crate::codex_compat::VersionCheck {
+        let raw = self
+            .child_version_line(child)
+            .unwrap_or_else(|| "<unavailable>".to_owned());
+        crate::codex_compat::classify(&raw)
+    }
     /// Spawn the child, publish its PID via `pid_sink`, then wait.
     ///
     /// The `pid_sink` parameter looks like a leaky abstraction but is

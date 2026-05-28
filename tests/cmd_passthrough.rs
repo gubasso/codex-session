@@ -4,7 +4,7 @@
 pub mod support;
 
 use predicates::prelude::*;
-use support::TestEnv;
+use support::{FakeCodexBehavior, TestEnv};
 
 #[test]
 fn exec_foo_bar_is_passed_through_to_codex() {
@@ -155,6 +155,22 @@ fn missing_home_does_not_panic() {
         .assert()
         .success()
         .stdout(predicate::str::contains("OK"));
+}
+
+#[test]
+fn pass_through_fails_fast_on_old_codex() {
+    let env = TestEnv::new();
+    env.make_fake_codex_with_version("codex 0.133.0", FakeCodexBehavior::AssertNotInvoked);
+
+    env.cmd()
+        .args(["--", "exec", "hello"])
+        .assert()
+        .code(78)
+        .stdout("")
+        .stderr(predicate::str::contains("0.133.0"))
+        .stderr(predicate::str::contains("0.134.0"))
+        .stderr(predicate::str::contains("docs/upstream-codex.md §F6c"))
+        .stderr(predicate::str::contains("fake codex normal argv path invoked").not());
 }
 
 #[test]

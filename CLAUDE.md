@@ -63,7 +63,8 @@ Concretely:
 
 - If upstream codex rejects a key shape (e.g. legacy `profile = "..."` selector
   or `[profiles.*]` tables in `config.toml` since v0.134.0), the wrapper MUST
-  reject it too — at both input layers (`configs/*.toml`) and emitted output.
+  reject it too — at both input layers (`configs/*.toml`, plus sibling
+  `profiles/*.config.toml` for per-profile overrides) and emitted output.
   No compat shim, no alias, no auto-migration. (Enforcement lands in rounds
   02–03 of `.plan/01-todo/configs-rename-split-profiles/`; round 01 only
   codifies the contract.)

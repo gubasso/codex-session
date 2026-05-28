@@ -142,6 +142,7 @@ pub(crate) fn spawn_child_isolated(
     use std::sync::atomic::AtomicI32;
 
     let binary = ctx.resolved_child().map_err(map_spawner_error)?.clone();
+    ctx.ensure_child_version()?;
     let mut env = crate::domain::child_invocation::ChildEnv::scrubbed_default();
     if let Some(home) = codex_home {
         env.set
@@ -226,6 +227,11 @@ pub(crate) fn create_auth_ops_dir(
 pub(crate) fn run_isolated_login(
     ctx: &crate::context::AppContext,
 ) -> Result<(tempfile::TempDir, camino::Utf8PathBuf), crate::error::AppError> {
+    // Surface a too-old codex as ChildVersionTooOld (exit 78) before we
+    // spawn anything — otherwise the failure would be wrapped as a generic
+    // LoginFailed (exit 75) with the retry hint, hiding the upgrade path.
+    ctx.ensure_child_version()?;
+
     let dir = create_auth_ops_dir(ctx)?;
     let home = camino::Utf8PathBuf::try_from(dir.path().to_path_buf())
         .map_err(|err| crate::error::AppError::Other(anyhow::anyhow!("{err}")))?;
@@ -241,6 +247,11 @@ pub(crate) fn run_isolated_login(
     });
 
     if let Err(err) = spawn_child_isolated(ctx, ["login"], Some(&home)) {
+        // A child-version mismatch is a hard, user-actionable error —
+        // propagate it as exit 78 instead of folding into LoginFailed.
+        if matches!(err, crate::error::AppError::ChildVersionTooOld { .. }) {
+            return Err(err);
+        }
         return Err(crate::services::account::AccountError::LoginFailed {
             detail: err.to_string(),
         }

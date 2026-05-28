@@ -2,7 +2,7 @@
 
 > Complexity: L | Rounds: 3 | Generated: 2026-05-27T21:00:00Z
 > Repo: /workspaces/codex-session
-> Status: todo
+> Status: done
 
 ## Problem Statement
 
@@ -44,7 +44,7 @@ Three rounds, ordered by dependency:
 | ----- | ---- | ----- | ------ | --------- |
 | 01 | `01-docs-and-conventions.md` | Documentation & conventions | done | 2026-05-27 |
 | 02 | `02-prex-sandbox-fix.md` | Prex sandbox fix + run-dir migration | done | 2026-05-28 |
-| 03 | `03-remaining-skills-dctl.md` | Remaining skills + dctl config | todo | -- |
+| 03 | `03-remaining-skills-dctl.md` | Remaining skills + dctl config | done | 2026-05-28 |
 
 ## Execution Commands
 

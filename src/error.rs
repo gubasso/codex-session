@@ -504,7 +504,9 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
                     .to_owned(),
         },
         AccountError::PingProfileMissing { detail } => ErrorDetail {
-            what: "account: health probe requires [profiles.ping]".to_owned(),
+            what: "account: the `ping` profile file is missing from your active \
+                codex-session config-recipe."
+                .to_owned(),
             why_line: detail.clone(),
         },
         AccountError::Cooldown(err) => ErrorDetail {
@@ -583,6 +585,12 @@ fn error_line(err: &AppError) -> Option<u32> {
     (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
 }
 
+const PING_PROFILE_MISSING_HINT: &str = "\
+add `configs/profiles/ping.config.toml` to your codex-session config tree.\n\
+The file should contain bare top-level keys (no [profiles.ping] header), e.g.:\n\n    \
+model = \"gpt-5.4-mini\"\n    model_reasoning_effort = \"minimal\"\n\n\
+See docs/upstream-codex.md §F6b for the codex v0.134+ profile contract.";
+
 const fn error_hint(err: &AppError) -> Option<&'static str> {
     use crate::config::ConfigError;
     use crate::services::auth::AuthError;
@@ -644,10 +652,7 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         }
         AppError::Account(crate::services::account::AccountError::PingProfileMissing {
             ..
-        }) => Some(
-            "add [profiles.ping] to your codex settings layer, e.g.:\n\n  \
-            [profiles.ping]\n  model = \"gpt-5.4-mini\"",
-        ),
+        }) => Some(PING_PROFILE_MISSING_HINT),
         AppError::Config(
             ConfigError::NoXdg
             | ConfigError::NoHomeDir

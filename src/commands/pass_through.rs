@@ -107,7 +107,7 @@ pub(crate) fn run_once(
     );
     let prepared = prepare_invocation(ctx, argv, resolved, group_id_override)?;
 
-    let cache_settings = cache_settings_target(ctx);
+    let cache_config = cache_config_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
     let PreparedInvocation {
         invocation,
@@ -119,7 +119,7 @@ pub(crate) fn run_once(
 
     let result = run_child(ctx, invocation, session, effective_capture);
     sync_group_auth_to_seed(ctx, account, &session_dir);
-    persist_trust(&session_config, &cache_settings, baseline_projects.as_ref());
+    persist_trust(&session_config, &cache_config, baseline_projects.as_ref());
 
     if json_mode
         && let Ok((_, stdout_buf, _)) = &result
@@ -197,7 +197,7 @@ fn prepare_invocation(
             &crate::services::config_recipe::ConfigRecipePaths {
                 recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
                 configs_dir: ctx.config.config_recipe.configs_dir.clone(),
-                cache_settings: cache_settings_path(ctx),
+                cache_config: cache_config_path(ctx),
             },
         )?;
         crate::services::config_recipe::write_session_artifacts(&composition, &session_dir)?;
@@ -249,10 +249,10 @@ fn prepare_invocation(
 
 fn persist_trust(
     session_config: &camino::Utf8Path,
-    cache_settings: &camino::Utf8Path,
+    cache_config: &camino::Utf8Path,
     baseline: Option<&toml::Table>,
 ) {
-    match crate::services::trust_sync::persist_projects(session_config, cache_settings, baseline) {
+    match crate::services::trust_sync::persist_projects(session_config, cache_config, baseline) {
         Ok(crate::services::trust_sync::TrustSyncOutcome::Unchanged) => {
             tracing::debug!(op = "trust.persist", outcome = "unchanged");
         }
@@ -262,7 +262,7 @@ fn persist_trust(
                 outcome = "wrote",
                 added,
                 changed,
-                path = %cache_settings
+                path = %cache_config
             );
         }
         Err(err) => {
@@ -655,17 +655,17 @@ fn map_child_err(err: &crate::adapters::spawner::SpawnerError) -> crate::error::
     }
 }
 
-fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
-    let path = cache_settings_target(ctx);
+fn cache_config_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
+    let path = cache_config_target(ctx);
     path.is_file().then_some(path)
 }
 
-/// Canonical cache-settings target path — used both as the source of the
+/// Canonical cache config target path — used both as the source of the
 /// machine-local layer during `compose()` (gated on existence by
-/// `cache_settings_path`) and as the destination for trust-sync writes.
-/// Always `<cache_dir>/settings.toml`.
-fn cache_settings_target(ctx: &crate::context::AppContext) -> Utf8PathBuf {
-    ctx.config.paths.cache_dir.join("settings.toml")
+/// `cache_config_path`) and as the destination for trust-sync writes.
+/// Always `<cache_dir>/configs.toml`.
+fn cache_config_target(ctx: &crate::context::AppContext) -> Utf8PathBuf {
+    ctx.config.paths.cache_dir.join("configs.toml")
 }
 
 #[cfg(test)]

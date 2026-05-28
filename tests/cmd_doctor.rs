@@ -251,6 +251,86 @@ fn doctor_warns_on_orphan_layer() {
 }
 
 #[test]
+fn doctor_warns_on_legacy_settings_dir_present() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    let legacy_settings = env.config_home.join("codex-session/settings");
+    std::fs::create_dir_all(&legacy_settings).unwrap();
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("WARN"))
+        .stdout(predicate::str::contains("legacy-settings-dir"))
+        .stdout(predicate::str::contains("settings"))
+        .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
+}
+
+#[test]
+fn doctor_warns_on_legacy_profile_selector_in_layer() {
+    let env = TestEnv::new();
+    env.make_fake_codex_printing_stdout("ignored");
+    env.install_config_recipe(
+        "default",
+        "config-layers:\n  - base\n",
+        &[("base", "profile = \"deep\"\n")],
+    );
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("WARN"))
+        .stdout(predicate::str::contains("legacy-profile-form"))
+        .stdout(predicate::str::contains(
+            "top-level `profile = \"...\"` selectors",
+        ))
+        .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
+}
+
+#[test]
+fn doctor_warns_on_legacy_profiles_table_in_profile_file() {
+    let env = TestEnv::new();
+    env.make_fake_codex_printing_stdout("ignored");
+    env.install_config_recipe(
+        "default",
+        "config-layers:\n  - base\nprofile-files:\n  - clean\n",
+        &[("base", "model = \"gpt-5\"\n")],
+    );
+    env.write_profile_file("clean", "model = \"gpt-5.4\"\n");
+    env.write_profile_file("deep", "[profiles.deep]\nmodel = \"gpt-5.4\"\n");
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("WARN"))
+        .stdout(predicate::str::contains("legacy-profile-form"))
+        .stdout(predicate::str::contains("deep.config.toml"))
+        .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
+}
+
+#[test]
+fn doctor_warns_on_legacy_cache_file() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    let legacy_cache = env.cache.join("codex-session/settings.toml");
+    std::fs::create_dir_all(legacy_cache.parent().unwrap()).unwrap();
+    std::fs::write(&legacy_cache, "model = \"gpt-5\"\n").unwrap();
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("WARN"))
+        .stdout(predicate::str::contains("legacy-cache-config"))
+        .stdout(predicate::str::contains("settings.toml"))
+        .stdout(predicate::str::contains("configs.toml"))
+        .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
+}
+
+#[test]
 fn doctor_warns_when_stock_mode() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("ignored");

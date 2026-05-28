@@ -64,7 +64,7 @@ fn config_recipe_compose_prepends_cache_layer() {
         "config-layers:\n  - base\n",
         &[("base", "[model]\ndefault = \"gpt-5\"\n")],
     );
-    env.write_cache_settings("[model]\neffort = \"high\"\n");
+    env.write_cache_config("[model]\neffort = \"high\"\n");
     env.cmd()
         .args(["config-recipe", "compose"])
         .assert()
@@ -89,7 +89,7 @@ fn config_recipe_compose_preserves_machine_local_projects_table() {
     env.install_config_recipe("default", "config-layers:\n  - base\n", &[("base", &base)]);
     // The cache layer composes BEFORE the config-recipe layers, so the projects
     // table lives there to avoid clobbering by stow-managed sources.
-    env.write_cache_settings(&local);
+    env.write_cache_config(&local);
 
     env.cmd()
         .args(["config-recipe", "compose"])

@@ -3,6 +3,8 @@
 
 mod support;
 
+use std::os::unix::fs::PermissionsExt as _;
+
 use predicates::prelude::*;
 use support::TestEnv;
 
@@ -43,7 +45,67 @@ fn health_requires_ping_profile_when_not_fast() {
         .assert()
         .failure()
         .code(78)
-        .stderr(predicate::str::contains("[profiles.ping]"));
+        .stderr(predicate::str::contains(
+            "configs/profiles/ping.config.toml",
+        ));
+}
+
+#[test]
+fn login_probe_writes_split_ping_profile_file() {
+    let env = TestEnv::new();
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[config-recipe]\ndefault = \"default\"\n",
+    )
+    .unwrap();
+    env.install_config_recipe(
+        "default",
+        "config-layers:\n  - base\nprofile-files:\n  - ping\n",
+        &[("base", "model = \"gpt-5.4\"\nweb_search = \"live\"\n")],
+    );
+    let ping_body = "model = \"gpt-5.4-mini\"\nmodel_reasoning_effort = \"minimal\"\n";
+    env.write_profile_file("ping", ping_body);
+
+    let home_capture = env.tmp.path().join("probe-home.txt");
+    let profile_capture = env.tmp.path().join("probe-profile.toml");
+    let args_capture = env.tmp.path().join("probe-args.txt");
+    let codex = env.fake_bin.join("codex");
+    let script = format!(
+        r#"#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$@" > "{args_capture}"
+printf '%s\n' "$CODEX_HOME" > "{home_capture}"
+[ -f "$CODEX_HOME/auth.json" ]
+[ -f "$CODEX_HOME/config.toml" ]
+[ ! -s "$CODEX_HOME/config.toml" ]
+[ -f "$CODEX_HOME/ping.config.toml" ]
+cat "$CODEX_HOME/ping.config.toml" > "{profile_capture}"
+exit 0
+"#,
+        args_capture = args_capture.display(),
+        home_capture = home_capture.display(),
+        profile_capture = profile_capture.display(),
+    );
+    std::fs::write(&codex, script).unwrap();
+    let mut perms = std::fs::metadata(&codex).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&codex, perms).unwrap();
+
+    env.cmd().arg("login").assert().success();
+
+    assert_eq!(std::fs::read_to_string(profile_capture).unwrap(), ping_body);
+    assert_eq!(
+        std::fs::read_to_string(args_capture)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["--profile", "ping", "exec", "--json", "say ok"]
+    );
+    let probe_home = std::fs::read_to_string(home_capture).unwrap();
+    assert!(
+        probe_home.contains("/probe/"),
+        "probe CODEX_HOME should live under state probe dir: {probe_home}"
+    );
 }
 
 #[test]

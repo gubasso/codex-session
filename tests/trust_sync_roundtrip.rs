@@ -8,7 +8,7 @@
 //! These tests install a fake `codex` that writes a `[projects.…]` entry
 //! into its `$CODEX_HOME/config.toml` (matching upstream codex's behavior
 //! per `docs/upstream-codex.md` F1/F2) and assert the wrapper's post-flight
-//! sync lands the entry in the machine-local cache settings layer.
+//! sync lands the entry in the machine-local cache config layer.
 
 mod support;
 
@@ -40,7 +40,7 @@ exit 0
 }
 
 fn cache_projects_table(env: &TestEnv) -> Option<toml::Table> {
-    let path = env.cache_settings_path();
+    let path = env.cache_config_path();
     if !path.exists() {
         return None;
     }
@@ -53,13 +53,13 @@ fn cache_projects_table(env: &TestEnv) -> Option<toml::Table> {
 fn single_pass_persist_lands_trust_in_cache() {
     // Acceptance test for the round-trip: after one wrapper invocation
     // during which the (fake) codex writes a trust entry, the entry must
-    // appear in the machine-local cache settings layer.
+    // appear in the machine-local cache config layer.
     let env = TestEnv::new();
     install_trust_writing_fake_codex(&env, "/tmp/example", "trusted");
 
     env.cmd().assert().success();
 
-    let projects = cache_projects_table(&env).expect("cache settings should now exist");
+    let projects = cache_projects_table(&env).expect("cache config should now exist");
     let entry = projects
         .get("/tmp/example")
         .and_then(toml::Value::as_table)
@@ -70,7 +70,7 @@ fn single_pass_persist_lands_trust_in_cache() {
     );
 
     // Hardened-write contract: cache file lands at 0o600.
-    let mode = std::fs::metadata(env.cache_settings_path())
+    let mode = std::fs::metadata(env.cache_config_path())
         .unwrap()
         .permissions()
         .mode()
@@ -204,8 +204,8 @@ exit 0
 }
 
 #[test]
-fn symlinked_cache_settings_does_not_fail_the_session() {
-    // R5 / security: pre-create cache settings as a symlink. The hardened
+fn symlinked_cache_config_does_not_fail_the_session() {
+    // R5 / security: pre-create cache config as a symlink. The hardened
     // writer must refuse to follow it; the trust-persist failure is
     // log-and-swallowed (matches upstream codex PR #17595 policy), so the
     // wrapper exit code stays 0 and the symlink's target is untouched.
@@ -215,14 +215,14 @@ fn symlinked_cache_settings_does_not_fail_the_session() {
     let decoy = env.tmp.path().join("decoy.toml");
     std::fs::write(&decoy, "model = \"decoy\"\n").unwrap();
     std::fs::set_permissions(&decoy, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let cache_settings = env.cache_settings_path();
-    std::fs::create_dir_all(cache_settings.parent().unwrap()).unwrap();
+    let cache_config = env.cache_config_path();
+    std::fs::create_dir_all(cache_config.parent().unwrap()).unwrap();
     std::fs::set_permissions(
-        cache_settings.parent().unwrap(),
+        cache_config.parent().unwrap(),
         std::fs::Permissions::from_mode(0o700),
     )
     .unwrap();
-    std::os::unix::fs::symlink(&decoy, &cache_settings).unwrap();
+    std::os::unix::fs::symlink(&decoy, &cache_config).unwrap();
 
     env.cmd().assert().success();
 
@@ -237,7 +237,7 @@ fn symlinked_cache_settings_does_not_fail_the_session() {
 fn concurrent_wrappers_serialize_writes_via_flock() {
     // Two parallel wrappers, each fake codex writes a distinct trust entry
     // to its own $CODEX_HOME. Both entries must end up in the shared
-    // cache settings file — proves the flock prevents read-modify-write
+    // cache config file — proves the flock prevents read-modify-write
     // clobbering across processes.
     let env = TestEnv::new();
     // The fake codex picks its key from $CST_TRUST_KEY (a wrapper-private

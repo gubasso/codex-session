@@ -48,7 +48,7 @@ pub(crate) fn run(
             &crate::services::config_recipe::ConfigRecipePaths {
                 recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
                 configs_dir: ctx.config.config_recipe.configs_dir.clone(),
-                cache_settings: cache_settings_path(ctx),
+                cache_config: cache_config_path(ctx),
             },
         )?;
         crate::services::config_recipe::write_session_artifacts(&composition, &session_dir)?;
@@ -117,7 +117,7 @@ fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {
         .map_err(crate::config::ConfigError::from)
 }
 
-fn cache_settings_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
-    let path = ctx.config.paths.cache_dir.join("settings.toml");
+fn cache_config_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
+    let path = ctx.config.paths.cache_dir.join("configs.toml");
     path.is_file().then_some(path)
 }

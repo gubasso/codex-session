@@ -370,12 +370,11 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
     Ok(())
 }
 
-/// Verify the token is valid server-side via a minimal `codex exec` probe.
-///
-/// Extracts the `[profiles.ping]` section from the user's composed
-/// codex-session settings and serializes a minimal config.toml containing
-/// only that section, suitable for writing to the probe's isolated
-/// `CODEX_HOME`.
+/// Returns the raw TOML bytes of the active config-recipe's `ping` profile
+/// file (`configs/profiles/ping.config.toml`). The bytes are written
+/// verbatim to `$CODEX_HOME/ping.config.toml` under the probe's isolated
+/// `CODEX_HOME` — codex v0.134+ requires per-profile overrides to live in
+/// sibling files with bare top-level keys.
 fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
     let recipe_name = ctx.config.config_recipe.active.as_deref().ok_or_else(|| {
         AppError::Account(AccountError::PingProfileMissing {
@@ -388,37 +387,28 @@ fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
         &crate::services::config_recipe::ConfigRecipePaths {
             recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
             configs_dir: ctx.config.config_recipe.configs_dir.clone(),
-            cache_settings: cache_settings_path(ctx),
+            cache_config: cache_config_path(ctx),
         },
     )?;
 
-    let ping_table = composition
-        .merged_config
-        .get("profiles")
-        .and_then(|v| v.as_table())
-        .and_then(|profiles| profiles.get(PING_PROFILE))
-        .and_then(|v| v.as_table())
+    let ping = composition
+        .profile_files
+        .iter()
+        .find(|p| p.name == PING_PROFILE)
         .ok_or_else(|| {
             let detail = format!(
-                "[profiles.{PING_PROFILE}] not found in \
-                composed settings for config-recipe `{recipe_name}`"
+                "profile file `configs/profiles/{PING_PROFILE}.config.toml` \
+                not found in active config-recipe `{recipe_name}` \
+                (manifest `profile-files` list may exclude it)"
             );
             AppError::Account(AccountError::PingProfileMissing { detail })
         })?;
 
-    let mut config = toml::Table::new();
-    let mut profiles = toml::Table::new();
-    profiles.insert(
-        PING_PROFILE.to_owned(),
-        toml::Value::Table(ping_table.clone()),
-    );
-    config.insert("profiles".to_owned(), toml::Value::Table(profiles));
-
-    toml::to_string_pretty(&config).map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))
+    Ok(ping.raw_toml.clone())
 }
 
-fn cache_settings_path(ctx: &AppContext) -> Option<Utf8PathBuf> {
-    let path = ctx.config.paths.cache_dir.join("settings.toml");
+fn cache_config_path(ctx: &AppContext) -> Option<Utf8PathBuf> {
+    let path = ctx.config.paths.cache_dir.join("configs.toml");
     path.is_file().then_some(path)
 }
 
@@ -429,9 +419,10 @@ pub(crate) fn validate_ping_config_recipe(ctx: &AppContext) -> Result<(), AppErr
 /// Heartbeat probe — runs `codex --profile ping exec --json "say ok"` in
 /// an isolated `CODEX_HOME` to verify the account's token works server-side.
 ///
-/// The model is resolved by codex via `[profiles.ping]` — codex-session
-/// never inspects or passes a model value. Users control the probe model
-/// by setting `[profiles.ping].model` in their settings layer.
+/// The model is resolved by codex via the sibling
+/// `$CODEX_HOME/ping.config.toml`, which is the verbatim bytes of the
+/// active config-recipe's `configs/profiles/ping.config.toml`. Users
+/// control the probe model by editing that file.
 ///
 /// Returns `(valid, detail)`: `valid` is `Some(true)` when the token works,
 /// `Some(false)` on a 401, and `None` on non-auth failures. `detail`
@@ -470,8 +461,15 @@ fn heartbeat_probe(
         .map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))?;
     crate::adapters::fs::atomic_write(&tmp_path.join("auth.json"), &bytes)
         .map_err(crate::services::auth::AuthError::from)?;
-    crate::adapters::fs::atomic_write(&tmp_path.join("config.toml"), ping_config.as_bytes())
+    // Empty base config.toml — codex requires the file to exist; all overrides
+    // come from the sibling profile file written below.
+    crate::adapters::fs::atomic_write(&tmp_path.join("config.toml"), b"")
         .map_err(crate::services::auth::AuthError::from)?;
+    crate::adapters::fs::atomic_write(
+        &tmp_path.join(format!("{PING_PROFILE}.config.toml")),
+        ping_config.as_bytes(),
+    )
+    .map_err(crate::services::auth::AuthError::from)?;
 
     let binary = ctx
         .resolved_child()
@@ -523,8 +521,8 @@ fn heartbeat_probe(
             None,
             format!(
                 "ping profile model may be deprecated or \
-                unavailable — update [profiles.ping].model \
-                in your codex settings layer.\n\
+                unavailable — update configs/profiles/{PING_PROFILE}.config.toml \
+                in your codex-session config tree.\n\
                 API said: {truncated}"
             ),
         ));

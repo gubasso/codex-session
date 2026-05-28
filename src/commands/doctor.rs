@@ -342,7 +342,7 @@ fn check_one_recipe(
         Ok(m) => {
             checks.push(ok(
                 format!("manifest.{name}.parse"),
-                format!("{} layers", m.settings_layers.len()),
+                format!("{} layers", m.config_layers.len()),
             ));
             m
         }
@@ -353,14 +353,14 @@ fn check_one_recipe(
     };
 
     // 5-7. Per-layer existence, parse, env validation.
-    for layer_name in &manifest.settings_layers {
+    for layer_name in &manifest.config_layers {
         check_one_layer(ctx, name, layer_name, checks);
     }
 
     // 8. Composition dry-run.
     let paths = crate::services::config_recipe::ConfigRecipePaths {
         recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
-        settings_dir: ctx.config.config_recipe.settings_dir.clone(),
+        configs_dir: ctx.config.config_recipe.configs_dir.clone(),
         cache_settings: cache_settings_path(ctx),
     };
     match crate::services::config_recipe::compose(name, &paths) {
@@ -393,7 +393,7 @@ fn check_one_layer(
     let layer_path = ctx
         .config
         .config_recipe
-        .settings_dir
+        .configs_dir
         .join(format!("{layer_name}.toml"));
     let check_id = format!("layer.{recipe_name}.{layer_name}");
 
@@ -491,18 +491,24 @@ fn check_layer_env(check_id: &str, env_value: &toml::Value) -> CheckResult {
 }
 
 fn check_orphan_layers(ctx: &crate::context::AppContext) -> CheckResult {
-    let settings_dir = &ctx.config.config_recipe.settings_dir;
+    let configs_dir = &ctx.config.config_recipe.configs_dir;
     let recipes_dir = &ctx.config.config_recipe.recipes_dir;
-    if !settings_dir.is_dir() {
-        return ok("layers.orphan", "no settings/ directory".to_owned());
+    if !configs_dir.is_dir() {
+        return ok(
+            "layers.orphan",
+            format!(
+                "no configs/ directory at {configs_dir} — create it and add \
+                at least one layer file (e.g. {configs_dir}/base.toml)"
+            ),
+        );
     }
 
-    let entries = match std::fs::read_dir(settings_dir.as_std_path()) {
+    let entries = match std::fs::read_dir(configs_dir.as_std_path()) {
         Ok(entries) => entries,
         Err(err) => {
             return fail(
                 "layers.orphan",
-                format!("could not read {settings_dir}: {err}"),
+                format!("could not read {configs_dir}: {err}"),
             );
         }
     };
@@ -608,7 +614,7 @@ fn collect_referenced_layers(recipes_dir: &Utf8Path) -> ReferencedLayers {
         };
         match crate::services::config_recipe::Manifest::parse(utf8) {
             Ok(m) => {
-                for name in m.settings_layers {
+                for name in m.config_layers {
                     names.insert(name);
                 }
             }
@@ -992,12 +998,12 @@ fn hint_for(name: &str) -> &'static str {
     if name.starts_with("manifest.") {
         match suffix {
             "exists" => "create the missing manifest under config-recipes/",
-            "parse" => "fix the YAML schema (settings-layers: [..])",
+            "parse" => "fix the YAML schema (config-layers: [..])",
             _ => "see check detail",
         }
     } else if name.starts_with("layer.") {
         match suffix {
-            "exists" => "create the missing layer file under settings/",
+            "exists" => "create the missing layer file under configs/",
             "parse" => "fix TOML syntax in the layer",
             "env" => "fix the offending key in the layer's [env] table",
             _ => "see check detail",

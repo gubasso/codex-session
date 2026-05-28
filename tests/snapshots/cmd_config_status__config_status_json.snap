@@ -18,7 +18,7 @@ expression: value
       "error": null,
       "exists": true,
       "name": "base",
-      "path": "<TMP>/config/codex-session/settings/base.toml"
+      "path": "<TMP>/config/codex-session/configs/base.toml"
     }
   ],
   "log": {

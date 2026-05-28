@@ -372,15 +372,30 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
             why_line: reason.clone(),
         },
         ConfigError::LayerNotFound { name, .. } => ErrorDetail {
-            what: format!("config: settings layer `{name}` not found"),
-            why_line: "the config-recipe references a missing settings layer".to_owned(),
+            what: format!("config: config layer `{name}` not found"),
+            why_line: "the config-recipe references a missing config layer".to_owned(),
+        },
+        ConfigError::ProfileFileNotFound { name, .. } => ErrorDetail {
+            what: format!("config: profile file `{name}.config.toml` not found"),
+            why_line: "the config-recipe's `profile-files:` list references a missing profile file"
+                .to_owned(),
+        },
+        ConfigError::InvalidProfileFileName { name, .. } => ErrorDetail {
+            what: format!("config: profile file `{name}.config.toml` has an invalid name"),
+            why_line: "file stems under `configs/profiles/` must match `[a-z0-9._-]+`; \
+                rename the file or remove it before composing the recipe"
+                .to_owned(),
         },
         ConfigError::LayerParse { .. } => ErrorDetail {
-            what: "config: settings layer parse error".to_owned(),
-            why_line: "the TOML settings layer could not be parsed".to_owned(),
+            what: "config: config layer parse error".to_owned(),
+            why_line: "the TOML config layer could not be parsed".to_owned(),
         },
         ConfigError::MergeFailed { reason } => ErrorDetail {
             what: "config: config-recipe composition failed".to_owned(),
+            why_line: reason.clone(),
+        },
+        ConfigError::LegacyProfileSyntax { location, reason } => ErrorDetail {
+            what: format!("config: legacy profile syntax in {location}"),
             why_line: reason.clone(),
         },
         ConfigError::SessionDirUnresolvable { reason, .. } => ErrorDetail {
@@ -519,6 +534,8 @@ fn error_path(err: &AppError) -> Option<String> {
             | ConfigError::ManifestParse { path, .. }
             | ConfigError::ManifestSchema { path, .. }
             | ConfigError::LayerNotFound { path, .. }
+            | ConfigError::ProfileFileNotFound { path, .. }
+            | ConfigError::InvalidProfileFileName { path, .. }
             | ConfigError::LayerParse { path, .. },
         )
         | AppError::ChildRecursion { path } => Some(path.to_string()),
@@ -540,6 +557,7 @@ fn error_path(err: &AppError) -> Option<String> {
             | ConfigError::Io(_)
             | ConfigError::EnvParse { .. }
             | ConfigError::MergeFailed { .. }
+            | ConfigError::LegacyProfileSyntax { .. }
             | ConfigError::SessionDirUnresolvable { .. }
             | ConfigError::EnvKeyInvalid { .. }
             | ConfigError::AccountConfigParse { .. },
@@ -641,8 +659,11 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             | ConfigError::ManifestParse { .. }
             | ConfigError::ManifestSchema { .. }
             | ConfigError::LayerNotFound { .. }
+            | ConfigError::ProfileFileNotFound { .. }
+            | ConfigError::InvalidProfileFileName { .. }
             | ConfigError::LayerParse { .. }
             | ConfigError::MergeFailed { .. }
+            | ConfigError::LegacyProfileSyntax { .. }
             | ConfigError::SessionDirUnresolvable { .. }
             | ConfigError::EnvKeyInvalid { .. }
             | ConfigError::AccountConfigParse { .. },
@@ -742,6 +763,26 @@ mod tests {
         });
         assert_eq!(err.exit_code(), 78);
         assert_eq!(err.kind(), "config-env-parse");
+    }
+
+    #[test]
+    fn config_legacy_profile_syntax_is_seventy_eight() {
+        let err = AppError::Config(ConfigError::LegacyProfileSyntax {
+            location: "config layer `base.toml`".to_owned(),
+            reason: "legacy profile selector".to_owned(),
+        });
+        assert_eq!(err.exit_code(), 78);
+        assert_eq!(err.kind(), "legacy-profile-syntax");
+    }
+
+    #[test]
+    fn config_invalid_profile_file_name_is_seventy_eight() {
+        let err = AppError::Config(ConfigError::InvalidProfileFileName {
+            name: "Deep Profile".to_owned(),
+            path: camino::Utf8PathBuf::from("/tmp/configs/profiles/Deep Profile.config.toml"),
+        });
+        assert_eq!(err.exit_code(), 78);
+        assert_eq!(err.kind(), "invalid-profile-file-name");
     }
 
     #[test]

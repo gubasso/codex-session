@@ -15,8 +15,8 @@ session-root:   <TMP>/state/codex-session
 session-source: state
 child-bin:      <TMP>/bin/codex
 layers:
-  base => <TMP>/config/codex-session/settings/base.toml (exists=true)
-  work => <TMP>/config/codex-session/settings/work.toml (exists=true)
+  base => <TMP>/config/codex-session/configs/base.toml (exists=true)
+  work => <TMP>/config/codex-session/configs/work.toml (exists=true)
 log.file: <TMP>/state/codex-session
 log.verbose: 0
 log.mirror-stderr: false

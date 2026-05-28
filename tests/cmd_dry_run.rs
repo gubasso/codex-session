@@ -11,7 +11,7 @@ fn dry_run_prints_invocation_session_and_codex_home_without_exec() {
     env.make_fake_codex();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[env]\nHELLO = \"world\"\n")],
     );
     let assert = env

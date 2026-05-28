@@ -23,7 +23,7 @@ fn missing_config_recipe_manifest_exits_seventy_eight() {
 #[test]
 fn malformed_manifest_schema_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.write_config_recipe_manifest("default", "settings-layers: notalist\n");
+    env.write_config_recipe_manifest("default", "config-layers: notalist\n");
     env.cmd()
         .args(["config-recipe", "show"])
         .assert()
@@ -34,12 +34,12 @@ fn malformed_manifest_schema_exits_seventy_eight() {
 #[test]
 fn missing_layer_exits_seventy_eight() {
     let env = TestEnv::new();
-    env.write_config_recipe_manifest("default", "settings-layers:\n  - base\n");
+    env.write_config_recipe_manifest("default", "config-layers:\n  - base\n");
     env.cmd()
         .args(["config-recipe", "compose"])
         .assert()
         .code(78)
-        .stderr(predicate::str::contains("settings layer `base` not found"));
+        .stderr(predicate::str::contains("config layer `base` not found"));
 }
 
 #[test]
@@ -47,14 +47,14 @@ fn malformed_toml_layer_exits_seventy_eight() {
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[model\n")],
     );
     env.cmd()
         .args(["config-recipe", "compose"])
         .assert()
         .code(78)
-        .stderr(predicate::str::contains("settings layer parse error"));
+        .stderr(predicate::str::contains("config layer parse error"));
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn invalid_env_key_exits_seventy_eight() {
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[env]\nBAD-KEY = \"x\"\n")],
     );
     env.cmd()
@@ -77,7 +77,7 @@ fn wrapper_private_env_key_exits_seventy_eight() {
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[env]\nCODEX_SESSION_CONFIG_RECIPE = \"x\"\n")],
     );
     env.cmd()

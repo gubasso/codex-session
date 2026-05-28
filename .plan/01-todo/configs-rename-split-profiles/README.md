@@ -57,7 +57,7 @@ host.
 | Round | File                                            | Topic                                                            | Status | Completed |
 | ----- | ----------------------------------------------- | ---------------------------------------------------------------- | ------ | --------- |
 | 01    | `01-docs-and-principle.md`                      | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
-| 02    | `02-composer-and-input-rename.md`               | Rename settings→configs, split-emit, manifest field, validation  | todo   | --        |
+| 02    | `02-composer-and-input-rename.md`               | Rename settings→configs, split-emit, manifest field, validation  | done   | 2026-05-28 |
 | 03    | `03-heartbeat-cache-doctor.md`                  | Ping probe rewrite, cache file rename, doctor detection          | todo   | --        |
 | 04    | `04-dotfiles-propagation.md`                    | Migrate ~/.dotfiles/codex-session to new layout                  | todo   | --        |
 

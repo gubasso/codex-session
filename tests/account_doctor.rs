@@ -10,7 +10,7 @@ fn doctor_reports_accounts_section() {
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[model]\ndefault = \"gpt-5\"\n")],
     );
     env.make_fake_codex_printing_stdout("ignored");

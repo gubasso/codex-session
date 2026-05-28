@@ -34,8 +34,8 @@ fn health_requires_ping_profile_when_not_fast() {
     .unwrap();
     env.install_config_recipe(
         "test",
-        "settings-layers:\n  - base\n",
-        &[("base", "[profiles.other]\nmodel = \"gpt-4.1-nano\"\n")],
+        "config-layers:\n  - base\n",
+        &[("base", "model = \"gpt-4.1-nano\"\n")],
     );
 
     env.cmd()

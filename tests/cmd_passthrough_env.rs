@@ -10,7 +10,7 @@ fn passthrough_sets_codex_home_and_profile_env_without_leaking_wrapper_namespace
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[env]\nHELLO = \"world\"\n")],
     );
 

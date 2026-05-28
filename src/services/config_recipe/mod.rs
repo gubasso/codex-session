@@ -10,13 +10,15 @@ pub(crate) mod layer;
 pub(crate) mod manifest;
 
 pub(crate) use composition::{
-    Composition, ConfigRecipePaths, LayerRef, LayerSource, write_session_artifacts,
+    Composition, ConfigRecipePaths, LayerRef, LayerSource, ProfileFileRef, write_session_artifacts,
     write_stock_session_artifacts,
 };
-pub(crate) use layer::{deep_merge, extract_env, is_valid_env_key, read_layer};
+pub(crate) use layer::{
+    deep_merge, extract_env, is_valid_env_key, read_layer, reject_legacy_profile_syntax,
+};
 pub(crate) use manifest::Manifest;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// Compose a named config-recipe without writing any session artifacts.
 pub(crate) fn compose(
@@ -39,16 +41,17 @@ pub(crate) fn compose(
         && cache_settings.is_file()
     {
         let cache_layer = read_layer(cache_settings)?;
+        reject_legacy_profile_syntax(&cache_layer, "cache layer")?;
         merged = deep_merge(merged, cache_layer);
         layer_refs.push(LayerRef {
-            name: "settings".to_owned(),
+            name: "configs".to_owned(),
             path: cache_settings.clone(),
             source: LayerSource::CacheBootstrap,
         });
     }
 
-    for layer_name in &manifest.settings_layers {
-        let layer_path = paths.settings_dir.join(format!("{layer_name}.toml"));
+    for layer_name in &manifest.config_layers {
+        let layer_path = paths.configs_dir.join(format!("{layer_name}.toml"));
         if !layer_path.is_file() {
             return Err(crate::config::ConfigError::LayerNotFound {
                 name: layer_name.clone(),
@@ -56,6 +59,7 @@ pub(crate) fn compose(
             });
         }
         let layer = read_layer(&layer_path)?;
+        reject_legacy_profile_syntax(&layer, &format!("config layer `{layer_name}.toml`"))?;
         merged = deep_merge(merged, layer);
         layer_refs.push(LayerRef {
             name: layer_name.clone(),
@@ -64,7 +68,14 @@ pub(crate) fn compose(
         });
     }
 
+    let profile_files = collect_profile_files(&manifest, paths)?;
     let env = extract_env(&mut merged)?;
+    // Bug-net: defend against future merge logic that re-introduces top-level
+    // `profile` / `profiles` keys. The per-layer and per-file checks above
+    // already cover normal input; this re-check runs against the post-merge,
+    // post-`extract_env` surface so a refactor of either path cannot silently
+    // smuggle the legacy shape into the emitted base config.
+    reject_legacy_profile_syntax(&merged, "merged base config")?;
     // Snapshot AFTER `extract_env`, which mutates `merged` by removing
     // `[env]`. The baseline must reflect what eventually gets serialized
     // into the session config so the post-flight trust sync can diff
@@ -76,7 +87,76 @@ pub(crate) fn compose(
         merged_config: merged,
         env,
         baseline_projects,
+        profile_files,
     })
+}
+
+fn collect_profile_files(
+    manifest: &Manifest,
+    paths: &ConfigRecipePaths,
+) -> Result<Vec<ProfileFileRef>, crate::config::ConfigError> {
+    let profiles_dir = paths.profiles_dir();
+    let names: Vec<String> = match manifest.profile_files.as_ref() {
+        Some(declared) => declared.clone(),
+        None => scan_profile_files(&profiles_dir)?,
+    };
+
+    let mut refs = Vec::with_capacity(names.len());
+    for name in names {
+        let path = profiles_dir.join(format!("{name}.config.toml"));
+        if !path.is_file() {
+            return Err(crate::config::ConfigError::ProfileFileNotFound { name, path });
+        }
+        let raw_toml =
+            std::fs::read_to_string(path.as_std_path()).map_err(crate::config::ConfigError::Io)?;
+        let table: toml::Table =
+            toml::from_str(&raw_toml).map_err(|source| crate::config::ConfigError::LayerParse {
+                path: path.clone(),
+                source,
+            })?;
+        reject_legacy_profile_syntax(&table, &format!("profile file `{name}.config.toml`"))?;
+        refs.push(ProfileFileRef {
+            name,
+            path,
+            raw_toml,
+        });
+    }
+    Ok(refs)
+}
+
+fn scan_profile_files(dir: &Utf8Path) -> Result<Vec<String>, crate::config::ConfigError> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(dir.as_std_path())? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let Ok(name_os) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Some(stem) = name_os.strip_suffix(".config.toml") else {
+            // Non-profile file in the directory (e.g. README, .gitkeep);
+            // ignore. Only the `*.config.toml` suffix is in scope.
+            continue;
+        };
+        if !manifest::is_valid_layer_name(stem) {
+            // Fail loudly: the directory-scan contract is "emit every
+            // *.config.toml". Silently dropping a file with an invalid stem
+            // would let codex see one set of profiles and the operator see
+            // another. Surface the bad name with a clear path so the user
+            // can rename or remove it.
+            return Err(crate::config::ConfigError::InvalidProfileFileName {
+                name: stem.to_owned(),
+                path: dir.join(&name_os),
+            });
+        }
+        names.push(stem.to_owned());
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// Resolve the named config-recipe manifest path if it exists.

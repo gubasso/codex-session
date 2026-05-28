@@ -53,7 +53,7 @@ fn build_view(
             Ok(manifest) => recipes.push(ConfigRecipeListEntry {
                 name,
                 manifest_path: path,
-                layer_count: manifest.settings_layers.len(),
+                layer_count: manifest.config_layers.len(),
                 valid: true,
                 error: None,
             }),

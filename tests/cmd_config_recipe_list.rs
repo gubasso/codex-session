@@ -9,10 +9,10 @@ use support::TestEnv;
 #[test]
 fn config_recipe_list_text_snapshot() {
     let env = TestEnv::new();
-    env.install_config_recipe("default", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("default", "config-layers:\n  - base\n", &[("base", "")]);
     env.install_config_recipe(
         "work",
-        "settings-layers:\n  - base\n  - work\n",
+        "config-layers:\n  - base\n  - work\n",
         &[("work", "")],
     );
 
@@ -33,7 +33,7 @@ fn config_recipe_list_text_snapshot() {
 #[test]
 fn config_recipe_list_json_snapshot() {
     let env = TestEnv::new();
-    env.install_config_recipe("default", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("default", "config-layers:\n  - base\n", &[("base", "")]);
     let output = env
         .cmd()
         .args(["config-recipe", "list", "--format", "json"])

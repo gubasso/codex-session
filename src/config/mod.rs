@@ -60,7 +60,7 @@ pub(crate) struct ConfigRecipeConfig {
     pub(crate) default: Option<String>,
     pub(crate) config_dir: Utf8PathBuf,
     pub(crate) recipes_dir: Utf8PathBuf,
-    pub(crate) settings_dir: Utf8PathBuf,
+    pub(crate) configs_dir: Utf8PathBuf,
     #[serde(skip)]
     pub(crate) active: Option<String>,
 }
@@ -166,7 +166,7 @@ struct FileConfigRecipeConfig {
     default: Option<String>,
     config_dir: Option<Utf8PathBuf>,
     recipes_dir: Option<Utf8PathBuf>,
-    settings_dir: Option<Utf8PathBuf>,
+    configs_dir: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -231,7 +231,7 @@ impl Default for ConfigRecipeConfig {
             default: None,
             config_dir: Utf8PathBuf::new(),
             recipes_dir: Utf8PathBuf::new(),
-            settings_dir: Utf8PathBuf::new(),
+            configs_dir: Utf8PathBuf::new(),
             active: None,
         }
     }
@@ -276,7 +276,7 @@ impl Config {
         let config_recipe = ConfigRecipeConfig {
             default: None,
             recipes_dir: config_dir.join("config-recipes"),
-            settings_dir: config_dir.join("settings"),
+            configs_dir: config_dir.join("configs"),
             config_dir,
             active: None,
         };
@@ -389,23 +389,23 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
             config.config_recipe.default = Some(default);
         }
         // When a layer sets `config_dir`, derive `recipes_dir` /
-        // `settings_dir` from it unless the same layer also overrides them
+        // `configs_dir` from it unless the same layer also overrides them
         // explicitly. This keeps the documented invariant that pointing
         // `config_dir` at a fresh tree re-roots the whole config-recipe lookup.
         if let Some(config_dir) = config_recipe.config_dir {
             if config_recipe.recipes_dir.is_none() {
                 config.config_recipe.recipes_dir = config_dir.join("config-recipes");
             }
-            if config_recipe.settings_dir.is_none() {
-                config.config_recipe.settings_dir = config_dir.join("settings");
+            if config_recipe.configs_dir.is_none() {
+                config.config_recipe.configs_dir = config_dir.join("configs");
             }
             config.config_recipe.config_dir = config_dir;
         }
         if let Some(recipes_dir) = config_recipe.recipes_dir {
             config.config_recipe.recipes_dir = recipes_dir;
         }
-        if let Some(settings_dir) = config_recipe.settings_dir {
-            config.config_recipe.settings_dir = settings_dir;
+        if let Some(configs_dir) = config_recipe.configs_dir {
+            config.config_recipe.configs_dir = configs_dir;
         }
     }
 

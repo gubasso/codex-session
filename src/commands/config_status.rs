@@ -207,13 +207,13 @@ fn config_recipe_layers_or_error(
     match crate::services::config_recipe::Manifest::parse(manifest_path.clone()) {
         Ok(manifest) => {
             let entries = manifest
-                .settings_layers
+                .config_layers
                 .into_iter()
                 .map(|name| {
                     let path = ctx
                         .config
                         .config_recipe
-                        .settings_dir
+                        .configs_dir
                         .join(format!("{name}.toml"));
                     LayerEntry {
                         name,

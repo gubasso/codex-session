@@ -16,6 +16,18 @@ pub(crate) struct ConfigRecipeComposeView {
     pub(crate) config_path: Utf8PathBuf,
     pub(crate) sidecar_path: Utf8PathBuf,
     pub(crate) session_meta_path: Utf8PathBuf,
+    /// Profile sibling files (`<name>.config.toml`) the composer emitted
+    /// next to `config.toml`. Empty in stock mode and for recipes whose
+    /// `configs/profiles/` snapshot is empty. Sorted by `name` so the
+    /// rendered output is deterministic.
+    pub(crate) profile_paths: Vec<ComposedProfileView>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct ComposedProfileView {
+    pub(crate) name: String,
+    pub(crate) path: Utf8PathBuf,
 }
 
 pub(crate) fn run(
@@ -35,7 +47,7 @@ pub(crate) fn run(
             name,
             &crate::services::config_recipe::ConfigRecipePaths {
                 recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
-                settings_dir: ctx.config.config_recipe.settings_dir.clone(),
+                configs_dir: ctx.config.config_recipe.configs_dir.clone(),
                 cache_settings: cache_settings_path(ctx),
             },
         )?;
@@ -48,7 +60,21 @@ pub(crate) fn run(
             "compose",
         );
         crate::services::session::meta::write(&session_dir, &meta)?;
-        let view = build_view(Some(name.to_owned()), false, group_id, session_dir);
+        let profile_paths = composition
+            .profile_files
+            .iter()
+            .map(|p| ComposedProfileView {
+                name: p.name.clone(),
+                path: session_dir.join(format!("{}.config.toml", p.name)),
+            })
+            .collect();
+        let view = build_view(
+            Some(name.to_owned()),
+            false,
+            group_id,
+            session_dir,
+            profile_paths,
+        );
         ctx.ui.write_config_recipe_compose(&view)?;
     } else {
         crate::services::config_recipe::write_stock_session_artifacts(&session_dir)?;
@@ -60,7 +86,7 @@ pub(crate) fn run(
             "compose",
         );
         crate::services::session::meta::write(&session_dir, &meta)?;
-        let view = build_view(None, true, group_id, session_dir);
+        let view = build_view(None, true, group_id, session_dir, Vec::new());
         ctx.ui.write_config_recipe_compose(&view)?;
     }
 
@@ -72,6 +98,7 @@ fn build_view(
     stock_mode: bool,
     group_id: String,
     session_dir: Utf8PathBuf,
+    profile_paths: Vec<ComposedProfileView>,
 ) -> ConfigRecipeComposeView {
     ConfigRecipeComposeView {
         stock_mode,
@@ -80,6 +107,7 @@ fn build_view(
         config_path: session_dir.join("config.toml"),
         sidecar_path: session_dir.join(".codex-session-compose.json"),
         session_meta_path: session_dir.join("session-meta.json"),
+        profile_paths,
         session_dir,
     }
 }

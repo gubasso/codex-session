@@ -14,8 +14,14 @@ use serde::Serialize;
 #[derive(Debug, Clone)]
 pub(crate) struct ConfigRecipePaths {
     pub(crate) recipes_dir: Utf8PathBuf,
-    pub(crate) settings_dir: Utf8PathBuf,
+    pub(crate) configs_dir: Utf8PathBuf,
     pub(crate) cache_settings: Option<Utf8PathBuf>,
+}
+
+impl ConfigRecipePaths {
+    pub(crate) fn profiles_dir(&self) -> Utf8PathBuf {
+        self.configs_dir.join("profiles")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +30,7 @@ pub(crate) struct Composition {
     pub(crate) layer_paths: Vec<LayerRef>,
     pub(crate) merged_config: toml::Table,
     pub(crate) env: BTreeMap<String, String>,
+    pub(crate) profile_files: Vec<ProfileFileRef>,
     /// Snapshot of the `[projects]` table from the merged source config,
     /// captured after `[env]` extraction. The post-flight trust sync diffs
     /// the post-session `[projects]` against this baseline to find new
@@ -46,6 +53,20 @@ pub(crate) enum LayerSource {
     ConfigRecipe,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct ProfileFileRef {
+    pub(crate) name: String,
+    pub(crate) path: Utf8PathBuf,
+    /// Input file bytes carried verbatim through the composer pipeline so the
+    /// emitted sibling in `$CODEX_HOME/<name>.config.toml` is bit-equal to the
+    /// `configs/profiles/<name>.config.toml` snapshot read at compose time.
+    /// Held as a `String` (not lazily re-read at emit) to guarantee the
+    /// sidecar and the emitted file derive from the same on-disk snapshot.
+    #[serde(skip)]
+    pub(crate) raw_toml: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 struct ComposeSidecar<'a> {
@@ -58,6 +79,7 @@ struct ComposeSidecar<'a> {
     /// **not** read this sidecar field back. `null` when no source layer
     /// declares any projects entries.
     baseline_projects: Option<serde_json::Value>,
+    profiles: &'a [ProfileFileRef],
 }
 
 pub(crate) fn write_session_artifacts(
@@ -65,6 +87,12 @@ pub(crate) fn write_session_artifacts(
     session_dir: &Utf8Path,
 ) -> Result<(), crate::config::ConfigError> {
     std::fs::create_dir_all(session_dir.as_std_path())?;
+
+    // Final bug-net: refuse to emit legacy shape into $CODEX_HOME/config.toml.
+    crate::services::config_recipe::layer::reject_legacy_profile_syntax(
+        &composition.merged_config,
+        "emitted config.toml",
+    )?;
 
     let config_path = session_dir.join("config.toml");
     let sidecar_path = session_dir.join(".codex-session-compose.json");
@@ -76,11 +104,31 @@ pub(crate) fn write_session_artifacts(
     })?;
     write_atomic(&config_path, &config_string)?;
 
+    // Drop any `*.config.toml` siblings from a previous compose run that are
+    // not part of the current set, so the persistent session_dir
+    // (`accounts/<acct>/groups/<group>/`) stays a true mirror of the current
+    // `configs/profiles/` snapshot. Without this, removing a profile file
+    // from `configs/profiles/` (or from `profile-files:`) would leave the
+    // stale sibling on disk and codex would still see it.
+    let keep: std::collections::BTreeSet<String> = composition
+        .profile_files
+        .iter()
+        .map(|p| format!("{}.config.toml", p.name))
+        .collect();
+    purge_stale_profile_siblings(session_dir, &keep)?;
+
+    // Emit profile sibling files 1:1 from configs/profiles/<name>.config.toml.
+    for profile in &composition.profile_files {
+        let sibling = session_dir.join(format!("{}.config.toml", profile.name));
+        write_atomic(&sibling, &profile.raw_toml)?;
+    }
+
     let sidecar = ComposeSidecar {
         manifest: composition.manifest_path.as_ref(),
         layers: &composition.layer_paths,
         env: &composition.env,
         baseline_projects: baseline_projects_as_json(composition.baseline_projects.as_ref())?,
+        profiles: &composition.profile_files,
     };
     let sidecar_string = serde_json::to_string_pretty(&sidecar).map_err(|err| {
         crate::config::ConfigError::MergeFailed {
@@ -100,12 +148,17 @@ struct StockComposeSidecar {
     env: BTreeMap<String, String>,
     /// Always `null` in stock mode (no source layers, no baseline).
     baseline_projects: Option<serde_json::Value>,
+    profiles: Vec<ProfileFileRef>,
 }
 
 pub(crate) fn write_stock_session_artifacts(
     session_dir: &Utf8Path,
 ) -> Result<(), crate::config::ConfigError> {
     std::fs::create_dir_all(session_dir.as_std_path())?;
+    // Stock mode declares no profile files, so any leftover `*.config.toml`
+    // siblings from a previous (recipe-mode) compose must be cleared to keep
+    // the persistent session_dir a true mirror of current inputs.
+    purge_stale_profile_siblings(session_dir, &std::collections::BTreeSet::new())?;
     write_atomic(&session_dir.join("config.toml"), "")?;
     // Stable sidecar shape so consumers can read one schema in both modes.
     let sidecar = StockComposeSidecar {
@@ -113,6 +166,7 @@ pub(crate) fn write_stock_session_artifacts(
         layers: Vec::new(),
         env: BTreeMap::new(),
         baseline_projects: None,
+        profiles: Vec::new(),
     };
     let sidecar_string = serde_json::to_string_pretty(&sidecar).map_err(|err| {
         crate::config::ConfigError::MergeFailed {
@@ -139,6 +193,43 @@ fn baseline_projects_as_json(
             reason: format!("baseline-projects sidecar serialization: {err}"),
         })?;
     Ok(Some(json))
+}
+
+/// Remove `*.config.toml` siblings in `session_dir` whose file name is not in
+/// `keep`. The base `config.toml` is never matched because it has no leading
+/// segment before `.config.toml`. Missing `session_dir` (first compose run)
+/// is treated as no-op.
+fn purge_stale_profile_siblings(
+    session_dir: &Utf8Path,
+    keep: &std::collections::BTreeSet<String>,
+) -> Result<(), crate::config::ConfigError> {
+    let read_dir = match std::fs::read_dir(session_dir.as_std_path()) {
+        Ok(rd) => rd,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(crate::config::ConfigError::Io(err)),
+    };
+    for entry in read_dir {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        // Match `<stem>.config.toml` (stem must be non-empty so the base
+        // `config.toml` is not matched).
+        let Some(stem) = name.strip_suffix(".config.toml") else {
+            continue;
+        };
+        if stem.is_empty() {
+            continue;
+        }
+        if keep.contains(&name) {
+            continue;
+        }
+        std::fs::remove_file(entry.path()).map_err(crate::config::ConfigError::Io)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn write_atomic(

@@ -56,7 +56,7 @@ fn stock_mode_writes_stable_empty_compose_sidecar() {
 fn wrapper_profile_flag_is_not_forwarded_to_child() {
     let env = TestEnv::new();
     env.make_fake_codex();
-    env.install_config_recipe("work", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("work", "config-layers:\n  - base\n", &[("base", "")]);
     env.cmd()
         .args(["--config-recipe", "work", "exec", "foo"])
         .assert()

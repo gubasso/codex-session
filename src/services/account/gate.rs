@@ -387,7 +387,7 @@ fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
         recipe_name,
         &crate::services::config_recipe::ConfigRecipePaths {
             recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
-            settings_dir: ctx.config.config_recipe.settings_dir.clone(),
+            configs_dir: ctx.config.config_recipe.configs_dir.clone(),
             cache_settings: cache_settings_path(ctx),
         },
     )?;

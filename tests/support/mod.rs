@@ -248,7 +248,7 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
     pub fn install_config_recipe(&self, name: &str, manifest: &str, layers: &[(&str, &str)]) {
         self.write_config_recipe_manifest(name, manifest);
         for (layer_name, body) in layers {
-            self.write_settings_layer(layer_name, body);
+            self.write_config_layer(layer_name, body);
         }
     }
 
@@ -257,9 +257,18 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         Self::write_file(&path, manifest);
     }
 
-    pub fn write_settings_layer(&self, name: &str, body: &str) {
-        let path = self.settings_dir().join(format!("{name}.toml"));
+    pub fn write_config_layer(&self, name: &str, body: &str) {
+        let path = self.configs_dir().join(format!("{name}.toml"));
         Self::write_file(&path, body);
+    }
+
+    pub fn write_profile_file(&self, name: &str, body: &str) -> PathBuf {
+        let path = self
+            .configs_dir()
+            .join("profiles")
+            .join(format!("{name}.config.toml"));
+        Self::write_file(&path, body);
+        path
     }
 
     pub fn write_cache_settings(&self, body: &str) {
@@ -290,8 +299,8 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         self.config_home.join("codex-session/config-recipes")
     }
 
-    pub fn settings_dir(&self) -> PathBuf {
-        self.config_home.join("codex-session/settings")
+    pub fn configs_dir(&self) -> PathBuf {
+        self.config_home.join("codex-session/configs")
     }
 
     pub fn cache_settings_path(&self) -> PathBuf {

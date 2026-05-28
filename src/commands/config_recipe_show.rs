@@ -68,13 +68,13 @@ pub(crate) fn build_view(
 
     let manifest = crate::services::config_recipe::Manifest::parse(manifest_path.clone())?;
     let layer_paths = manifest
-        .settings_layers
+        .config_layers
         .into_iter()
         .map(|layer_name| {
             let path = ctx
                 .config
                 .config_recipe
-                .settings_dir
+                .configs_dir
                 .join(format!("{layer_name}.toml"));
             ConfigRecipeLayerView {
                 name: layer_name,

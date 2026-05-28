@@ -5,5 +5,5 @@ expression: "env.normalize_text(&String::from_utf8(output).unwrap())"
 config-recipe: default
 manifest: <TMP>/config/codex-session/config-recipes/default.yaml
 layers:
-  base => <TMP>/config/codex-session/settings/base.toml (exists=true)
-  work => <TMP>/config/codex-session/settings/work.toml (exists=true)
+  base => <TMP>/config/codex-session/configs/base.toml (exists=true)
+  work => <TMP>/config/codex-session/configs/work.toml (exists=true)

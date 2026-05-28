@@ -26,17 +26,17 @@ fn cli_profile_wins_over_env_file_and_default_manifest() {
     .unwrap();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - default\n",
+        "config-layers:\n  - default\n",
         &[("default", "")],
     );
     env.install_config_recipe(
         "from-file",
-        "settings-layers:\n  - from-file\n",
+        "config-layers:\n  - from-file\n",
         &[("from-file", "")],
     );
     env.install_config_recipe(
         "from-cli",
-        "settings-layers:\n  - from-cli\n",
+        "config-layers:\n  - from-cli\n",
         &[("from-cli", "")],
     );
 
@@ -56,7 +56,7 @@ fn env_profile_wins_over_file_default() {
         "[config-recipe]\ndefault = \"from-file\"\n",
     )
     .unwrap();
-    env.install_config_recipe("from-env", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("from-env", "config-layers:\n  - base\n", &[("base", "")]);
     let value = status_json(env.cmd().env("CODEX_SESSION_CONFIG_RECIPE", "from-env"));
     assert_eq!(value["active-config-recipe"], "from-env");
 }
@@ -69,7 +69,7 @@ fn file_default_wins_when_no_cli_or_env_override() {
         "[config-recipe]\ndefault = \"from-file\"\n",
     )
     .unwrap();
-    env.install_config_recipe("from-file", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("from-file", "config-layers:\n  - base\n", &[("base", "")]);
     let value = status_json(&mut env.cmd());
     assert_eq!(value["active-config-recipe"], "from-file");
 }
@@ -77,7 +77,7 @@ fn file_default_wins_when_no_cli_or_env_override() {
 #[test]
 fn default_manifest_is_used_when_no_other_profile_is_selected() {
     let env = TestEnv::new();
-    env.install_config_recipe("default", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("default", "config-layers:\n  - base\n", &[("base", "")]);
     let value = status_json(&mut env.cmd());
     assert_eq!(value["active-config-recipe"], "default");
 }
@@ -136,18 +136,18 @@ fn env_log_file_wins_over_user_file() {
 #[test]
 fn profile_config_dir_redirects_profile_lookup() {
     // Setting `[config-recipe].config_dir` in the user file must also re-root
-    // `recipes_dir` / `settings_dir` (unless those are explicitly set), so
+    // `recipes_dir` / `configs_dir` (unless those are explicitly set), so
     // a config_recipe installed under the alternate tree is discoverable.
     let env = TestEnv::new();
     let alt_root = env.tmp.path().join("alt-config");
     std::fs::create_dir_all(alt_root.join("config-recipes")).unwrap();
-    std::fs::create_dir_all(alt_root.join("settings")).unwrap();
+    std::fs::create_dir_all(alt_root.join("configs")).unwrap();
     std::fs::write(
         alt_root.join("config-recipes").join("alt.yaml"),
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
     )
     .unwrap();
-    std::fs::write(alt_root.join("settings").join("base.toml"), "").unwrap();
+    std::fs::write(alt_root.join("configs").join("base.toml"), "").unwrap();
     std::fs::write(
         env.wrapper_user_config_path(),
         format!(

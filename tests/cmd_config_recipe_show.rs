@@ -11,7 +11,7 @@ fn config_recipe_show_text_snapshot() {
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n  - work\n",
+        "config-layers:\n  - base\n  - work\n",
         &[("base", ""), ("work", "")],
     );
     let output = env
@@ -31,7 +31,7 @@ fn config_recipe_show_text_snapshot() {
 #[test]
 fn config_recipe_show_json_snapshot() {
     let env = TestEnv::new();
-    env.install_config_recipe("default", "settings-layers:\n  - base\n", &[("base", "")]);
+    env.install_config_recipe("default", "config-layers:\n  - base\n", &[("base", "")]);
     let output = env
         .cmd()
         .args(["config-recipe", "show", "--format", "json"])

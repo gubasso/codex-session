@@ -524,7 +524,18 @@ impl Ui {
         writeln!(stdout, "session-dir:  {}", view.session_dir)?;
         writeln!(stdout, "config:       {}", view.config_path)?;
         writeln!(stdout, "sidecar:      {}", view.sidecar_path)?;
-        writeln!(stdout, "session-meta: {}", view.session_meta_path)
+        writeln!(stdout, "session-meta: {}", view.session_meta_path)?;
+        // Emitted profile siblings, one per `configs/profiles/<name>.config.toml`
+        // input. Suppressed entirely when no profiles were emitted so the
+        // output stays minimal in stock mode and for recipes without
+        // profile files.
+        if !view.profile_paths.is_empty() {
+            writeln!(stdout, "profiles:")?;
+            for profile in &view.profile_paths {
+                writeln!(stdout, "  {}: {}", profile.name, profile.path)?;
+            }
+        }
+        Ok(())
     }
 }
 

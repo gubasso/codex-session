@@ -11,7 +11,7 @@ use support::TestEnv;
 fn install_minimal_recipe(env: &TestEnv) {
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[model]\ndefault = \"gpt-5\"\n")],
     );
     env.make_fake_codex_printing_stdout("codex-stub 0.0.0");
@@ -171,7 +171,7 @@ fn doctor_warn_cooldown_appears_in_next_steps() {
 fn doctor_fails_when_layer_missing() {
     let env = TestEnv::new();
     env.make_fake_codex_printing_stdout("ignored");
-    env.write_config_recipe_manifest("default", "settings-layers:\n  - missing\n");
+    env.write_config_recipe_manifest("default", "config-layers:\n  - missing\n");
 
     env.cmd()
         .arg("doctor")
@@ -187,7 +187,7 @@ fn doctor_fails_on_broken_layer_toml() {
     env.make_fake_codex_printing_stdout("ignored");
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - bad\n",
+        "config-layers:\n  - bad\n",
         &[("bad", "not = valid = toml\n")],
     );
 
@@ -205,7 +205,7 @@ fn doctor_fails_on_bad_env_key() {
     env.make_fake_codex_printing_stdout("ignored");
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - secrets\n",
+        "config-layers:\n  - secrets\n",
         &[("secrets", "[env]\n\"1BAD\" = \"value\"\n")],
     );
 
@@ -223,7 +223,7 @@ fn doctor_fails_on_reserved_env_prefix() {
     env.make_fake_codex_printing_stdout("ignored");
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - rsv\n",
+        "config-layers:\n  - rsv\n",
         &[("rsv", "[env]\nCODEX_SESSION_LOG_VERBOSE = \"1\"\n")],
     );
 
@@ -239,7 +239,7 @@ fn doctor_fails_on_reserved_env_prefix() {
 fn doctor_warns_on_orphan_layer() {
     let env = TestEnv::new();
     install_minimal_recipe(&env);
-    env.write_settings_layer("orphan", "[model]\ndefault = \"unused\"\n");
+    env.write_config_layer("orphan", "[model]\ndefault = \"unused\"\n");
 
     env.cmd()
         .arg("doctor")
@@ -278,10 +278,10 @@ fn doctor_all_recipes_aggregates() {
     env.make_fake_codex_printing_stdout("ignored");
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "[model]\ndefault = \"gpt-5\"\n")],
     );
-    env.write_config_recipe_manifest("alt", "settings-layers:\n  - base\n");
+    env.write_config_recipe_manifest("alt", "config-layers:\n  - base\n");
 
     env.cmd()
         .args(["doctor", "--all-config-recipes"])
@@ -387,7 +387,7 @@ fn doctor_show_env_redacts_secrets() {
     env.make_fake_codex_printing_stdout("ignored");
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - vars\n",
+        "config-layers:\n  - vars\n",
         &[(
             "vars",
             "[env]\nMY_TOKEN = \"deadbeef\"\nINNOCENT = \"hello\"\n",

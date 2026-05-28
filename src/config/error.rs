@@ -24,8 +24,11 @@ impl ConfigError {
             Self::ManifestParse { .. } => "manifest-parse",
             Self::ManifestSchema { .. } => "manifest-schema",
             Self::LayerNotFound { .. } => "layer-not-found",
+            Self::ProfileFileNotFound { .. } => "profile-file-not-found",
+            Self::InvalidProfileFileName { .. } => "invalid-profile-file-name",
             Self::LayerParse { .. } => "layer-parse",
             Self::MergeFailed { .. } => "merge-failed",
+            Self::LegacyProfileSyntax { .. } => "legacy-profile-syntax",
             Self::SessionDirUnresolvable { .. } => "session-dir-unresolvable",
             Self::EnvKeyInvalid { .. } => "env-key-invalid",
             Self::AccountConfigParse { .. } => "config-account-parse",
@@ -110,14 +113,35 @@ pub(crate) enum ConfigError {
     },
 
     /// A referenced layer file did not exist.
-    #[error("config: settings layer `{name}` not found at {path}")]
+    #[error("config: config layer `{name}` not found at {path}")]
     LayerNotFound {
         name: String,
         path: camino::Utf8PathBuf,
     },
 
+    /// A manifest-declared profile file did not exist on disk.
+    #[error("config: profile file `{name}.config.toml` not found at {path}")]
+    ProfileFileNotFound {
+        name: String,
+        path: camino::Utf8PathBuf,
+    },
+
+    /// A profile file under `configs/profiles/` has a stem that fails the
+    /// layer-name validation rules. Surfacing this loudly (rather than
+    /// silently dropping the file) keeps the directory-scan contract honest:
+    /// either every `*.config.toml` is emitted, or the composer fails with a
+    /// clear pointer to the offending file.
+    #[error(
+        "config: profile file at {path} has an invalid name `{name}.config.toml`: \
+            file stems must match `[a-z0-9._-]+`"
+    )]
+    InvalidProfileFileName {
+        name: String,
+        path: camino::Utf8PathBuf,
+    },
+
     /// A referenced layer file failed TOML parsing.
-    #[error("config: failed to parse settings layer {path}")]
+    #[error("config: failed to parse config layer {path}")]
     LayerParse {
         path: camino::Utf8PathBuf,
         #[source]
@@ -127,6 +151,14 @@ pub(crate) enum ConfigError {
     /// Reserved merge failure used by the new composition pipeline.
     #[error("config: composition merge failed")]
     MergeFailed { reason: String },
+
+    /// A layer or emitted output contained the legacy codex profile shape
+    /// (top-level `profile = "..."` selector or `[profiles.*]` table). Both
+    /// are rejected by codex v0.134+; see `docs/upstream-codex.md` §F6c.
+    #[error(
+        "config: legacy profile syntax in {location}: {reason}. See docs/upstream-codex.md §F6c."
+    )]
+    LegacyProfileSyntax { location: String, reason: String },
 
     /// No secure session directory root could be resolved.
     #[error("config: secure session directory could not be resolved")]

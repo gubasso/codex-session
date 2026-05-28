@@ -158,7 +158,7 @@ fn second_run_with_recipe_observes_cached_trust_in_composed_config() {
     let env = TestEnv::new();
     env.install_config_recipe(
         "default",
-        "settings-layers:\n  - base\n",
+        "config-layers:\n  - base\n",
         &[("base", "model = \"gpt-5\"\n")],
     );
 

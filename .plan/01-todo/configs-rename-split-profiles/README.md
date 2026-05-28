@@ -1,0 +1,161 @@
+# configs/ Rename + Split-Profile Emission for Codex 0.134+
+
+> Complexity: L | Rounds: 4 | Generated: 2026-05-28 | Repo: /workspaces/codex-session
+> Status: todo
+
+## Problem Statement
+
+Upstream codex CLI v0.134.0 (released 2026-05-26) hardened its profile config contract:
+
+- `$CODEX_HOME/config.toml` must **not** contain a top-level `profile = "..."` selector or any
+  `[profiles.*]` table.
+- Per-profile overrides live in sibling files `$CODEX_HOME/<name>.config.toml` with **bare**
+  top-level keys (no `[profiles.<name>]` header).
+- Profile activation is `--profile <name>` on the CLI only — no in-file default selector exists
+  anymore.
+- No backward-compat flag. The legacy form is rejected with a hard error pointing at this contract:
+  <https://developers.openai.com/codex/config-advanced#profiles>.
+
+`codex-session`'s composer (`src/services/config_recipe/composition.rs::write_session_artifacts`)
+currently merges all `settings/*.toml` input layers and writes them verbatim into the session
+directory's single `config.toml`. The merged output still carries `profile = "deep"` and
+`[profiles.{deep,fast,ping}]` tables — verified on disk at
+`~/.local/state/codex-session/sessions/pid-131710/config.toml`. Every invocation that flows
+through `pass_through` or `account health` now fails with codex 0.134+'s legacy-form rejection.
+
+This plan refits codex-session so its emitted `$CODEX_HOME/` tree is byte-for-byte
+structurally compatible with codex's new input contract, and codifies the principle that the
+wrapper's output dialect MUST track upstream codex's input dialect.
+
+## Strategy
+
+Four sequential rounds, foundations-first:
+
+1. **Docs & principle** — codify the API-compatibility rule in `README.md`, `CLAUDE.md`,
+    `docs/upstream-codex.md` (§F6b rewrite + new §F6c), and the cross-repo
+    `~/DocsNNotes/tech/tools/claude-code/codex-conventions.md`. No code changes. Establishes the
+    contract the next three rounds enforce.
+2. **Composer & input rename** — rename `settings/` → `configs/` everywhere in the Rust crate,
+    rename the manifest YAML field, add legacy-form rejection at layer read, modify
+    `write_session_artifacts` to emit `<name>.config.toml` siblings, add `profile-files:`
+    manifest support, update tests for composer + config-recipe surface.
+3. **Heartbeat probe, cache rename, doctor** — `extract_ping_config` reads
+    `configs/profiles/ping.config.toml` directly; `heartbeat_probe` writes `ping.config.toml`
+    under the probe CODEX_HOME; cache file renamed to `configs.toml`; doctor messages updated and
+    legacy-form detection added.
+4. **Dotfiles propagation** — migrate `~/.dotfiles/codex-session/.config/codex-session/` to the new
+    layout (`settings/` → `configs/` + extracted `configs/profiles/*.config.toml`), update the
+    `default.yaml` manifest, commit in that repo.
+
+Why this order: principle first (round 01) so rounds 02–04 have a single source of truth to
+cite. Composer (round 02) before consumers (round 03) so the heartbeat probe can rely on the new
+emission. Dotfiles (round 04) last because they validate the whole chain end-to-end on a real
+host.
+
+## Execution Order
+
+| Round | File                                            | Topic                                                            | Status | Completed |
+| ----- | ----------------------------------------------- | ---------------------------------------------------------------- | ------ | --------- |
+| 01    | `01-docs-and-principle.md`                      | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
+| 02    | `02-composer-and-input-rename.md`               | Rename settings→configs, split-emit, manifest field, validation  | todo   | --        |
+| 03    | `03-heartbeat-cache-doctor.md`                  | Ping probe rewrite, cache file rename, doctor detection          | todo   | --        |
+| 04    | `04-dotfiles-propagation.md`                    | Migrate ~/.dotfiles/codex-session to new layout                  | todo   | --        |
+
+## Execution Commands
+
+```bash
+# Execute a single round (do this once per round, in order):
+/prex -ar .plan/01-todo/configs-rename-split-profiles/01-docs-and-principle.md
+/prex -ar .plan/01-todo/configs-rename-split-profiles/02-composer-and-input-rename.md
+/prex -ar .plan/01-todo/configs-rename-split-profiles/03-heartbeat-cache-doctor.md
+/prex -ar .plan/01-todo/configs-rename-split-profiles/04-dotfiles-propagation.md
+
+# Or point at the directory — /prex reads the execution order table and picks the next todo round:
+/prex -ar @.plan/01-todo/configs-rename-split-profiles/
+```
+
+## Execution Discipline
+
+**Rounds must be executed one at a time.** Each round is a self-contained unit of work designed for
+a single `/prex` session. Do not attempt to implement multiple rounds in one session.
+
+After completing a round:
+
+1. Consult the **Execution Order** table above.
+2. Find the next round with status `todo`.
+3. Execute it in a **fresh** `/prex` session.
+4. Repeat until all rounds show status `done`.
+
+Pointing `/prex` at the directory or this README selects ONE round (the next `todo`), executes it,
+then stops. It does NOT proceed through the table in a single session. Fresh sessions prevent
+context contamination between rounds, keep token usage predictable, and let you review intermediate
+results before proceeding.
+
+## Decisions & Constraints
+
+- **Wrapper is a composer, not a config dialect.** codex-session's emitted `$CODEX_HOME/` tree
+  must be byte-for-byte structurally compatible with codex's native input contract. Composability
+  is layered on top, never instead of. If upstream drops a key shape, the wrapper drops it too.
+  This principle is codified in round 01.
+- **Profile activation: forward-only.** The wrapper never injects `--profile`. Users pass it on
+  the CLI and it flows to codex unchanged. No `default-profile` field is added to the manifest or
+  to wrapper config. Mirrors codex's own model (no in-file default selector exists upstream).
+- **Profile composition: 1:1 emit.** Each `configs/profiles/<name>.config.toml` is copied verbatim
+  to `$CODEX_HOME/<name>.config.toml`. No deep-merge across layers. Matches codex's input model
+  exactly.
+- **Vocabulary rename:** `settings/` → `configs/` everywhere. Manifest YAML field `settings-layers:`
+  → `config-layers:`. Cache file `$XDG_CACHE_HOME/codex-session/settings.toml` →
+  `configs.toml`.
+- **Pre-v1.0 clean break.** Per `CLAUDE.md` § Breaking Changes Policy: no compat shim, no dual-name
+  support, no auto-migration of legacy on-disk files. Doctor surfaces a clear error pointing at
+  the new layout if either the old dir name or the legacy `[profiles.*]` form is detected.
+- **Per-host migration is manual.** Round 04 updates the dotfiles repo. On each host where the
+  user has stowed the old `settings/` tree, they manually re-stow after pulling. Doctor's
+  legacy-detection error guides them.
+
+## Rejected Alternatives
+
+- **Inject `--profile <default>` from a manifest field.** Rejected. Codex itself no longer has an
+  in-file default-profile mechanism. Adding one in the wrapper would re-introduce the same
+  ambiguity codex deliberately removed, and the wrapper's principle (round 01) is to match codex's
+  contract, not extend it.
+- **Layered/composable profile files.** Rejected. Recipe-declared profile-layer maps add a second
+  composition axis with no clear payoff: profile files are short, recipe-specific, and the
+  wrapper still has full `config-layers` composability for the base config. 1:1 emit is simpler
+  and codex-native.
+- **Keep cache file as `settings.toml` for backward compatibility.** Rejected. Pre-v1.0 breaking
+  changes policy explicitly disallows compat layers for renamed wrapper behavior. Vocabulary
+  consistency wins.
+- **Auto-migrate legacy `[profiles.*]` from user `configs/<layer>.toml` into separate profile
+  files at compose time.** Rejected. Silent migration hides the contract change from the user
+  and risks misinterpreting which keys are profile-specific vs. base-level. Doctor's
+  legacy-detection error is explicit and actionable.
+
+## Risks & Edge Cases
+
+- **Heartbeat probe regression.** `extract_ping_config` is on the hot path for every
+  `--account auto` invocation (via `account health`). Round 03 must keep behavior bit-exact: same
+  `--profile ping` invocation, same isolated CODEX_HOME, same model resolution semantics —
+  only the on-disk layout changes. Test coverage in `tests/account_health_cli.rs` is the
+  guardrail.
+- **Trust-sync path coupling.** The cache file rename (`settings.toml` → `configs.toml`) touches
+  `pass_through.rs`, `trust_sync.rs`, and every test that round-trips trust state. Round 03
+  isolates this to one round so the breakage surface is contained.
+- **Doctor false-positive on existing `settings/` dirs.** Until users re-stow, their host will
+  still have an old `settings/` dir alongside the new `configs/` dir. Round 02's doctor change
+  surfaces this as a guided error (not a silent ignore) so the migration is visible.
+- **Cross-repo coordination.** Round 04 lives in `~/.dotfiles/codex-session` (separate git
+  repo). The executor must `cd` there explicitly and commit in that repo, not in
+  `/workspaces/codex-session`. Round 04 spells this out.
+- **Note on `.plan/` tracking.** This repo's `.gitignore` does NOT list `.plan/`, and prior plan
+  files (`.plan/01-todo/prex-sandbox-fix-tmpdir-migration/`) are committed. This plan follows the
+  existing convention — plan files will be staged with the implementation commits.
+
+## Completion
+
+When all rounds are done:
+
+```bash
+# README header status set to "done" and completion timestamps filled in the table above.
+mv .plan/01-todo/configs-rename-split-profiles .plan/02-done/configs-rename-split-profiles
+```

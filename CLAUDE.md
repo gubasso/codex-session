@@ -51,6 +51,28 @@ flag that will move to `--format json` in a later round. Avoid introducing
 wrapper flags that overlap with native `codex` flags unless the forwarding
 behavior is explicitly designed and documented.
 
+## Codex config compatibility
+
+`codex-session` is a composer, not a config dialect. The `$CODEX_HOME/` tree it
+emits (under `<state>/accounts/<acct>/groups/<group>/`) MUST be byte-for-byte
+structurally compatible with what upstream `codex` accepts as input. Composability
+lives at the input layer (`configs/` directory + recipe manifests), never at the
+output layer.
+
+Concretely:
+
+- If upstream codex rejects a key shape (e.g. legacy `profile = "..."` selector
+  or `[profiles.*]` tables in `config.toml` since v0.134.0), the wrapper MUST
+  reject it too — at both input layers (`configs/*.toml`) and emitted output.
+  No compat shim, no alias, no auto-migration. (Enforcement lands in rounds
+  02–03 of `.plan/01-todo/configs-rename-split-profiles/`; round 01 only
+  codifies the contract.)
+- Profile overrides emit as sibling files `$CODEX_HOME/<name>.config.toml` with
+  bare top-level keys. Source-of-truth: [docs/upstream-codex.md](./docs/upstream-codex.md)
+  §F6b.
+- When upstream codex changes its config contract, update `docs/upstream-codex.md`
+  first, then mirror the change in the composer.
+
 ## Upstream codex behavior reference
 
 When answering a question or making a change that depends on how upstream

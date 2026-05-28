@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-05-27
+- **Last verified:** 2026-05-28
 - **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -120,18 +120,59 @@ history. There are no hard-coded fallbacks to `~/.codex/*`.
   [issue #18065 — "Misleading `~/.codex/config.toml` references ignore $CODEX_HOME"](https://github.com/openai/codex/issues/18065),
   [issue #4407 — "Change the hardcoded $HOME/.codex path"](https://github.com/openai/codex/issues/4407).
 
-## F6b — `--profile` CLI flag
+## F6b — `--profile` CLI flag (v0.134+ contract)
 
-Codex supports `-p, --profile <CONFIG_PROFILE>` to select a named
-configuration profile at runtime. The flag maps to a `[profiles.<name>]`
-section in `config.toml`. Model resolution precedence (highest to lowest):
-CLI `--model` → `-c model=` override → `--profile` section → top-level
-`model` → catalog default.
+Codex supports `-p, --profile <CONFIG_PROFILE>` to select a named profile at
+runtime. Since v0.134.0 the flag overlays the file
+`$CODEX_HOME/<profile>.config.toml` on top of the base `$CODEX_HOME/config.toml`.
+Per-profile files contain **bare top-level keys** — there is no
+`[profiles.<name>]` header. The base `config.toml` must contain no top-level
+`profile = "..."` selector and no `[profiles.*]` table. There is no in-file
+default selector; `--profile` is the only way to activate one.
 
-- **Sources:** `codex --help` (verified 2026-05-26).
-- **Implementation note:** The heartbeat probe in
-  `src/services/account/gate.rs` uses `--profile ping` with an isolated
-  `CODEX_HOME` to select the probe model without `--model` hardcoding.
+Model resolution precedence (highest to lowest): CLI `--model` →
+`-c model=` override → `--profile`-overlaid file → top-level `config.toml` →
+catalog default.
+
+- **Sources:** [Advanced Configuration §Profiles](https://developers.openai.com/codex/config-advanced#profiles),
+  [CLI reference (`--profile`)](https://developers.openai.com/codex/cli/reference),
+  [openai/codex release v0.134.0](https://github.com/openai/codex/releases/tag/rust-v0.134.0),
+  `codex --help` (verified 2026-05-28).
+  `Last verified`: 2026-05-28.
+- **Implementation note (round-01 contract; emit shape pending round 03):**
+  The heartbeat probe in `src/services/account/gate.rs` calls codex with
+  `--profile ping` and an isolated `CODEX_HOME`. As of round 03 of the
+  `configs-rename-split-profiles` plan, the probe `CODEX_HOME` will contain
+  a base `config.toml` plus a sibling `ping.config.toml` copied 1:1 from
+  `configs/profiles/ping.config.toml`; until then the probe still emits the
+  legacy `[profiles.ping]` form (tracked by that plan). codex-session itself
+  never injects `--profile` for user-facing exec calls.
+
+## F6c — Legacy profile form rejection (v0.134+ breaking change)
+
+Codex v0.134.0 stopped accepting two legacy forms inside `$CODEX_HOME/config.toml`:
+
+1. The top-level selector `profile = "<name>"`.
+2. The nested table `[profiles.<name>]`.
+
+Either form triggers a hard error with migration guidance pointing at
+<https://developers.openai.com/codex/config-advanced#profiles>: users must
+remove the legacy selector/table from `config.toml` and migrate those
+settings into a sibling `<name>.config.toml` file with bare top-level keys.
+There is NO backward-compat flag or environment variable to re-enable the
+legacy form.
+
+This is a load-bearing fact for `codex-session`: the composer must (a) reject
+the legacy form at the input layer (`configs/*.toml`), (b) never emit it in
+`$CODEX_HOME/config.toml`. See §F6b for the new contract and
+[CLAUDE.md § Codex config compatibility](../CLAUDE.md) for the wrapper rule.
+
+- **Sources:** [Codex changelog](https://developers.openai.com/codex/changelog)
+  (v0.134.0 entry — profile-restructuring PR group, individual PR IDs not
+  re-verified at write time; consult the changelog page or
+  `git log --grep=profile` in `openai/codex` for the exact PRs),
+  [release v0.134.0](https://github.com/openai/codex/releases/tag/rust-v0.134.0).
+  `Last verified`: 2026-05-28.
 
 ## F7 — Write-back model
 
@@ -167,11 +208,11 @@ These don't fit a single F# above but are load-bearing for keeping the
 wrapper aligned with codex.
 
 - **Cache layer is the trust persistence home.** `codex-session` writes
-  trust decisions to `<XDG_CACHE_HOME>/codex-session/settings.toml`, which
+  trust decisions to `<XDG_CACHE_HOME>/codex-session/configs.toml`, which
   is loaded first by `compose()` (`src/services/config_recipe/mod.rs`). The
-  stow-managed user layers in `<XDG_CONFIG_HOME>/codex-session/settings/`
-  are **never** modified by the wrapper — that's the composeability
-  contract.
+  stow-managed user layers in `<XDG_CONFIG_HOME>/codex-session/configs/`
+  (including `configs/profiles/*.config.toml`) are **never** modified by
+  the wrapper — that's the composeability contract.
 - **Replay requires an active config-recipe.** `compose()` is the only producer
   that reads the cache layer. Stock-mode invocations (no config-recipe) still
   *write* trust to the cache (the post-flight sync runs unconditionally),

@@ -1,6 +1,6 @@
 # configs/ Rename + Split-Profile Emission for Codex 0.134+
 
-> Complexity: L | Rounds: 4 | Generated: 2026-05-28 | Repo: /workspaces/codex-session
+> Complexity: L | Rounds: 5 | Generated: 2026-05-28 | Repo: /workspaces/codex-session
 > Status: todo
 
 ## Problem Statement
@@ -29,12 +29,12 @@ wrapper's output dialect MUST track upstream codex's input dialect.
 
 ## Strategy
 
-Four sequential rounds, foundations-first:
+Five sequential rounds, foundations-first:
 
 1. **Docs & principle** — codify the API-compatibility rule in `README.md`, `CLAUDE.md`,
     `docs/upstream-codex.md` (§F6b rewrite + new §F6c), and the cross-repo
     `~/DocsNNotes/tech/tools/claude-code/codex-conventions.md`. No code changes. Establishes the
-    contract the next three rounds enforce.
+    contract the next four rounds enforce.
 2. **Composer & input rename** — rename `settings/` → `configs/` everywhere in the Rust crate,
     rename the manifest YAML field, add legacy-form rejection at layer read, modify
     `write_session_artifacts` to emit `<name>.config.toml` siblings, add `profile-files:`
@@ -43,35 +43,40 @@ Four sequential rounds, foundations-first:
     `configs/profiles/ping.config.toml` directly; `heartbeat_probe` writes `ping.config.toml`
     under the probe CODEX_HOME; cache file renamed to `configs.toml`; doctor messages updated and
     legacy-form detection added.
-4. **Profiles-as-sibling restructure + dotfiles propagation + cleanup + cross-repo docs
-    sync** — promote `profiles_dir` from a derived `configs_dir.join("profiles")` method to a
-    first-class field defaulting to `config_dir.join("profiles")` (sibling of `configs/`, not
-    nested); update every consumer, fixture, and in-repo doc that round 01–03 wrote with the
-    nested assumption (including `README.md`, `docs/upstream-codex.md`, and the doctor sweep
-    that flags the obsolete nested `configs/profiles/` layout). Then migrate
-    `~/.dotfiles/codex-session/.config/codex-session/` to the new sibling layout (`settings/`
-    → `configs/` with sibling `profiles/<name>.config.toml`), update the `default.yaml`
-    manifest, sweep `~/.dotfiles/codex-session` for obsolete leftovers to keep it lean, and
-    finally sync codex-session-relevant docs across `~/DocsNNotes` and
-    `~/.dotfiles/{codex-session,claude,claude-session}`. Commit in each affected repo
-    separately.
+4. **Codex v0.134+ fail-fast gate + sibling `profiles/` restructure** — Block A adds a
+    pre-launch gate that probes `codex --version`, parses it, and refuses to launch any child
+    older than 0.134.0, with the same check mirrored as a doctor finding so users can diagnose
+    the version skew without running a pass-through. Block B promotes `profiles_dir` from a
+    derived `configs_dir.join("profiles")` method to a first-class field defaulting to
+    `config_dir.join("profiles")` (sibling of `configs/`, not nested); updates every consumer,
+    fixture, and in-repo doc that round 01–03 wrote with the nested assumption (including
+    `README.md`, `docs/upstream-codex.md`, and the doctor sweep that flags the obsolete nested
+    `configs/profiles/` layout). One commit in `/workspaces/codex-session`.
+5. **Dotfiles propagation + cleanup + cross-repo docs sync** — migrate
+    `~/.dotfiles/codex-session/.config/codex-session/` to the sibling layout (`settings/` →
+    `configs/` with sibling `profiles/<name>.config.toml`), update the `default.yaml` manifest,
+    sweep `~/.dotfiles/codex-session` for obsolete leftovers to keep it lean, and finally sync
+    codex-session-relevant docs across `~/DocsNNotes` and `~/.dotfiles/{claude,claude-session}`.
+    Commit in each affected repo separately.
 
-Why this order: principle first (round 01) so rounds 02–04 have a single source of truth to
+Why this order: principle first (round 01) so rounds 02–05 have a single source of truth to
 cite. Composer (round 02) before consumers (round 03) so the heartbeat probe can rely on the new
-emission. The sibling-`profiles/` restructure is folded into round 04 (not 03) so the in-repo
-code, dotfiles tree, and cross-repo docs all migrate to the final layout in the same session —
-avoiding an intermediate state where the wrapper, dotfiles, and DocsNNotes describe three
-different layouts. Round 04 also runs the cross-repo docs sync and the dotfiles cleanup pass
-last because they validate the whole chain end-to-end on a real host.
+emission. The codex-binary version gate is grouped with the sibling-`profiles/` restructure in
+round 04 because both are wrapper-crate-only changes that finalize the contract before any
+external repos move; doing the gate first means every fixture in the restructure can assume the
+new contract is in force. The dotfiles propagation, cleanup, and cross-repo docs sync are
+separated into round 05 because they touch disjoint repos with independent acceptance criteria
+and validate the whole chain end-to-end on a real host.
 
 ## Execution Order
 
-| Round | File                                            | Topic                                                            | Status | Completed |
-| ----- | ----------------------------------------------- | ---------------------------------------------------------------- | ------ | --------- |
-| 01    | `01-docs-and-principle.md`                      | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
-| 02    | `02-composer-and-input-rename.md`               | Rename settings→configs, split-emit, manifest field, validation  | done   | 2026-05-28 |
-| 03    | `03-heartbeat-cache-doctor.md`                  | Ping probe rewrite, cache file rename, doctor detection          | todo   | --        |
-| 04    | `04-dotfiles-propagation.md`                    | Sibling `profiles/` restructure + dotfiles propagation + cleanup + cross-repo docs sync | todo   | --        |
+| Round | File                                              | Topic                                                            | Status | Completed |
+| ----- | ------------------------------------------------- | ---------------------------------------------------------------- | ------ | --------- |
+| 01    | `01-docs-and-principle.md`                        | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
+| 02    | `02-composer-and-input-rename.md`                 | Rename settings→configs, split-emit, manifest field, validation  | done   | 2026-05-28 |
+| 03    | `03-heartbeat-cache-doctor.md`                    | Ping probe rewrite, cache file rename, doctor detection          | done   | 2026-05-28 |
+| 04    | `04-codex-compat-and-sibling-profiles.md`         | Codex v0.134+ fail-fast gate + sibling `profiles/` restructure   | todo   | --        |
+| 05    | `05-dotfiles-propagation-and-cross-repo-sync.md`  | Dotfiles propagation + cleanup + cross-repo docs sync            | todo   | --        |
 
 ## Execution Commands
 
@@ -80,7 +85,8 @@ last because they validate the whole chain end-to-end on a real host.
 /prex -ar .plan/01-todo/configs-rename-split-profiles/01-docs-and-principle.md
 /prex -ar .plan/01-todo/configs-rename-split-profiles/02-composer-and-input-rename.md
 /prex -ar .plan/01-todo/configs-rename-split-profiles/03-heartbeat-cache-doctor.md
-/prex -ar .plan/01-todo/configs-rename-split-profiles/04-dotfiles-propagation.md
+/prex -ar .plan/01-todo/configs-rename-split-profiles/04-codex-compat-and-sibling-profiles.md
+/prex -ar .plan/01-todo/configs-rename-split-profiles/05-dotfiles-propagation-and-cross-repo-sync.md
 
 # Or point at the directory — /prex reads the execution order table and picks the next todo round:
 /prex -ar @.plan/01-todo/configs-rename-split-profiles/
@@ -125,14 +131,25 @@ results before proceeding.
   overrides) and the wrapper config should make that visible at the top level rather than hide
   it behind a subdirectory. Doctor flags any remaining nested `configs/profiles/` dir as a
   migration finding.
-- **Cross-repo docs scope (round 04):** the cross-repo docs sweep updates only
-  codex-session-relevant content in `~/DocsNNotes` and `~/.dotfiles/{codex-session,claude,
-  claude-session}` — unrelated Claude/Claude-session config and skill bundles are out of
-  scope. Each repo gets its own commit.
+- **Codex version pin: forward-only.** The wrapper refuses to launch a codex child older than
+  the version that hardened the config contract codex-session targets (currently `0.134.0`).
+  The pin lives in one place (`src/codex_compat.rs::REQUIRED_CODEX_VERSION`) and is enforced
+  at two points: a pre-launch gate on every code path that invokes codex (cached via
+  `LazyChild`, so it's free after the first call), and a mirrored `doctor` check
+  (`check_codex_version_minimum`). Pre-release suffixes of the required release
+  (e.g. `0.134.0-rc1`, `0.134.0-alpha.1`) are treated as `Ok`. Unparseable version output is
+  `Warn`, not `Fail`. Rationale: prevents a confusing handoff where codex rejects our
+  emitted file instead of the wrapper rejecting the version skew. Placed at pre-child-invocation
+  (not in `main()`) so `codex-session doctor` / `--version` / `config-recipe …` still work
+  against an older codex and can diagnose the version skew.
+- **Cross-repo docs scope (round 05):** the cross-repo docs sweep updates only
+  codex-session-relevant content in `~/DocsNNotes` and
+  `~/.dotfiles/{codex-session,claude,claude-session}` — unrelated Claude/Claude-session
+  config and skill bundles are out of scope. Each repo gets its own commit.
 - **Pre-v1.0 clean break.** Per `CLAUDE.md` § Breaking Changes Policy: no compat shim, no dual-name
   support, no auto-migration of legacy on-disk files. Doctor surfaces a clear error pointing at
   the new layout if either the old dir name or the legacy `[profiles.*]` form is detected.
-- **Per-host migration is manual.** Round 04 updates the dotfiles repo. On each host where the
+- **Per-host migration is manual.** Round 05 updates the dotfiles repo. On each host where the
   user has stowed the old `settings/` tree, they manually re-stow after pulling. Doctor's
   legacy-detection error guides them.
 
@@ -167,12 +184,12 @@ results before proceeding.
 - **Doctor false-positive on existing `settings/` dirs.** Until users re-stow, their host will
   still have an old `settings/` dir alongside the new `configs/` dir. Round 02's doctor change
   surfaces this as a guided error (not a silent ignore) so the migration is visible.
-- **Cross-repo coordination.** Round 04 touches four separate git repos:
-  `/workspaces/codex-session` (sibling-restructure code/test/doc changes), `~/.dotfiles/codex-session`
-  (layout migration + cleanup), `~/DocsNNotes` (cross-repo doc sync), and
-  `~/.dotfiles/{claude,claude-session}` (codex-session-relevant doc sync). The executor must
-  `cd` into each repo explicitly and make one commit per repo. Round 04 spells out the order
-  and the per-repo commit boundaries.
+- **Cross-repo coordination.** Round 05 touches three separate external git repos:
+  `~/.dotfiles/codex-session` (layout migration + cleanup), `~/DocsNNotes` (cross-repo doc
+  sync), and `~/.dotfiles/{claude,claude-session}` (codex-session-relevant doc sync). The
+  executor must `cd` into each repo explicitly and make one commit per repo. Round 05 spells
+  out the order and the per-repo commit boundaries. The wrapper-crate work (round 04) is in
+  `/workspaces/codex-session` and lands one commit ahead of the external sweep.
 - **Sibling restructure churn in round 04.** Promoting `profiles_dir` to a first-class field
   touches `ConfigRecipeConfig`, `FileConfigRecipeConfig`, `ConfigRecipePaths`, every
   constructor of `ConfigRecipePaths`, the composer's profile-file collection in
@@ -182,6 +199,13 @@ results before proceeding.
   surviving nested layout), and every doc paragraph in `README.md` /
   `docs/upstream-codex.md` that names the nested path. Round 04 isolates this churn to one
   prex session so the diff is reviewable as a unit.
+- **Codex `--version` output drift.** The classifier in `src/codex_compat.rs` tolerates both
+  `codex` and `codex-cli` prefixes and pre-release suffixes; an unparseable string produces
+  a `Warn` (not `Fail`) so the wrapper continues to operate against odd-but-likely-fine
+  builds. `doctor` surfaces the same finding so the user has a single place to see when the
+  parser failed. If upstream codex changes its `--version` output shape (e.g. multi-line or
+  JSON), the classifier and the unit-test fixture both need updating — caught in round 04's
+  `just test` gate against the dev-container's installed codex.
 - **Note on `.plan/` tracking.** This repo's `.gitignore` does NOT list `.plan/`, and prior plan
   files (`.plan/01-todo/prex-sandbox-fix-tmpdir-migration/`) are committed. This plan follows the
   existing convention — plan files will be staged with the implementation commits.

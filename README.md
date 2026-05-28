@@ -56,11 +56,14 @@ paths for the current environment. The general structure:
 ```text
 $XDG_CONFIG_HOME/codex-session/
   config.toml                           wrapper config
-  config-recipes/*.yaml                       config-recipe manifests
-  settings/*.toml                       settings layers
+  config-recipes/*.yaml                 config-recipe manifests
+  configs/                              composable config layers
+    *.toml                              base config layers
+    profiles/
+      <name>.config.toml                profile overrides (one file per profile)
 
 $XDG_CACHE_HOME/codex-session/
-  settings.toml                         trust / cache-layer writes
+  configs.toml                          trust / cache-layer writes
   quota/<account>.json                  cached quota responses
 
 $XDG_STATE_HOME/codex-session/
@@ -71,15 +74,41 @@ $XDG_STATE_HOME/codex-session/
     cooldown.json                       failover cooldown state
     groups/<group-id>/
       auth.json                         session copy (synced back on exit)
-      config.toml                       composed codex config
+      config.toml                       composed codex base config (no profile keys)
+      <name>.config.toml                emitted per-profile sibling files
       .codex-session-compose.json       composition metadata
       session-meta.json                 session metadata
 ```
 
-ConfigRecipe manifests list ordered `settings-layers`. Each layer is parsed from
-`settings/<name>.toml`, deep-merged in order, stripped of its optional `[env]`
-table, then written into the session directory. Stock mode still creates a
+ConfigRecipe manifests list an ordered `config-layers:` array. Each layer is
+parsed from `configs/<name>.toml`, deep-merged in order, stripped of its
+optional `[env]` table, then written into the session directory as `config.toml`.
+Profile overrides are emitted as sibling `<name>.config.toml` files, copied
+1:1 from `configs/profiles/<name>.config.toml`. Stock mode still creates a
 session directory with an empty `config.toml`.
+
+## Composability contract
+
+codex-session's emitted `$CODEX_HOME/` tree is byte-for-byte structurally
+compatible with upstream codex's native input contract. Composability is
+layered on top, never instead of:
+
+- The emitted `config.toml` matches upstream codex's expected base config —
+  it MUST contain no legacy `profile = "..."` selector and no `[profiles.*]`
+  tables (rejected by codex v0.134+). The composer enforcement that
+  guarantees this lands in rounds 02–03 of
+  `.plan/01-todo/configs-rename-split-profiles/`; round 01 codifies the
+  contract.
+- Profile overrides emit as sibling `<name>.config.toml` files, selected by
+  `codex --profile <name>` at invocation time.
+- The wrapper never injects `--profile` for user-facing pass-through calls.
+  Users pass it on the CLI and it flows to codex unchanged. Wrapper-owned
+  health probes (e.g. heartbeat in `account health`) may pass `--profile ping`
+  internally; see `docs/upstream-codex.md` §F6b for details.
+
+If you want a layer to apply only when a specific profile is active, put it
+under `configs/profiles/<name>.config.toml`. If you want it to apply
+unconditionally, put it under `configs/<layer>.toml`.
 
 ## Multi-account management
 

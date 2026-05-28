@@ -272,7 +272,43 @@ should treat the ID as an opaque string.
   works across terminals and PIDs because both account and group-id are
   persisted in `thread-index.jsonl`.  When the index has no hit, the
   wrapper falls back to normal account resolution and forwards the resume
-  command as-is.
+  command as-is.  See F15 for the constraint that sandbox flags must match
+  between original and resumed calls.
+
+## F15 — Sandbox mode mismatch on resume
+
+`exec resume` fails with JSON-RPC -32600 ("no rollout found") when the
+sandbox mode of the resumed call differs from the sandbox mode of the
+original session.  The OpenAI backend validates that session parameters
+match on resume and rejects requests with incompatible sandbox changes.
+
+Observed failure chain:
+
+1. Stage 1 creates a thread with `--sandbox read-only`.
+2. Stage 3 attempts `exec resume <thread-id>` with `--full-auto`
+    (or `--sandbox workspace-write`).
+3. Backend returns -32600 "no rollout found" despite the thread
+    existing in the local index and the local rollout file being present.
+
+The local `codex-session` wrapper correctly resolves the thread ID and
+routes to the right account/group via `thread-index.jsonl`.  The failure
+is purely server-side parameter validation.
+
+Workaround: use `--dangerously-bypass-approvals-and-sandbox` uniformly
+across all stages that share a thread.  This flag bypasses bubblewrap
+entirely and sends no sandbox parameters to the backend, so there is no
+mismatch to validate.
+
+- **Sources:** Empirical testing (2026-05-27),
+  [issue #3947 — "Agent cannot edit files using sandbox when resuming"](https://github.com/openai/codex/issues/3947),
+  [issue #5322 — "Sandbox flags not honored on resume"](https://github.com/openai/codex/issues/5322),
+  [issue #16994 — "No rollout materializes"](https://github.com/openai/codex/issues/16994),
+  [issue #18676 — "Resume session: stream disconnected"](https://github.com/openai/codex/issues/18676),
+  [issue #19661 — "exec resume fails with encrypted_content"](https://github.com/openai/codex/issues/19661),
+  [issue #23875 — "Desktop drops approvals_reviewer after resume"](https://github.com/openai/codex/issues/23875).
+- **Implementation note:** `codex-session` does not intercept or translate
+  sandbox flags — they pass through to the codex binary unchanged.  The
+  constraint is upstream in the OpenAI Codex backend.
 
 ## Sources (full list)
 
@@ -280,9 +316,11 @@ should treat the ID as an opaque string.
   <https://developers.openai.com/codex/config-reference>,
   <https://developers.openai.com/codex/cli/features>,
   <https://developers.openai.com/codex/noninteractive>
-- Issues: [#4407](https://github.com/openai/codex/issues/4407),
+- Issues: [#3947](https://github.com/openai/codex/issues/3947),
+  [#4407](https://github.com/openai/codex/issues/4407),
   [#4432](https://github.com/openai/codex/issues/4432),
   [#4940](https://github.com/openai/codex/issues/4940),
+  [#5322](https://github.com/openai/codex/issues/5322),
   [#9695](https://github.com/openai/codex/issues/9695),
   [#9696](https://github.com/openai/codex/issues/9696),
   [#10332](https://github.com/openai/codex/issues/10332),
@@ -293,11 +331,14 @@ should treat the ID as an opaque string.
   [#15433](https://github.com/openai/codex/issues/15433),
   [#15538](https://github.com/openai/codex/issues/15538),
   [#15767](https://github.com/openai/codex/issues/15767),
+  [#16994](https://github.com/openai/codex/issues/16994),
   [#18065](https://github.com/openai/codex/issues/18065),
   [#18483](https://github.com/openai/codex/issues/18483),
+  [#18676](https://github.com/openai/codex/issues/18676),
   [#18771](https://github.com/openai/codex/issues/18771),
   [#19661](https://github.com/openai/codex/issues/19661),
-  [#21196](https://github.com/openai/codex/issues/21196)
+  [#21196](https://github.com/openai/codex/issues/21196),
+  [#23875](https://github.com/openai/codex/issues/23875)
 - Discussions: [#1076](https://github.com/openai/codex/discussions/1076)
 - PRs: [#14718](https://github.com/openai/codex/pull/14718),
   [#14849](https://github.com/openai/codex/pull/14849),

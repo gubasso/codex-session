@@ -15,13 +15,8 @@ use serde::Serialize;
 pub(crate) struct ConfigRecipePaths {
     pub(crate) recipes_dir: Utf8PathBuf,
     pub(crate) configs_dir: Utf8PathBuf,
+    pub(crate) profiles_dir: Utf8PathBuf,
     pub(crate) cache_config: Option<Utf8PathBuf>,
-}
-
-impl ConfigRecipePaths {
-    pub(crate) fn profiles_dir(&self) -> Utf8PathBuf {
-        self.configs_dir.join("profiles")
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +55,7 @@ pub(crate) struct ProfileFileRef {
     pub(crate) path: Utf8PathBuf,
     /// Input file bytes carried verbatim through the composer pipeline so the
     /// emitted sibling in `$CODEX_HOME/<name>.config.toml` is bit-equal to the
-    /// `configs/profiles/<name>.config.toml` snapshot read at compose time.
+    /// `profiles/<name>.config.toml` snapshot read at compose time.
     /// Held as a `String` (not lazily re-read at emit) to guarantee the
     /// sidecar and the emitted file derive from the same on-disk snapshot.
     #[serde(skip)]
@@ -107,8 +102,8 @@ pub(crate) fn write_session_artifacts(
     // Drop any `*.config.toml` siblings from a previous compose run that are
     // not part of the current set, so the persistent session_dir
     // (`accounts/<acct>/groups/<group>/`) stays a true mirror of the current
-    // `configs/profiles/` snapshot. Without this, removing a profile file
-    // from `configs/profiles/` (or from `profile-files:`) would leave the
+    // `profiles/` snapshot. Without this, removing a profile file
+    // from `profiles/` (or from `profile-files:`) would leave the
     // stale sibling on disk and codex would still see it.
     let keep: std::collections::BTreeSet<String> = composition
         .profile_files
@@ -117,7 +112,7 @@ pub(crate) fn write_session_artifacts(
         .collect();
     purge_stale_profile_siblings(session_dir, &keep)?;
 
-    // Emit profile sibling files 1:1 from configs/profiles/<name>.config.toml.
+    // Emit profile sibling files 1:1 from profiles/<name>.config.toml.
     for profile in &composition.profile_files {
         let sibling = session_dir.join(format!("{}.config.toml", profile.name));
         write_atomic(&sibling, &profile.raw_toml)?;

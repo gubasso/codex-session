@@ -525,7 +525,7 @@ impl Ui {
         writeln!(stdout, "config:       {}", view.config_path)?;
         writeln!(stdout, "sidecar:      {}", view.sidecar_path)?;
         writeln!(stdout, "session-meta: {}", view.session_meta_path)?;
-        // Emitted profile siblings, one per `configs/profiles/<name>.config.toml`
+        // Emitted profile siblings, one per `profiles/<name>.config.toml`
         // input. Suppressed entirely when no profiles were emitted so the
         // output stays minimal in stock mode and for recipes without
         // profile files.

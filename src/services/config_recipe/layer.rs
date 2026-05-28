@@ -105,7 +105,7 @@ pub(crate) fn reject_legacy_profile_syntax(
             location: location.to_owned(),
             reason: "top-level `profile = \"...\"` selectors are no longer accepted \
                 at any layer; profile selection lives on the codex CLI (`--profile \
-                <name>`) against a sibling `configs/profiles/<name>.config.toml` file"
+                <name>`) against a sibling `profiles/<name>.config.toml` file"
                 .to_owned(),
         });
     }
@@ -114,7 +114,7 @@ pub(crate) fn reject_legacy_profile_syntax(
             location: location.to_owned(),
             reason: "`[profiles.<name>]` tables are no longer accepted at any layer; \
                 each profile's keys must live at the top level of a \
-                `configs/profiles/<name>.config.toml` file (no `[profiles.<name>]` \
+                `profiles/<name>.config.toml` file (no `[profiles.<name>]` \
                 header)"
                 .to_owned(),
         });

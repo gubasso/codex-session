@@ -139,14 +139,13 @@ catalog default.
   [openai/codex release v0.134.0](https://github.com/openai/codex/releases/tag/rust-v0.134.0),
   `codex --help` (verified 2026-05-28).
   `Last verified`: 2026-05-28.
-- **Implementation note (round-01 contract; emit shape pending round 03):**
+- **Implementation note (round-04 contract):**
   The heartbeat probe in `src/services/account/gate.rs` calls codex with
   `--profile ping` and an isolated `CODEX_HOME`. As of round 03 of the
-  `configs-rename-split-profiles` plan, the probe `CODEX_HOME` will contain
-  a base `config.toml` plus a sibling `ping.config.toml` copied 1:1 from
-  `configs/profiles/ping.config.toml`; until then the probe still emits the
-  legacy `[profiles.ping]` form (tracked by that plan). codex-session itself
-  never injects `--profile` for user-facing exec calls.
+  `configs-rename-split-profiles` plan, the probe `CODEX_HOME` contains a
+  base `config.toml` plus a sibling `ping.config.toml` copied 1:1 from
+  `profiles/ping.config.toml`. codex-session itself never injects `--profile`
+  for user-facing exec calls.
 
 ## F6c — Legacy profile form rejection (v0.134+ breaking change)
 
@@ -211,7 +210,8 @@ wrapper aligned with codex.
   trust decisions to `<XDG_CACHE_HOME>/codex-session/configs.toml`, which
   is loaded first by `compose()` (`src/services/config_recipe/mod.rs`). The
   stow-managed user layers in `<XDG_CONFIG_HOME>/codex-session/configs/`
-  (including `configs/profiles/*.config.toml`) are **never** modified by
+  and profile override files in `<XDG_CONFIG_HOME>/codex-session/profiles/`
+  (including `profiles/*.config.toml`) are **never** modified by
   the wrapper — that's the composeability contract.
 - **Replay requires an active config-recipe.** `compose()` is the only producer
   that reads the cache layer. Stock-mode invocations (no config-recipe) still

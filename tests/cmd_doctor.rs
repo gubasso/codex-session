@@ -6,7 +6,7 @@ pub mod support;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 
 use predicates::prelude::*;
-use support::TestEnv;
+use support::{FakeCodexBehavior, TestEnv};
 
 fn install_minimal_recipe(env: &TestEnv) {
     env.install_config_recipe(
@@ -33,6 +33,53 @@ fn doctor_happy_path_exits_zero() {
         .stdout(predicate::str::contains("layer.default.base.parse"))
         .stdout(predicate::str::contains("composition.default.dry-run"))
         .stdout(predicate::str::contains("0 FAIL"));
+}
+
+#[test]
+fn doctor_reports_codex_version_too_old() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    env.make_fake_codex_with_version("codex 0.133.0", FakeCodexBehavior::Succeed);
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("codex.version"))
+        .stdout(predicate::str::contains("FAIL"))
+        .stdout(predicate::str::contains("0.133.0"))
+        .stdout(predicate::str::contains("0.134.0"))
+        .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
+}
+
+#[test]
+fn doctor_reports_codex_version_ok() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    env.make_fake_codex_with_version("codex 0.134.0", FakeCodexBehavior::Succeed);
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("codex.version"))
+        .stdout(predicate::str::contains("OK"))
+        .stdout(predicate::str::contains("0.134.0"));
+}
+
+#[test]
+fn doctor_warns_on_unparseable_codex_version() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    env.make_fake_codex_with_version("weird-output", FakeCodexBehavior::Succeed);
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("codex.version"))
+        .stdout(predicate::str::contains("WARN"))
+        .stdout(predicate::str::contains("weird-output"));
 }
 
 #[test]
@@ -264,6 +311,24 @@ fn doctor_warns_on_legacy_settings_dir_present() {
         .stdout(predicate::str::contains("WARN"))
         .stdout(predicate::str::contains("legacy-settings-dir"))
         .stdout(predicate::str::contains("settings"))
+        .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
+}
+
+#[test]
+fn doctor_warns_on_nested_configs_profiles_dir() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    let nested = env.configs_dir().join("profiles");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::create_dir_all(env.profiles_dir()).unwrap();
+
+    env.cmd()
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("obsolete nested"))
+        .stdout(predicate::str::contains("move per-profile files to"))
+        .stdout(predicate::str::contains("sibling of `configs/`"))
         .stdout(predicate::str::contains("docs/upstream-codex.md §F6c"));
 }
 

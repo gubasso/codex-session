@@ -161,6 +161,7 @@ fn prepare_invocation(
     resolved: &crate::services::account::resolver::ResolvedAccount,
     group_id_override: Option<&str>,
 ) -> Result<PreparedInvocation, crate::error::AppError> {
+    ctx.ensure_child_version()?;
     let child_binary = ctx.resolved_child().map_err(map_child_err)?;
 
     let group_id = if let Some(override_gid) = group_id_override {
@@ -197,6 +198,7 @@ fn prepare_invocation(
             &crate::services::config_recipe::ConfigRecipePaths {
                 recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
                 configs_dir: ctx.config.config_recipe.configs_dir.clone(),
+                profiles_dir: ctx.config.config_recipe.profiles_dir.clone(),
                 cache_config: cache_config_path(ctx),
             },
         )?;

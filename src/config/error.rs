@@ -126,7 +126,7 @@ pub(crate) enum ConfigError {
         path: camino::Utf8PathBuf,
     },
 
-    /// A profile file under `configs/profiles/` has a stem that fails the
+    /// A profile file under `profiles/` has a stem that fails the
     /// layer-name validation rules. Surfacing this loudly (rather than
     /// silently dropping the file) keeps the directory-scan contract honest:
     /// either every `*.config.toml` is emitted, or the composer fails with a

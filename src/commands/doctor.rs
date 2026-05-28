@@ -261,6 +261,7 @@ fn build_report(
 
     // 13. Child binary.
     checks.push(check_child_binary(ctx));
+    checks.push(check_codex_version_minimum(ctx));
 
     // 14. Session sidecar inventory.
     checks.push(check_session_inventory(ctx));
@@ -362,6 +363,7 @@ fn check_one_recipe(
     let paths = crate::services::config_recipe::ConfigRecipePaths {
         recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
         configs_dir: ctx.config.config_recipe.configs_dir.clone(),
+        profiles_dir: ctx.config.config_recipe.profiles_dir.clone(),
         cache_config: cache_config_path(ctx),
     };
     match crate::services::config_recipe::compose(name, &paths) {
@@ -568,7 +570,7 @@ fn check_orphan_layers(ctx: &crate::context::AppContext) -> CheckResult {
 /// cites docs/upstream-codex.md §F6c and names the migration step.
 ///
 /// Scope: every `*.toml` under `configs_dir/` and every `*.config.toml`
-/// under `configs_dir/profiles/`, regardless of whether the active
+/// under `profiles_dir/`, regardless of whether the active
 /// manifest references them — `compose()` already validates the
 /// referenced subset, this catches the orphans.
 fn check_legacy_profile_forms(ctx: &crate::context::AppContext) -> Vec<CheckResult> {
@@ -577,6 +579,7 @@ fn check_legacy_profile_forms(ctx: &crate::context::AppContext) -> Vec<CheckResu
 
     let cfg_recipe = &ctx.config.config_recipe;
     let configs_dir = cfg_recipe.configs_dir.clone();
+    let profiles_dir = cfg_recipe.profiles_dir.clone();
     let legacy_settings_dir = cfg_recipe.config_dir.join("settings");
     let legacy_cache_file = ctx.config.paths.cache_dir.join("settings.toml");
 
@@ -587,7 +590,7 @@ fn check_legacy_profile_forms(ctx: &crate::context::AppContext) -> Vec<CheckResu
                 "legacy `{legacy_settings_dir}` directory detected; move \
                 its layer files to `{configs_dir}` and extract any \
                 `[profiles.<name>]` tables into \
-                `{configs_dir}/profiles/<name>.config.toml`. \
+                `{profiles_dir}/<name>.config.toml`. \
                 See docs/upstream-codex.md §F6c."
             ),
         ));
@@ -614,21 +617,27 @@ fn check_legacy_profile_forms(ctx: &crate::context::AppContext) -> Vec<CheckResu
         checks.push(warn("legacy-cache-config", detail));
     }
 
-    sweep_dir_for_legacy(&configs_dir, &configs_dir, false, &mut seen, &mut checks);
-    sweep_dir_for_legacy(
-        &configs_dir.join("profiles"),
-        &configs_dir,
-        true,
-        &mut seen,
-        &mut checks,
-    );
+    let nested_profiles_dir = configs_dir.join("profiles");
+    if nested_profiles_dir.is_dir() && nested_profiles_dir != profiles_dir {
+        checks.push(warn(
+            "config_recipe.legacy_layout",
+            format!(
+                "obsolete nested `{nested_profiles_dir}` directory detected; \
+                move per-profile files to `{profiles_dir}` (sibling of `configs/`). \
+                See docs/upstream-codex.md §F6c."
+            ),
+        ));
+    }
+
+    sweep_dir_for_legacy(&configs_dir, &profiles_dir, false, &mut seen, &mut checks);
+    sweep_dir_for_legacy(&profiles_dir, &profiles_dir, true, &mut seen, &mut checks);
 
     checks
 }
 
 fn sweep_dir_for_legacy(
     dir: &Utf8Path,
-    configs_dir: &Utf8Path,
+    profiles_dir: &Utf8Path,
     is_profiles_subdir: bool,
     seen: &mut BTreeSet<Utf8PathBuf>,
     checks: &mut Vec<CheckResult>,
@@ -679,7 +688,7 @@ fn sweep_dir_for_legacy(
                 "legacy-profile-form",
                 format!(
                     "{err}. Move profile keys to \
-                    `{configs_dir}/profiles/<name>.config.toml` (bare top-level keys, \
+                    `{profiles_dir}/<name>.config.toml` (bare top-level keys, \
                     no `[profiles.<name>]` header). See docs/upstream-codex.md §F6c.",
                 ),
             ));
@@ -827,22 +836,46 @@ const fn group_id_source_label(
 }
 
 fn check_child_binary(ctx: &crate::context::AppContext) -> CheckResult {
-    match ctx.resolved_child() {
-        Ok(path) => {
-            let version = std::process::Command::new(path.as_std_path())
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .map(|s| s.trim().to_owned());
-            let detail = version.map_or_else(
-                || format!("{path} (version unknown)"),
-                |v| format!("{path} ({v})"),
-            );
-            ok("child.binary", detail)
-        }
+    match ctx.resolved_child_with_version_check() {
+        Ok((path, version)) => ok(
+            "child.binary",
+            format!("{path} ({})", version_label(version)),
+        ),
         Err(err) => fail("child.binary", err.to_string()),
+    }
+}
+
+fn check_codex_version_minimum(ctx: &crate::context::AppContext) -> CheckResult {
+    use crate::codex_compat::{REQUIRED_CODEX_VERSION, VersionCheck};
+
+    match ctx.resolved_child_with_version_check() {
+        Ok((_, VersionCheck::Ok(version))) => ok(
+            "codex.version",
+            format!("{version} (>= {REQUIRED_CODEX_VERSION})"),
+        ),
+        Ok((_, VersionCheck::TooOld(version))) => fail(
+            "codex.version",
+            format!(
+                "{version} is below required floor {REQUIRED_CODEX_VERSION}. \
+                See docs/upstream-codex.md §F6c."
+            ),
+        ),
+        Ok((_, VersionCheck::Unparseable(raw))) => warn(
+            "codex.version",
+            format!(
+                "could not parse `codex --version` output ({raw:?}); wrapper proceeds but \
+                recommended floor is {REQUIRED_CODEX_VERSION}."
+            ),
+        ),
+        Err(err) => fail("codex.version", format!("could not resolve child: {err}")),
+    }
+}
+
+fn version_label(version: &crate::codex_compat::VersionCheck) -> String {
+    match version {
+        crate::codex_compat::VersionCheck::Ok(version)
+        | crate::codex_compat::VersionCheck::TooOld(version) => version.to_string(),
+        crate::codex_compat::VersionCheck::Unparseable(raw) => raw.clone(),
     }
 }
 
@@ -1139,6 +1172,8 @@ fn hint_for(name: &str) -> &'static str {
         "set XDG_RUNTIME_DIR / XDG_STATE_HOME to a writable, owned directory"
     } else if name == "child.binary" {
         "set CODEX_SESSION_CHILD_BIN or install `codex` on PATH"
+    } else if name == "codex.version" {
+        "upgrade codex to >= 0.134.0 or set CODEX_SESSION_CHILD_BIN to a compatible binary"
     } else if name == "auth.native" {
         "run `codex-session account add <name>` to create and authenticate an account"
     } else if name == "account.active.auth" {

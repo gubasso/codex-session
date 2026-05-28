@@ -75,7 +75,7 @@ and validate the whole chain end-to-end on a real host.
 | 01    | `01-docs-and-principle.md`                        | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
 | 02    | `02-composer-and-input-rename.md`                 | Rename settings→configs, split-emit, manifest field, validation  | done   | 2026-05-28 |
 | 03    | `03-heartbeat-cache-doctor.md`                    | Ping probe rewrite, cache file rename, doctor detection          | done   | 2026-05-28 |
-| 04    | `04-codex-compat-and-sibling-profiles.md`         | Codex v0.134+ fail-fast gate + sibling `profiles/` restructure   | todo   | --        |
+| 04    | `04-codex-compat-and-sibling-profiles.md`         | Codex v0.134+ fail-fast gate + sibling `profiles/` restructure   | done   | 2026-05-28 |
 | 05    | `05-dotfiles-propagation-and-cross-repo-sync.md`  | Dotfiles propagation + cleanup + cross-repo docs sync            | todo   | --        |
 
 ## Execution Commands

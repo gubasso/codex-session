@@ -52,6 +52,9 @@ fn signal_forwarding_preserves_child_auth_write_on_sigterm() {
         &fixture,
         format!(
             r#"#!/usr/bin/env bash
+if [ "${{1:-}}" = "--version" ]; then
+    exit 0
+fi
 cat > "$CODEX_HOME/auth.json" <<'EOF'
 {payload}
 EOF

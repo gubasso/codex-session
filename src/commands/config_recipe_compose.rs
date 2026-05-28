@@ -18,7 +18,7 @@ pub(crate) struct ConfigRecipeComposeView {
     pub(crate) session_meta_path: Utf8PathBuf,
     /// Profile sibling files (`<name>.config.toml`) the composer emitted
     /// next to `config.toml`. Empty in stock mode and for recipes whose
-    /// `configs/profiles/` snapshot is empty. Sorted by `name` so the
+    /// `profiles/` snapshot is empty. Sorted by `name` so the
     /// rendered output is deterministic.
     pub(crate) profile_paths: Vec<ComposedProfileView>,
 }
@@ -48,6 +48,7 @@ pub(crate) fn run(
             &crate::services::config_recipe::ConfigRecipePaths {
                 recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
                 configs_dir: ctx.config.config_recipe.configs_dir.clone(),
+                profiles_dir: ctx.config.config_recipe.profiles_dir.clone(),
                 cache_config: cache_config_path(ctx),
             },
         )?;

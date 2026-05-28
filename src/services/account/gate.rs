@@ -371,7 +371,7 @@ fn do_refresh_auth(ctx: &AppContext, account: &AccountId) -> Result<(), AppError
 }
 
 /// Returns the raw TOML bytes of the active config-recipe's `ping` profile
-/// file (`configs/profiles/ping.config.toml`). The bytes are written
+/// file (`profiles/ping.config.toml`). The bytes are written
 /// verbatim to `$CODEX_HOME/ping.config.toml` under the probe's isolated
 /// `CODEX_HOME` — codex v0.134+ requires per-profile overrides to live in
 /// sibling files with bare top-level keys.
@@ -387,6 +387,7 @@ fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
         &crate::services::config_recipe::ConfigRecipePaths {
             recipes_dir: ctx.config.config_recipe.recipes_dir.clone(),
             configs_dir: ctx.config.config_recipe.configs_dir.clone(),
+            profiles_dir: ctx.config.config_recipe.profiles_dir.clone(),
             cache_config: cache_config_path(ctx),
         },
     )?;
@@ -397,7 +398,7 @@ fn extract_ping_config(ctx: &AppContext) -> Result<String, AppError> {
         .find(|p| p.name == PING_PROFILE)
         .ok_or_else(|| {
             let detail = format!(
-                "profile file `configs/profiles/{PING_PROFILE}.config.toml` \
+                "profile file `profiles/{PING_PROFILE}.config.toml` \
                 not found in active config-recipe `{recipe_name}` \
                 (manifest `profile-files` list may exclude it)"
             );
@@ -421,7 +422,7 @@ pub(crate) fn validate_ping_config_recipe(ctx: &AppContext) -> Result<(), AppErr
 ///
 /// The model is resolved by codex via the sibling
 /// `$CODEX_HOME/ping.config.toml`, which is the verbatim bytes of the
-/// active config-recipe's `configs/profiles/ping.config.toml`. Users
+/// active config-recipe's `profiles/ping.config.toml`. Users
 /// control the probe model by editing that file.
 ///
 /// Returns `(valid, detail)`: `valid` is `Some(true)` when the token works,
@@ -436,6 +437,7 @@ fn heartbeat_probe(
 
     const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
+    ctx.ensure_child_version()?;
     let ping_config = extract_ping_config(ctx)?;
 
     let registry = Registry::from_config(&ctx.config);
@@ -521,7 +523,7 @@ fn heartbeat_probe(
             None,
             format!(
                 "ping profile model may be deprecated or \
-                unavailable — update configs/profiles/{PING_PROFILE}.config.toml \
+                unavailable — update profiles/{PING_PROFILE}.config.toml \
                 in your codex-session config tree.\n\
                 API said: {truncated}"
             ),
@@ -688,7 +690,15 @@ fn login_handle_ready(
             Ok(0)
         }
         Err(err) => {
-            // Probe could not even start (binary missing, seed unreadable).
+            // A child-version mismatch is a hard, user-actionable error —
+            // propagate it as exit 78 so the user sees it directly rather
+            // than getting a misleading "already authenticated" message.
+            if matches!(err, AppError::ChildVersionTooOld { .. }) {
+                return Err(err);
+            }
+            // Other probe failures (binary missing, seed unreadable) say
+            // nothing about token validity — assume the token is fine and
+            // surface the error inline.
             narrate(
                 ctx,
                 &format!(
@@ -824,6 +834,11 @@ fn do_logout(ctx: &AppContext, account: &AccountId) -> Result<(), AppError> {
         narrate(ctx, "revoking token via isolated codex logout...");
         match revoke_via_isolated_logout(ctx, &seed) {
             Ok(()) => {}
+            // A child-version mismatch is a hard, user-actionable error —
+            // surface it as exit 78 instead of silently deleting the seed.
+            Err(err) if matches!(err, AppError::ChildVersionTooOld { .. }) => {
+                return Err(err);
+            }
             Err(err) => {
                 tracing::warn!(
                     op = "gate.logout",

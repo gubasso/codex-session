@@ -309,7 +309,7 @@ fn composer_emits_clean_base_config_when_profiles_present() {
 fn composer_purges_stale_profile_sibling_files_between_runs() {
     // The session_dir under `accounts/<acct>/groups/<group>/` is persistent:
     // a second `compose` call must leave the emitted tree as a true mirror
-    // of the current `configs/profiles/` snapshot, not the union of past
+    // of the current `profiles/` snapshot, not the union of past
     // and current runs.
     let env = TestEnv::new();
 

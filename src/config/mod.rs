@@ -61,6 +61,7 @@ pub(crate) struct ConfigRecipeConfig {
     pub(crate) config_dir: Utf8PathBuf,
     pub(crate) recipes_dir: Utf8PathBuf,
     pub(crate) configs_dir: Utf8PathBuf,
+    pub(crate) profiles_dir: Utf8PathBuf,
     #[serde(skip)]
     pub(crate) active: Option<String>,
 }
@@ -167,6 +168,7 @@ struct FileConfigRecipeConfig {
     config_dir: Option<Utf8PathBuf>,
     recipes_dir: Option<Utf8PathBuf>,
     configs_dir: Option<Utf8PathBuf>,
+    profiles_dir: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -232,6 +234,7 @@ impl Default for ConfigRecipeConfig {
             config_dir: Utf8PathBuf::new(),
             recipes_dir: Utf8PathBuf::new(),
             configs_dir: Utf8PathBuf::new(),
+            profiles_dir: Utf8PathBuf::new(),
             active: None,
         }
     }
@@ -277,6 +280,7 @@ impl Config {
             default: None,
             recipes_dir: config_dir.join("config-recipes"),
             configs_dir: config_dir.join("configs"),
+            profiles_dir: config_dir.join("profiles"),
             config_dir,
             active: None,
         };
@@ -388,8 +392,8 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
         if let Some(default) = config_recipe.default {
             config.config_recipe.default = Some(default);
         }
-        // When a layer sets `config_dir`, derive `recipes_dir` /
-        // `configs_dir` from it unless the same layer also overrides them
+        // When a layer sets `config_dir`, derive `recipes_dir`, `configs_dir`,
+        // and `profiles_dir` from it unless the same layer also overrides them
         // explicitly. This keeps the documented invariant that pointing
         // `config_dir` at a fresh tree re-roots the whole config-recipe lookup.
         if let Some(config_dir) = config_recipe.config_dir {
@@ -399,6 +403,9 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
             if config_recipe.configs_dir.is_none() {
                 config.config_recipe.configs_dir = config_dir.join("configs");
             }
+            if config_recipe.profiles_dir.is_none() {
+                config.config_recipe.profiles_dir = config_dir.join("profiles");
+            }
             config.config_recipe.config_dir = config_dir;
         }
         if let Some(recipes_dir) = config_recipe.recipes_dir {
@@ -406,6 +413,9 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
         }
         if let Some(configs_dir) = config_recipe.configs_dir {
             config.config_recipe.configs_dir = configs_dir;
+        }
+        if let Some(profiles_dir) = config_recipe.profiles_dir {
+            config.config_recipe.profiles_dir = profiles_dir;
         }
     }
 
@@ -701,5 +711,42 @@ mod tests {
         assert!((account.weekly_floor - 10.0).abs() < f64::EPSILON);
         assert!((account.five_hour_threshold - 50.0).abs() < f64::EPSILON);
         assert!((account.five_hour_weight - 0.70).abs() < f64::EPSILON);
+    }
+
+    /// `profiles_dir` must use the same `snake_case` spelling as its
+    /// `config_dir` / `recipes_dir` / `configs_dir` siblings — Figment
+    /// parses `FileConfigRecipeConfig` with `deny_unknown_fields`, so a
+    /// rename would silently break the documented override style.
+    #[test]
+    fn profile_dir_override_uses_snake_case_key() {
+        use figment::Figment;
+        use figment::providers::{Format, Toml};
+
+        let toml = r#"
+[config-recipe]
+default = "alt"
+profiles_dir = "/tmp/alt-profiles"
+"#;
+        let parsed: super::FileConfig = Figment::from(Toml::string(toml)).extract().unwrap();
+        let recipe = parsed.config_recipe.unwrap();
+        assert_eq!(
+            recipe.profiles_dir.as_deref().map(camino::Utf8Path::as_str),
+            Some("/tmp/alt-profiles"),
+        );
+
+        // Apply the layer and confirm the runtime field is overridden.
+        let mut config = Config::defaults().unwrap();
+        let layer = super::FileConfig {
+            config_recipe: Some(super::FileConfigRecipeConfig {
+                profiles_dir: Some("/tmp/alt-profiles".into()),
+                ..super::FileConfigRecipeConfig::default()
+            }),
+            ..super::FileConfig::default()
+        };
+        super::apply_file_config(&mut config, layer).unwrap();
+        assert_eq!(
+            config.config_recipe.profiles_dir.as_str(),
+            "/tmp/alt-profiles"
+        );
     }
 }

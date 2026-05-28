@@ -59,7 +59,7 @@ pub(crate) enum AccountError {
     )]
     NoneSelected,
 
-    #[error("health probe requires configs/profiles/ping.config.toml: {detail}")]
+    #[error("health probe requires profiles/ping.config.toml: {detail}")]
     PingProfileMissing { detail: String },
 
     #[error(transparent)]

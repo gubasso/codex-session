@@ -37,6 +37,7 @@ directories = "5"
 camino = { version = "1", features = ["serde1"] }
 libc = "0.2"
 rustix = { version = "1", features = ["process", "fs"] }
+semver = "1"
 signal-hook = "0.3"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 reqwest = { version = "0.12", default-features = false, features = [

@@ -38,6 +38,26 @@ pub(crate) enum AppError {
         path: PathBuf,
     },
 
+    /// The resolved child is older than the codex config contract this wrapper emits.
+    #[error(
+        "codex CLI version {found} is too old; codex-session requires >= {required}. \
+        See docs/upstream-codex.md §F6c."
+    )]
+    ChildVersionTooOld {
+        /// Parsed child version.
+        found: String,
+        /// Required codex version floor.
+        required: &'static str,
+    },
+
+    /// The child version output was not parseable.
+    #[allow(dead_code)]
+    #[error("codex CLI version output not parseable: {raw}. See docs/upstream-codex.md §F6c.")]
+    ChildVersionUnparseable {
+        /// Raw version probe output.
+        raw: String,
+    },
+
     /// Exec failure after the child binary was resolved.
     #[error("exec failed: {0}")]
     ChildExec(#[source] std::io::Error),
@@ -117,6 +137,8 @@ impl AppError {
             Self::Config(err) => err.kind(),
             Self::ChildNotFound { .. } => "child-not-found",
             Self::ChildNotExecutable { .. } => "child-not-executable",
+            Self::ChildVersionTooOld { .. } => "child_version_too_old",
+            Self::ChildVersionUnparseable { .. } => "child_version_unparseable",
             Self::ChildExec(_) => "child-exec",
             Self::ChildExitNonZero(_) => "child-exit-nonzero",
             Self::ChildSignaled(_) => "child-signaled",
@@ -136,7 +158,9 @@ impl AppError {
     pub(crate) fn exit_code(&self) -> u8 {
         match self {
             Self::Usage(err) => clap_exit_code(err),
-            Self::Config(_) => 78,
+            Self::Config(_)
+            | Self::ChildVersionTooOld { .. }
+            | Self::ChildVersionUnparseable { .. } => 78,
             Self::ChildNotFound { .. } => 127,
             Self::ChildNotExecutable { .. } => 126,
             Self::ChildExitNonZero(code) => u8::try_from(*code).unwrap_or(u8::MAX),
@@ -281,6 +305,14 @@ fn detail(err: &AppError) -> ErrorDetail {
             what: "failed to execute wrapped codex binary".to_owned(),
             why_line: format!("`{}` exists but is not executable", path.display()),
         },
+        AppError::ChildVersionTooOld { found, required } => ErrorDetail {
+            what: "wrapped codex binary is too old".to_owned(),
+            why_line: format!("found codex {found}; codex-session requires >= {required}"),
+        },
+        AppError::ChildVersionUnparseable { raw } => ErrorDetail {
+            what: "wrapped codex version could not be parsed".to_owned(),
+            why_line: format!("raw `codex --version` output: {raw}"),
+        },
         AppError::ChildExec(source) => ErrorDetail {
             what: "failed to hand control to the wrapped codex process".to_owned(),
             why_line: source.to_string(),
@@ -382,7 +414,7 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
         },
         ConfigError::InvalidProfileFileName { name, .. } => ErrorDetail {
             what: format!("config: profile file `{name}.config.toml` has an invalid name"),
-            why_line: "file stems under `configs/profiles/` must match `[a-z0-9._-]+`; \
+            why_line: "file stems under `profiles/` must match `[a-z0-9._-]+`; \
                 rename the file or remove it before composing the recipe"
                 .to_owned(),
         },
@@ -547,6 +579,8 @@ fn error_path(err: &AppError) -> Option<String> {
         AppError::Account(account_err) => account_err.path().map(ToString::to_string),
         AppError::Usage(_)
         | AppError::ChildExec(_)
+        | AppError::ChildVersionTooOld { .. }
+        | AppError::ChildVersionUnparseable { .. }
         | AppError::ChildExitNonZero(_)
         | AppError::ChildSignaled(_)
         | AppError::Io(_)
@@ -586,11 +620,12 @@ fn error_line(err: &AppError) -> Option<u32> {
 }
 
 const PING_PROFILE_MISSING_HINT: &str = "\
-add `configs/profiles/ping.config.toml` to your codex-session config tree.\n\
+add `profiles/ping.config.toml` to your codex-session config tree.\n\
 The file should contain bare top-level keys (no [profiles.ping] header), e.g.:\n\n    \
 model = \"gpt-5.4-mini\"\n    model_reasoning_effort = \"minimal\"\n\n\
 See docs/upstream-codex.md §F6b for the codex v0.134+ profile contract.";
 
+#[allow(clippy::too_many_lines)]
 const fn error_hint(err: &AppError) -> Option<&'static str> {
     use crate::config::ConfigError;
     use crate::services::auth::AuthError;
@@ -602,6 +637,15 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::ChildNotExecutable { .. } => {
             Some("chmod +x the child binary or point CODEX_SESSION_CHILD_BIN at an executable file")
         }
+        AppError::ChildVersionTooOld { .. } => Some(
+            "run `codex --version`, upgrade codex to >= 0.134.0, or set \
+            CODEX_SESSION_CHILD_BIN to a compatible binary; see docs/upstream-codex.md §F6c",
+        ),
+        AppError::ChildVersionUnparseable { .. } => Some(
+            "run `codex --version` to inspect the child output, or set \
+            CODEX_SESSION_CHILD_BIN to a compatible codex >= 0.134.0; \
+            see docs/upstream-codex.md §F6c",
+        ),
         AppError::ChildRecursion { .. } => {
             Some("unset CODEX_SESSION_CHILD_BIN or point it at the real `codex`")
         }
@@ -784,7 +828,7 @@ mod tests {
     fn config_invalid_profile_file_name_is_seventy_eight() {
         let err = AppError::Config(ConfigError::InvalidProfileFileName {
             name: "Deep Profile".to_owned(),
-            path: camino::Utf8PathBuf::from("/tmp/configs/profiles/Deep Profile.config.toml"),
+            path: camino::Utf8PathBuf::from("/tmp/profiles/Deep Profile.config.toml"),
         });
         assert_eq!(err.exit_code(), 78);
         assert_eq!(err.kind(), "invalid-profile-file-name");
@@ -807,6 +851,25 @@ mod tests {
         };
         assert_eq!(err.exit_code(), 126);
         assert_eq!(err.kind(), "child-not-executable");
+    }
+
+    #[test]
+    fn child_version_too_old_is_seventy_eight() {
+        let err = AppError::ChildVersionTooOld {
+            found: "0.133.0".to_owned(),
+            required: "0.134.0",
+        };
+        assert_eq!(err.exit_code(), 78);
+        assert_eq!(err.kind(), "child_version_too_old");
+    }
+
+    #[test]
+    fn child_version_unparseable_is_seventy_eight() {
+        let err = AppError::ChildVersionUnparseable {
+            raw: "weird-output".to_owned(),
+        };
+        assert_eq!(err.exit_code(), 78);
+        assert_eq!(err.kind(), "child_version_unparseable");
     }
 
     #[test]

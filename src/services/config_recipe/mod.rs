@@ -95,10 +95,10 @@ fn collect_profile_files(
     manifest: &Manifest,
     paths: &ConfigRecipePaths,
 ) -> Result<Vec<ProfileFileRef>, crate::config::ConfigError> {
-    let profiles_dir = paths.profiles_dir();
+    let profiles_dir = &paths.profiles_dir;
     let names: Vec<String> = match manifest.profile_files.as_ref() {
         Some(declared) => declared.clone(),
-        None => scan_profile_files(&profiles_dir)?,
+        None => scan_profile_files(profiles_dir)?,
     };
 
     let mut refs = Vec::with_capacity(names.len());

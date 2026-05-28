@@ -194,6 +194,7 @@ mod tests {
                 config_dir: base.join("config"),
                 recipes_dir: base.join("config-recipes"),
                 configs_dir: base.join("configs"),
+                profiles_dir: base.join("profiles"),
             },
             paths: crate::config::PathsConfig {
                 cache_dir: base.join("cache"),

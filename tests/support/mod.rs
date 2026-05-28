@@ -38,6 +38,12 @@ pub fn with_stub_child(cmd: &mut assert_cmd::Command, fixture: &str) {
     cmd.env("CODEX_SESSION_CHILD_BIN", path);
 }
 
+pub enum FakeCodexBehavior {
+    Succeed,
+    AssertNotInvoked,
+    Record(PathBuf),
+}
+
 pub struct TestEnv {
     pub tmp: tempfile::TempDir,
     pub home: PathBuf,
@@ -210,7 +216,9 @@ impl TestEnv {
         let codex = self.fake_bin.join("codex");
         #[allow(clippy::similar_names, clippy::uninlined_format_args)]
         let script = format!(
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$#\" > '{}'\nprintf '' > '{}'\n\
+            "#!/usr/bin/env bash\n\
+if [ \"${{1:-}}\" = \"--version\" ]; then\n  exit 0\nfi\n\
+printf '%s\\n' \"$#\" > '{}'\nprintf '' > '{}'\n\
 for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
             self.argc_file.display(),
             self.argv_file.display(),
@@ -227,6 +235,33 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
             &self.fake_bin.join("codex"),
             &format!("#!/usr/bin/env bash\nprintf '%s' '{stdout}'\n"),
         );
+    }
+
+    pub fn make_fake_codex_with_version(
+        &self,
+        version_line: &str,
+        on_normal_argv: FakeCodexBehavior,
+    ) -> PathBuf {
+        let codex = self.fake_bin.join("codex");
+        let normal_path = match on_normal_argv {
+            FakeCodexBehavior::Succeed => "exit 0\n".to_owned(),
+            FakeCodexBehavior::AssertNotInvoked => {
+                "printf '%s\\n' 'fake codex normal argv path invoked' >&2\nexit 99\n".to_owned()
+            }
+            FakeCodexBehavior::Record(path) => format!(
+                "printf '%s\\n' \"$@\" > {}\nexit 0\n",
+                shell_single_quote(&path.display().to_string())
+            ),
+        };
+        let script = format!(
+            "#!/usr/bin/env bash\n\
+if [ \"${{1:-}}\" = \"--version\" ]; then\n  printf '%s\\n' {}\n  exit 0\nfi\n\
+{}",
+            shell_single_quote(version_line),
+            normal_path
+        );
+        Self::write_executable(&codex, &script);
+        codex
     }
 
     pub fn make_fake_codex_in_dir(&self, dir_name: &str, script_body: &str) -> PathBuf {
@@ -263,10 +298,7 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
     }
 
     pub fn write_profile_file(&self, name: &str, body: &str) -> PathBuf {
-        let path = self
-            .configs_dir()
-            .join("profiles")
-            .join(format!("{name}.config.toml"));
+        let path = self.profiles_dir().join(format!("{name}.config.toml"));
         Self::write_file(&path, body);
         path
     }
@@ -301,6 +333,10 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
 
     pub fn configs_dir(&self) -> PathBuf {
         self.config_home.join("codex-session/configs")
+    }
+
+    pub fn profiles_dir(&self) -> PathBuf {
+        self.config_home.join("codex-session/profiles")
     }
 
     pub fn cache_config_path(&self) -> PathBuf {
@@ -558,4 +594,8 @@ for arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> '{}'\ndone\nexit 0\n",
         }
         std::fs::write(path, contents).unwrap();
     }
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }

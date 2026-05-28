@@ -59,8 +59,8 @@ $XDG_CONFIG_HOME/codex-session/
   config-recipes/*.yaml                 config-recipe manifests
   configs/                              composable config layers
     *.toml                              base config layers
-    profiles/
-      <name>.config.toml                profile overrides (one file per profile)
+  profiles/                             sibling profile overrides directory
+    <name>.config.toml                  profile overrides (one file per profile)
 
 $XDG_CACHE_HOME/codex-session/
   configs.toml                          trust / cache-layer writes
@@ -84,7 +84,7 @@ ConfigRecipe manifests list an ordered `config-layers:` array. Each layer is
 parsed from `configs/<name>.toml`, deep-merged in order, stripped of its
 optional `[env]` table, then written into the session directory as `config.toml`.
 Profile overrides are emitted as sibling `<name>.config.toml` files, copied
-1:1 from `configs/profiles/<name>.config.toml`. Stock mode still creates a
+1:1 from sibling `profiles/<name>.config.toml`. Stock mode still creates a
 session directory with an empty `config.toml`.
 
 ## Composability contract
@@ -107,7 +107,7 @@ layered on top, never instead of:
   internally; see `docs/upstream-codex.md` §F6b for details.
 
 If you want a layer to apply only when a specific profile is active, put it
-under `configs/profiles/<name>.config.toml`. If you want it to apply
+under `profiles/<name>.config.toml`. If you want it to apply
 unconditionally, put it under `configs/<layer>.toml`.
 
 ## Multi-account management

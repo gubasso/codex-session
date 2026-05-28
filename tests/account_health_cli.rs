@@ -6,7 +6,7 @@ mod support;
 use std::os::unix::fs::PermissionsExt as _;
 
 use predicates::prelude::*;
-use support::TestEnv;
+use support::{FakeCodexBehavior, TestEnv};
 
 const TEST_AUTH: &str = r#"{"tokens":{
     "access_token":"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDAwMDB9.",
@@ -45,9 +45,7 @@ fn health_requires_ping_profile_when_not_fast() {
         .assert()
         .failure()
         .code(78)
-        .stderr(predicate::str::contains(
-            "configs/profiles/ping.config.toml",
-        ));
+        .stderr(predicate::str::contains("profiles/ping.config.toml"));
 }
 
 #[test]
@@ -176,4 +174,56 @@ fn health_fast_json_uses_cache_when_present() {
     assert_eq!(arr[0]["status"], "cache only");
     assert!(arr[0]["score"].is_number());
     assert_eq!(arr[0]["fetched-at-unix"], 1_700_000_000_u64);
+}
+
+fn install_default_recipe_with_ping(env: &TestEnv) {
+    std::fs::write(
+        env.wrapper_user_config_path(),
+        "[config-recipe]\ndefault = \"default\"\n",
+    )
+    .unwrap();
+    env.install_config_recipe(
+        "default",
+        "config-layers:\n  - base\nprofile-files:\n  - ping\n",
+        &[("base", "model = \"gpt-5.4\"\n")],
+    );
+    env.write_profile_file(
+        "ping",
+        "model = \"gpt-5.4-mini\"\nmodel_reasoning_effort = \"minimal\"\n",
+    );
+}
+
+#[test]
+fn account_health_fails_fast_on_old_codex() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", TEST_AUTH);
+    install_default_recipe_with_ping(&env);
+    env.make_fake_codex_with_version("codex 0.133.0", FakeCodexBehavior::AssertNotInvoked);
+
+    env.cmd()
+        .args(["account", "health"])
+        .assert()
+        .failure()
+        .code(78)
+        .stderr(predicate::str::contains("0.133.0"))
+        .stderr(predicate::str::contains("0.134.0"))
+        .stderr(predicate::str::contains("docs/upstream-codex.md §F6c"))
+        .stderr(predicate::str::contains("fake codex normal argv path invoked").not());
+}
+
+#[test]
+fn login_fails_fast_on_old_codex() {
+    let env = TestEnv::new();
+    install_default_recipe_with_ping(&env);
+    env.make_fake_codex_with_version("codex 0.133.0", FakeCodexBehavior::AssertNotInvoked);
+
+    env.cmd()
+        .arg("login")
+        .assert()
+        .failure()
+        .code(78)
+        .stderr(predicate::str::contains("0.133.0"))
+        .stderr(predicate::str::contains("0.134.0"))
+        .stderr(predicate::str::contains("docs/upstream-codex.md §F6c"))
+        .stderr(predicate::str::contains("fake codex normal argv path invoked").not());
 }

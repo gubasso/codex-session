@@ -340,27 +340,101 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         match format {
             crate::cli::OutputFormat::Text => {
-                if let Some(active) = view.active.as_ref() {
-                    writeln!(stdout, "active: {} ({})", active.name, active.source)?;
-                }
                 if view.accounts.is_empty() {
-                    writeln!(stdout, "(no accounts)")
-                } else {
-                    for account in &view.accounts {
+                    return writeln!(stdout, "(no accounts)");
+                }
+                let use_color = color::should_color(color::Stream::Stdout);
+                let account_width = view
+                    .accounts
+                    .iter()
+                    .map(|account| account.name.len())
+                    .chain(Some("ACCOUNT".len()))
+                    .max()
+                    .unwrap_or("ACCOUNT".len())
+                    .max("ACCOUNT".len());
+                let last_used_width = view
+                    .accounts
+                    .iter()
+                    .map(|account| {
+                        account
+                            .last_used_at_unix
+                            .map_or_else(|| "—".len(), |value| human_age(value).len())
+                    })
+                    .chain(Some("LAST USED".len()))
+                    .max()
+                    .unwrap_or("LAST USED".len())
+                    .max("LAST USED".len());
+                writeln!(
+                    stdout,
+                    "  {}  {}  {}  {}",
+                    styled_padded("ACCOUNT", account_width, styles::DIM, use_color),
+                    styled_padded("AUTH", 4, styles::DIM, use_color),
+                    styled_padded("LAST USED", last_used_width, styles::DIM, use_color),
+                    styled_text("STATUS", styles::DIM, use_color),
+                )?;
+                let mut current_rendered = false;
+                for account in &view.accounts {
+                    current_rendered |= account.current;
+                    let prefix = if account.current {
+                        format!(
+                            "{}▸{} ",
+                            style_open(styles::BOLD_CYAN, use_color),
+                            style_close(styles::BOLD_CYAN, use_color)
+                        )
+                    } else {
+                        "  ".to_owned()
+                    };
+                    let auth = if account.has_auth {
+                        styled_padded("✓", 4, styles::GREEN, use_color)
+                    } else {
+                        styled_padded("✗", 4, styles::RED, use_color)
+                    };
+                    let (last_used_text, last_used_style) = account.last_used_at_unix.map_or_else(
+                        || ("—".to_owned(), styles::DIM),
+                        |value| (human_age(value), styles::DIM),
+                    );
+                    let name = styled_padded(&account.name, account_width, styles::BOLD, use_color);
+                    if account.current {
+                        let active = view
+                            .active
+                            .as_ref()
+                            .map(|active| format!("active ({})", active.source))
+                            .unwrap_or_default();
+                        // STATUS follows, so pad LAST USED to align the column.
+                        let last_used = styled_padded(
+                            &last_used_text,
+                            last_used_width,
+                            last_used_style,
+                            use_color,
+                        );
                         writeln!(
                             stdout,
-                            "{}: {} has_auth={} current={} last_used_at_unix={}",
-                            account.name,
-                            account.dir,
-                            account.has_auth,
-                            account.current,
-                            account
-                                .last_used_at_unix
-                                .map_or_else(|| "(none)".to_owned(), |value| value.to_string())
+                            "{prefix}{name}  {auth}  {last_used}  {}",
+                            styled_text(&active, styles::BOLD_CYAN, use_color),
                         )?;
+                    } else {
+                        // LAST USED is the final column; leave it unpadded to avoid
+                        // trailing whitespace.
+                        let last_used = styled_text(&last_used_text, last_used_style, use_color);
+                        writeln!(stdout, "{prefix}{name}  {auth}  {last_used}")?;
                     }
-                    Ok(())
                 }
+                // If the resolved active account is not one of the listed rows
+                // (e.g. a pinned/env/LRU name that is not registered), no row
+                // carried the `▸` marker. Surface the selection explicitly so
+                // `account list` never silently hides which account is active.
+                if !current_rendered && let Some(active) = view.active.as_ref() {
+                    writeln!(
+                        stdout,
+                        "{}",
+                        styled_text(
+                            format!("active: {} ({})", active.name, active.source),
+                            styles::BOLD_CYAN,
+                            use_color,
+                        ),
+                    )?;
+                }
+                Ok(())
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
         }
@@ -374,7 +448,13 @@ impl Ui {
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
         match format {
-            crate::cli::OutputFormat::Text => writeln!(stdout, "{} ({})", view.name, view.source),
+            crate::cli::OutputFormat::Text => {
+                let use_color = color::should_color(color::Stream::Stdout);
+                let marker = styled_text("▸", styles::BOLD_CYAN, use_color);
+                let name = styled_text(&view.name, styles::BOLD, use_color);
+                let source = styled_text(&view.source, styles::DIM, use_color);
+                writeln!(stdout, "{marker} {name} ({source})")
+            }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
         }
     }
@@ -384,11 +464,27 @@ impl Ui {
         &self,
         verb: &'static str,
         view: &crate::commands::account::AccountMutationView,
+        format: crate::cli::OutputFormat,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
-        writeln!(stdout, "account {verb}: {}", view.name)?;
-        writeln!(stdout, "path: {}", view.path)?;
-        Ok(())
+        match format {
+            crate::cli::OutputFormat::Text => {
+                let use_color = color::should_color(color::Stream::Stdout);
+                let marker = styled_text("✓", styles::GREEN, use_color);
+                let label = styled_text(format!("account {verb}:"), styles::BOLD_GREEN, use_color);
+                let name = styled_text(&view.name, styles::BOLD, use_color);
+                writeln!(stdout, "{marker} {label} {name}")?;
+                writeln!(
+                    stdout,
+                    "{}  path: {}{}",
+                    style_open(styles::DIM, use_color),
+                    view.path,
+                    style_close(styles::DIM, use_color),
+                )?;
+                Ok(())
+            }
+            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
+        }
     }
 
     #[allow(clippy::unused_self)]
@@ -406,11 +502,11 @@ impl Ui {
                 writeln!(
                     stdout,
                     "  {}Fetched: {} ({}, TTL {}s){}",
-                    style_open(quota_styles::DIM, c),
+                    style_open(styles::DIM, c),
                     human_age(view.fetched_at_unix),
                     fetched_label(view),
                     view.ttl_secs,
-                    style_close(quota_styles::DIM, c),
+                    style_close(styles::DIM, c),
                 )
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
@@ -439,10 +535,10 @@ impl Ui {
                     writeln!(
                         stdout,
                         "  {}{}, {}{}",
-                        style_open(quota_styles::DIM, c),
+                        style_open(styles::DIM, c),
                         human_age(view.fetched_at_unix),
                         fetched_label(view),
-                        style_close(quota_styles::DIM, c),
+                        style_close(styles::DIM, c),
                     )?;
                 }
                 Ok(())
@@ -462,16 +558,18 @@ impl Ui {
         match format {
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, &view.entries),
             crate::cli::OutputFormat::Text => {
+                let use_color = color::should_color(color::Stream::Stdout);
                 if verbose {
-                    write_health_verbose(&mut stdout, &view.entries)
+                    write_health_verbose(&mut stdout, &view.entries, use_color)
                 } else {
-                    write_health_table(&mut stdout, &view.entries)
+                    write_health_table(&mut stdout, &view.entries, use_color)
                 }
             }
         }
     }
 
     #[allow(clippy::unused_self)]
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn write_account_cooldowns(
         &self,
         view: &crate::commands::account::AccountCooldownView,
@@ -483,24 +581,78 @@ impl Ui {
                 if view.entries.is_empty() {
                     return writeln!(stdout, "(no accounts)");
                 }
-                writeln!(stdout, "ACCOUNT     STATUS       RESETS         REASON")?;
+                let use_color = color::should_color(color::Stream::Stdout);
+                let account_width = view
+                    .entries
+                    .iter()
+                    .map(|entry| entry.account.len())
+                    .chain(Some("ACCOUNT".len()))
+                    .max()
+                    .unwrap_or("ACCOUNT".len())
+                    .max("ACCOUNT".len());
+                let status_width = view
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        if entry.cooled_down {
+                            "cooled-down"
+                        } else {
+                            "eligible"
+                        }
+                        .len()
+                    })
+                    .chain(Some("STATUS".len()))
+                    .max()
+                    .unwrap_or("STATUS".len())
+                    .max("STATUS".len());
+                let resets_width = view
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        entry
+                            .reset_at_unix
+                            .map_or_else(|| "—".len(), |value| human_duration_until(value).len())
+                    })
+                    .chain(Some("RESETS".len()))
+                    .max()
+                    .unwrap_or("RESETS".len())
+                    .max("RESETS".len());
+                writeln!(
+                    stdout,
+                    "{}  {}  {}  {}",
+                    styled_padded("ACCOUNT", account_width, styles::DIM, use_color),
+                    styled_padded("STATUS", status_width, styles::DIM, use_color),
+                    styled_padded("RESETS", resets_width, styles::DIM, use_color),
+                    styled_text("REASON", styles::DIM, use_color),
+                )?;
                 for entry in &view.entries {
                     let status = if entry.cooled_down {
-                        "cooled-down"
+                        styled_padded("cooled-down", status_width, styles::BOLD_RED, use_color)
                     } else {
-                        "eligible"
+                        styled_padded("eligible", status_width, styles::BOLD_GREEN, use_color)
                     };
-                    let resets = entry
-                        .reset_at_unix
-                        .map_or_else(|| "—".to_owned(), human_duration_until);
-                    let reason = entry
-                        .reason
-                        .as_ref()
-                        .map_or_else(|| "—".to_owned(), |reason| format!("{reason:?}"));
+                    let resets = entry.reset_at_unix.map_or_else(
+                        || styled_padded("—", resets_width, styles::DIM, use_color),
+                        |value| {
+                            styled_padded(
+                                human_duration_until(value),
+                                resets_width,
+                                styles::BOLD_YELLOW,
+                                use_color,
+                            )
+                        },
+                    );
+                    let reason = entry.reason.as_ref().map_or_else(
+                        || styled_text("—", styles::DIM, use_color),
+                        |reason| styled_text(reason, anstyle::Style::new(), use_color),
+                    );
                     writeln!(
                         stdout,
-                        "{:<11} {:<12} {:<14} {}",
-                        entry.account, status, resets, reason
+                        "{}  {}  {}  {}",
+                        styled_padded(&entry.account, account_width, styles::BOLD, use_color),
+                        status,
+                        resets,
+                        reason
                     )?;
                 }
                 Ok(())
@@ -554,35 +706,73 @@ const fn format_status(status: crate::commands::doctor::CheckStatus) -> &'static
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn write_health_verbose(
     stdout: &mut impl std::io::Write,
     entries: &[crate::commands::account::AccountHealthEntryView],
+    use_color: bool,
 ) -> std::io::Result<()> {
     for (idx, entry) in entries.iter().enumerate() {
         if idx > 0 {
             writeln!(stdout)?;
         }
-        writeln!(stdout, "account: {}", entry.account)?;
+        writeln!(
+            stdout,
+            "account: {}",
+            styled_text(&entry.account, styles::BOLD, use_color)
+        )?;
         writeln!(
             stdout,
             "rank: {}",
-            entry.rank.map_or_else(|| "—".to_owned(), |r| r.to_string())
+            entry.rank.map_or_else(
+                || styled_text("—", styles::DIM, use_color),
+                |r| r.to_string()
+            )
         )?;
         writeln!(stdout, "score: {}", entry.score_label)?;
         writeln!(stdout, "plan: {}", entry.plan)?;
-        writeln!(stdout, "token: {}", entry.token)?;
+        writeln!(
+            stdout,
+            "token: {}",
+            styled_text(&entry.token, health_token_style(&entry.token), use_color)
+        )?;
         writeln!(stdout, "token_detail: {}", entry.token_detail)?;
-        writeln!(stdout, "status: {}", entry.status)?;
-        writeln!(stdout, "active: {}", entry.active)?;
-        writeln!(stdout, "cooldown: {}", entry.cooldown)?;
+        writeln!(
+            stdout,
+            "status: {}",
+            styled_text(&entry.status, health_status_style(&entry.status), use_color)
+        )?;
+        writeln!(
+            stdout,
+            "active: {}",
+            if entry.active {
+                styled_text("true", styles::BOLD_CYAN, use_color)
+            } else {
+                "false".to_owned()
+            }
+        )?;
+        writeln!(
+            stdout,
+            "cooldown: {}",
+            if entry.cooldown {
+                styled_text("true", styles::BOLD_RED, use_color)
+            } else {
+                "false".to_owned()
+            }
+        )?;
         writeln!(
             stdout,
             "last_used: {}",
-            entry
-                .last_used
-                .map_or_else(|| "—".to_owned(), |ts| ts.to_string())
+            entry.last_used.map_or_else(
+                || styled_text("—", styles::DIM, use_color),
+                |ts| styled_text(human_age(ts), styles::DIM, use_color),
+            )
         )?;
-        writeln!(stdout, "fetched_at_unix: {}", entry.fetched_at_unix)?;
+        writeln!(
+            stdout,
+            "fetched: {}",
+            styled_fetched_age(entry.fetched_at_unix, use_color)
+        )?;
         if let Some(ref scoring) = entry.scoring {
             writeln!(stdout, "scoring_base: {:.2}", scoring.base)?;
             writeln!(stdout, "scoring_plan_bonus: {:.2}", scoring.plan_bonus)?;
@@ -620,43 +810,133 @@ fn write_health_verbose(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn write_health_table(
     stdout: &mut impl std::io::Write,
     entries: &[crate::commands::account::AccountHealthEntryView],
+    use_color: bool,
 ) -> std::io::Result<()> {
-    let tok_w = entries
+    let rank_w = entries
         .iter()
-        .map(|e| e.token.len())
+        .map(|entry| entry.rank.map_or(1, |rank| rank.to_string().len()))
+        .chain(Some("RANK".len()))
         .max()
-        .unwrap_or(5)
-        .max(5);
+        .unwrap_or("RANK".len())
+        .max("RANK".len());
+    let score_w = entries
+        .iter()
+        .map(|entry| entry.score_label.len())
+        .chain(Some("SCORE".len()))
+        .max()
+        .unwrap_or("SCORE".len())
+        .max("SCORE".len());
+    let account_w = entries
+        .iter()
+        .map(|entry| entry.account.len())
+        .chain(Some("ACCOUNT".len()))
+        .max()
+        .unwrap_or("ACCOUNT".len())
+        .max("ACCOUNT".len());
+    let token_w = entries
+        .iter()
+        .map(|entry| entry.token.len())
+        .chain(Some("TOKEN".len()))
+        .max()
+        .unwrap_or("TOKEN".len())
+        .max("TOKEN".len());
+    let plan_w = entries
+        .iter()
+        .map(|entry| entry.plan.len())
+        .chain(Some("PLAN".len()))
+        .max()
+        .unwrap_or("PLAN".len())
+        .max("PLAN".len());
+    let status_w = entries
+        .iter()
+        .map(|entry| entry.status.len())
+        .chain(Some("STATUS".len()))
+        .max()
+        .unwrap_or("STATUS".len())
+        .max("STATUS".len());
+    let active_w = "ACTIVE".len();
+    let cooldown_w = "COOLDOWN".len();
     writeln!(
         stdout,
-        "{:<5} {:<7} {:<12} {:<tw$} {:<15} {:<12} {:<7} {:<9} FETCHED",
-        "RANK",
-        "SCORE",
-        "ACCOUNT",
-        "TOKEN",
-        "PLAN",
-        "STATUS",
-        "ACTIVE",
-        "COOLDOWN",
-        tw = tok_w + 1,
+        "{}  {}  {}  {}  {}  {}  {}  {}  {}",
+        styled_padded_right("RANK", rank_w, styles::DIM, use_color),
+        styled_padded_right("SCORE", score_w, styles::DIM, use_color),
+        styled_padded("ACCOUNT", account_w, styles::DIM, use_color),
+        styled_padded("TOKEN", token_w, styles::DIM, use_color),
+        styled_padded("PLAN", plan_w, styles::DIM, use_color),
+        styled_padded("STATUS", status_w, styles::DIM, use_color),
+        styled_padded("ACTIVE", active_w, styles::DIM, use_color),
+        styled_padded("COOLDOWN", cooldown_w, styles::DIM, use_color),
+        styled_text("FETCHED", styles::DIM, use_color),
     )?;
     for entry in entries {
         writeln!(
             stdout,
-            "{:<5} {:<7} {:<12} {:<tw$} {:<15} {:<12} {:<7} {:<9} {}",
-            entry.rank.map_or_else(|| "—".to_owned(), |r| r.to_string()),
-            entry.score_label,
-            entry.account,
-            entry.token,
-            entry.plan,
-            entry.status,
-            entry.active,
-            entry.cooldown,
-            human_age(entry.fetched_at_unix),
-            tw = tok_w + 1,
+            "{}  {}  {}  {}  {}  {}  {}  {}  {}",
+            styled_padded_right(
+                entry.rank.map_or_else(|| "—".to_owned(), |r| r.to_string()),
+                rank_w,
+                if entry.rank.is_some() {
+                    anstyle::Style::new()
+                } else {
+                    styles::DIM
+                },
+                use_color,
+            ),
+            styled_padded_right(
+                &entry.score_label,
+                score_w,
+                anstyle::Style::new(),
+                use_color
+            ),
+            styled_padded(
+                &entry.account,
+                account_w,
+                if entry.active {
+                    styles::BOLD
+                } else {
+                    anstyle::Style::new()
+                },
+                use_color,
+            ),
+            styled_padded(
+                &entry.token,
+                token_w,
+                health_token_style(&entry.token),
+                use_color,
+            ),
+            styled_padded(&entry.plan, plan_w, anstyle::Style::new(), use_color),
+            styled_padded(
+                &entry.status,
+                status_w,
+                health_status_style(&entry.status),
+                use_color,
+            ),
+            styled_padded(
+                if entry.active { "true" } else { "false" },
+                active_w,
+                if entry.active {
+                    styles::BOLD_CYAN
+                } else {
+                    anstyle::Style::new()
+                },
+                use_color,
+            ),
+            styled_padded(
+                if entry.cooldown { "true" } else { "false" },
+                cooldown_w,
+                if entry.cooldown {
+                    styles::BOLD_RED
+                } else {
+                    anstyle::Style::new()
+                },
+                use_color,
+            ),
+            styled_fetched_age(entry.fetched_at_unix, use_color),
         )?;
     }
     Ok(())
@@ -674,7 +954,7 @@ const fn fetched_label(_view: &crate::commands::account::AccountQuotaEntryView) 
     "live"
 }
 
-mod quota_styles {
+mod styles {
     use anstyle::{AnsiColor, Effects, Style};
 
     pub(super) const BOLD: Style = Style::new().effects(Effects::BOLD);
@@ -682,6 +962,8 @@ mod quota_styles {
     pub(super) const BOLD_CYAN: Style = Style::new()
         .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)))
         .effects(Effects::BOLD);
+    pub(super) const GREEN: Style =
+        Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)));
     pub(super) const RED: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
     pub(super) const BOLD_GREEN: Style = Style::new()
         .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)))
@@ -710,13 +992,85 @@ fn style_close(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display
     }
 }
 
+fn styled_text(text: impl AsRef<str>, style: anstyle::Style, use_color: bool) -> String {
+    let text = text.as_ref();
+    format!(
+        "{}{}{}",
+        style_open(style, use_color),
+        text,
+        style_close(style, use_color)
+    )
+}
+
+fn styled_padded(
+    text: impl AsRef<str>,
+    width: usize,
+    style: anstyle::Style,
+    use_color: bool,
+) -> String {
+    let text = format!("{:<width$}", text.as_ref(), width = width);
+    format!(
+        "{}{}{}",
+        style_open(style, use_color),
+        text,
+        style_close(style, use_color)
+    )
+}
+
+/// Right-align a cell to `width`, then wrap in `style`. Use for numeric columns
+/// (style guide §8: numeric columns are right-aligned). Padding is computed on
+/// the plain text before styling so column alignment is independent of color.
+fn styled_padded_right(
+    text: impl AsRef<str>,
+    width: usize,
+    style: anstyle::Style,
+    use_color: bool,
+) -> String {
+    let text = format!("{:>width$}", text.as_ref(), width = width);
+    format!(
+        "{}{}{}",
+        style_open(style, use_color),
+        text,
+        style_close(style, use_color)
+    )
+}
+
+fn health_token_style(token: &str) -> anstyle::Style {
+    match token {
+        "ok" => styles::BOLD_GREEN,
+        "invalid" => styles::BOLD_RED,
+        _ if token.contains("unknown") => styles::BOLD_YELLOW,
+        _ => styles::BOLD,
+    }
+}
+
+fn health_status_style(status: &str) -> anstyle::Style {
+    match status {
+        "live" => styles::BOLD_GREEN,
+        "cache only" => styles::BOLD_YELLOW,
+        "cache missing" | "fetch failed" => styles::BOLD_RED,
+        _ => styles::BOLD,
+    }
+}
+
+/// Render a `fetched_at` unix timestamp for text output, using the `—`
+/// missing-data sentinel (in `DIM`) when the timestamp is `0` (no cached data
+/// or a failed refresh) instead of `human_age`'s `unknown` token.
+fn styled_fetched_age(fetched_at_unix: u64, use_color: bool) -> String {
+    if fetched_at_unix == 0 {
+        styled_text("—", styles::DIM, use_color)
+    } else {
+        styled_text(human_age(fetched_at_unix), styles::DIM, use_color)
+    }
+}
+
 fn percent_style(pct: f64) -> anstyle::Style {
     if pct > 50.0 {
-        quota_styles::BOLD_GREEN
+        styles::BOLD_GREEN
     } else if pct > 20.0 {
-        quota_styles::BOLD_YELLOW
+        styles::BOLD_YELLOW
     } else {
-        quota_styles::BOLD_RED
+        styles::BOLD_RED
     }
 }
 
@@ -786,32 +1140,32 @@ fn write_quota_oauth_header(
         write!(
             stdout,
             "  {}#{} {:.2} {}{}{}{}",
-            style_open(quota_styles::DIM, use_color),
+            style_open(styles::DIM, use_color),
             rank,
             view.score.unwrap_or(0.0),
-            style_close(quota_styles::DIM, use_color),
-            style_open(quota_styles::BOLD, use_color),
+            style_close(styles::DIM, use_color),
+            style_open(styles::BOLD, use_color),
             view.account,
-            style_close(quota_styles::BOLD, use_color),
+            style_close(styles::BOLD, use_color),
         )?;
     } else {
         write!(
             stdout,
             "  {}{:.2} {}{}{}{}",
-            style_open(quota_styles::DIM, use_color),
+            style_open(styles::DIM, use_color),
             view.score.unwrap_or(0.0),
-            style_close(quota_styles::DIM, use_color),
-            style_open(quota_styles::BOLD, use_color),
+            style_close(styles::DIM, use_color),
+            style_open(styles::BOLD, use_color),
             view.account,
-            style_close(quota_styles::BOLD, use_color),
+            style_close(styles::BOLD, use_color),
         )?;
     }
     if view.active {
         write!(
             stdout,
             " {}(active){}",
-            style_open(quota_styles::BOLD_CYAN, use_color),
-            style_close(quota_styles::BOLD_CYAN, use_color),
+            style_open(styles::BOLD_CYAN, use_color),
+            style_close(styles::BOLD_CYAN, use_color),
         )?;
     }
     writeln!(stdout)
@@ -858,11 +1212,11 @@ fn write_quota_entry_text(
             writeln!(
                 stdout,
                 "  {}{}{} {}(api-key){}",
-                style_open(quota_styles::BOLD, use_color),
+                style_open(styles::BOLD, use_color),
                 view.account,
-                style_close(quota_styles::BOLD, use_color),
-                style_open(quota_styles::DIM, use_color),
-                style_close(quota_styles::DIM, use_color),
+                style_close(styles::BOLD, use_color),
+                style_open(styles::DIM, use_color),
+                style_close(styles::DIM, use_color),
             )?;
             writeln!(stdout, "  Quota not available (API-key auth)")?;
         }
@@ -870,25 +1224,25 @@ fn write_quota_entry_text(
             write!(
                 stdout,
                 "  {}{}{}",
-                style_open(quota_styles::BOLD, use_color),
+                style_open(styles::BOLD, use_color),
                 view.account,
-                style_close(quota_styles::BOLD, use_color),
+                style_close(styles::BOLD, use_color),
             )?;
             if view.active {
                 write!(
                     stdout,
                     " {}(active){}",
-                    style_open(quota_styles::BOLD_CYAN, use_color),
-                    style_close(quota_styles::BOLD_CYAN, use_color),
+                    style_open(styles::BOLD_CYAN, use_color),
+                    style_close(styles::BOLD_CYAN, use_color),
                 )?;
             }
             writeln!(stdout)?;
             writeln!(
                 stdout,
                 "  {}Error: {}{}",
-                style_open(quota_styles::RED, use_color),
+                style_open(styles::RED, use_color),
                 view.error.as_deref().unwrap_or("unknown"),
-                style_close(quota_styles::RED, use_color),
+                style_close(styles::RED, use_color),
             )?;
         }
     }

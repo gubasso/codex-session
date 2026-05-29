@@ -11,7 +11,7 @@ specification now exists at `docs/design/cli-style-guide.md`, and all account co
 updated to follow it (Rounds 01 and 02).
 
 This final round extends the design system to every remaining output path in the wrapper: the
-`doctor` diagnostic report, `config status`, `config_recipe list/show/compose`, `version`, error
+`doctor` diagnostic report, `config status`, `config-recipe list/show/compose`, `version`, error
 rendering, and runtime narration (warnings, prompts, and `[codex-session]` messages). After this
 round, every user-visible string produced by the wrapper follows the same visual language.
 
@@ -279,9 +279,9 @@ already have global `--format` or per-command format), update the corresponding 
 - [ ] `doctor` output has colored check statuses (OK green, WARN yellow, FAIL red)
 - [ ] `doctor` summary line has colored counts
 - [ ] `config status` has DIM labels and colored boolean/status values
-- [ ] `config_recipe list` shows a colored table with ✓/✗ valid column
-- [ ] `config_recipe show` has DIM labels and BOLD values
-- [ ] `config_recipe compose` has DIM labels and appropriate value colors
+- [ ] `config-recipe list` shows a colored table with ✓/✗ valid column
+- [ ] `config-recipe show` has DIM labels and BOLD values
+- [ ] `config-recipe compose` has DIM labels and appropriate value colors
 - [ ] `version` has BOLD version numbers and DIM paths
 - [ ] Error output uses BOLD_RED for the `codex-session:` label and BOLD_CYAN for `hint:`
 - [ ] `write_warning` styles `warning:` prefix in BOLD_YELLOW on stderr

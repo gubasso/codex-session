@@ -36,7 +36,7 @@ The work splits into three rounds following layer boundaries (bottom-up):
   quota command is already styled — skip it.
 
 3. **Round 03 — Doctor, Config, ConfigRecipe, Version, Errors, Narration**: Apply the design system to
-  every remaining output path: `doctor` report, `config status`, `config_recipe list/show/compose`,
+  every remaining output path: `doctor` report, `config status`, `config-recipe list/show/compose`,
   `version`, error rendering (`error.rs`), and runtime narration (`gate.rs` / `retry.rs`
   `write_warning`/`write_prompt`).
 
@@ -44,7 +44,7 @@ The work splits into three rounds following layer boundaries (bottom-up):
 
 | Round | File                                    | Topic                             | Status | Completed |
 | ----- | --------------------------------------- | --------------------------------- | ------ | --------- |
-| 01    | `01-design-system-spec.md`              | CLI design system specification   | todo   | --        |
+| 01    | `01-design-system-spec.md`              | CLI design system specification   | done   | 2026-05-27 |
 | 02    | `02-foundations-and-account-commands.md` | Styles module + account commands  | todo   | --        |
 | 03    | `03-doctor-config-config_recipe-errors.md`    | Doctor, config, config_recipe, errors   | todo   | --        |
 
@@ -52,12 +52,12 @@ The work splits into three rounds following layer boundaries (bottom-up):
 
 ```bash
 # Execute a single round:
-/plex .plan/01-todo/cli-design-system-colorful-output/01-design-system-spec.md
-/plex .plan/01-todo/cli-design-system-colorful-output/02-foundations-and-account-commands.md
-/plex .plan/01-todo/cli-design-system-colorful-output/03-doctor-config-config_recipe-errors.md
+/prex -ar .plan/01-todo/01-cli-design-system-colorful-output/01-design-system-spec.md
+/prex -ar .plan/01-todo/01-cli-design-system-colorful-output/02-foundations-and-account-commands.md
+/prex -ar .plan/01-todo/01-cli-design-system-colorful-output/03-doctor-config-config_recipe-errors.md
 
 # Execute with full directory context:
-/prex -ar @.plan/01-todo/cli-design-system-colorful-output/
+/prex -ar @.plan/01-todo/01-cli-design-system-colorful-output/
 ```
 
 ## Decisions & Constraints
@@ -116,5 +116,5 @@ When all rounds are done:
 ```bash
 # Update status in this file to "done"
 # Fill in completion timestamps in the execution order table
-mv .plan/01-todo/cli-design-system-colorful-output .plan/02-done/cli-design-system-colorful-output
+mv .plan/01-todo/01-cli-design-system-colorful-output .plan/02-done/01-cli-design-system-colorful-output
 ```

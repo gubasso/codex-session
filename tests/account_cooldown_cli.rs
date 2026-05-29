@@ -57,7 +57,7 @@ fn cooldown_show_alias_and_json_work() {
 
     let json = env
         .cmd()
-        .args(["account", "cooldown", "show", "--json"])
+        .args(["account", "cooldown", "show", "--format", "json"])
         .assert()
         .success()
         .get_output()
@@ -70,6 +70,13 @@ fn cooldown_show_alias_and_json_work() {
     assert_eq!(items[0]["cooled-down"], false);
     assert_eq!(items[1]["account"], "work");
     assert_eq!(items[1]["cooled-down"], true);
+
+    env.cmd()
+        .args(["account", "cooldown", "show", "--json"])
+        .assert()
+        .failure()
+        .code(64)
+        .stderr(predicate::str::contains("unexpected argument"));
 }
 
 #[test]

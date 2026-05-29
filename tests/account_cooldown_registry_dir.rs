@@ -49,7 +49,15 @@ fn cooldown_honors_custom_registry_dir() {
 
     env.cmd()
         .env("CODEX_SESSION_ACCOUNT_REGISTRY_DIR", &custom_registry)
-        .args(["--account", "work", "account", "cooldown", "show", "--json"])
+        .args([
+            "--account",
+            "work",
+            "account",
+            "cooldown",
+            "show",
+            "--format",
+            "json",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"cooled-down\": true"));

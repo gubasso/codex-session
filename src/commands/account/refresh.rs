@@ -32,9 +32,11 @@ pub(crate) fn run(
     ctx.ui.write_account_mutation(
         "refreshed",
         &crate::commands::account::AccountMutationView {
+            verb: "refreshed",
             name: name.to_string(),
             path: registry.account_dir(&name),
         },
+        args.format,
     )?;
     Ok(())
 }

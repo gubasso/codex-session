@@ -42,7 +42,7 @@ symbol usage (▸ ✓ ✗), time formatting rules, and per-command target layout
 
 **OUT of scope:**
 - `account quota` (already styled — the gold standard)
-- `doctor`, `config status`, `config_recipe`, `version`, error rendering (Round 03)
+- `doctor`, `config status`, `config-recipe`, `version`, error rendering (Round 03)
 - Changes to the design system spec itself
 - New dependencies
 
@@ -142,10 +142,10 @@ Implementation:
 - Compute dynamic column width from max account name length (minimum 7 for "ACCOUNT")
 - Print DIM header row: `ACCOUNT`, `AUTH`, `LAST USED`, `STATUS`
 - For each account:
-  - If current: prefix with `▸` in BOLD_CYAN, name in BOLD_CYAN
+  - If current: prefix with `▸` in BOLD_CYAN, name in BOLD
   - Else: prefix with two spaces, name in BOLD
   - Auth: `✓` in GREEN if `has_auth`, `✗` in RED if not
-  - Last used: `human_age(last_used_at_unix)` if Some, `"never"` in DIM if None
+  - Last used: `human_age(last_used_at_unix)` if Some, `—` in DIM if None
   - Status column: only for current account — `"active ({source})"` in BOLD_CYAN
 - JSON branch stays unchanged (already works)
 
@@ -163,8 +163,8 @@ To styled output:
 ```
 
 - `use_color` from `color::should_color(color::Stream::Stdout)`
-- `▸` + space + name in BOLD_CYAN
-- `({source})` in BOLD_CYAN (same style, part of the current-item display)
+- `▸` marker in BOLD_CYAN; name in BOLD (matches the style guide SoT)
+- `({source})` in DIM (secondary metadata)
 
 ### Step 4: Colorize `write_health_table`
 
@@ -217,6 +217,12 @@ Modify `write_account_health` to pass `use_color` to `write_health_verbose` as w
 
 Clean break, no hidden alias.
 
+**Also delete the "known migration gap" note in `CLAUDE.md`.** The committed Breaking
+Changes Policy section currently documents this exact flag as deferred:
+"`account cooldown show` still exposes a bare `--json` flag that will move to
+`--format json` in a later round." Once this step lands, that sentence is false —
+remove it in the same change so `CLAUDE.md` stays accurate.
+
 ### Step 8: Add `--format json` to mutation commands
 
 **Files to modify:**
@@ -224,8 +230,11 @@ Clean break, no hidden alias.
   `AccountAddArgs`, `AccountUseArgs`, `AccountRemoveArgs`, `AccountRefreshArgs`
 - `/workspaces/codex-session/src/ui/mod.rs` — Change `write_account_mutation` signature to accept
   `format: OutputFormat`. In JSON mode, serialize the view. In text mode, apply colors.
-- `/workspaces/codex-session/src/commands/account/mod.rs` — Add `verb: String` field to
-  `AccountMutationView` (or pass verb separately for JSON serialization)
+- `/workspaces/codex-session/src/commands/account/mod.rs` — `write_account_mutation`
+  already receives the verb as a separate `verb: &'static str` parameter (see
+  `src/ui/mod.rs`), so text output needs no struct change. For JSON output, add a
+  `verb` field to `AccountMutationView` so the serialized object includes it (the
+  view currently holds only `name` and `path`).
 - `/workspaces/codex-session/src/commands/account/add.rs` — Pass `args.format` to the UI method
 - `/workspaces/codex-session/src/commands/account/use_.rs` — Same
 - `/workspaces/codex-session/src/commands/account/remove.rs` — Same
@@ -253,25 +262,25 @@ Run `just test` and update snapshots with `cargo insta review`. The help text wi
 
 ## Acceptance Criteria
 
-- [ ] `quota_styles` module is renamed to `styles` throughout `src/ui/mod.rs`
-- [ ] `GREEN` constant exists in the `styles` module
-- [ ] `account list` text output shows colored table with ▸ marker, ✓/✗ auth, human timestamps
-- [ ] `account current` shows `▸ {name} ({source})` in BOLD_CYAN
-- [ ] `account health` table has semantic colors (token, status, active, cooldown, fetched)
-- [ ] `account health --verbose` has semantic colors on values
-- [ ] `account cooldown show` table has colored status/countdown/headers
-- [ ] `account cooldown show --json` is replaced by `account cooldown show --format json`
-- [ ] `account add/use/remove/refresh` support `--format json`
-- [ ] `account add/use/remove/refresh` text output has colored ✓ prefix, name bold, path dim
-- [ ] `NO_COLOR=1 codex-session account list` produces no ANSI escape codes
-- [ ] `codex-session account list --format json | jq .` produces valid JSON
-- [ ] `just lint` passes (clippy-strict + fmt-check + print-ownership)
-- [ ] `just test` passes (with snapshot updates accepted)
+- [x] `quota_styles` module is renamed to `styles` throughout `src/ui/mod.rs`
+- [x] `GREEN` constant exists in the `styles` module
+- [x] `account list` text output shows colored table with ▸ marker, ✓/✗ auth, human timestamps
+- [x] `account current` shows `▸ {name} ({source})` (marker BOLD_CYAN, name BOLD, source DIM — per style guide SoT)
+- [x] `account health` table has semantic colors (token, status, active, cooldown, fetched)
+- [x] `account health --verbose` has semantic colors on values
+- [x] `account cooldown show` table has colored status/countdown/headers
+- [x] `account cooldown show --json` is replaced by `account cooldown show --format json`
+- [x] `account add/use/remove/refresh` support `--format json`
+- [x] `account add/use/remove/refresh` text output has colored ✓ prefix, name bold, path dim
+- [x] `NO_COLOR=1 codex-session account list` produces no ANSI escape codes
+- [x] `codex-session account list --format json | jq .` produces valid JSON
+- [x] `just lint` passes (clippy-strict + fmt-check + print-ownership)
+- [x] `just test` passes (with snapshot updates accepted)
 
 ## Next Round
 
 Round 03 will apply the design system to every remaining output path: `doctor` report (colored
-status table, summary), `config status` (colored key-value display), `config_recipe list/show/compose`
+status table, summary), `config status` (colored key-value display), `config-recipe list/show/compose`
 (colored tables), `version` (bold version numbers), error rendering (`error.rs` — colored labels
 and status-aware hints), and runtime narration (`gate.rs` / `retry.rs` — colored warning prefixes,
 styled `[codex-session]` narration).

@@ -15,16 +15,16 @@ pub(crate) fn run(
     match args
         .command
         .unwrap_or(AccountCooldownCommand::Show(AccountCooldownShowArgs {
-            json: false,
+            format: crate::cli::OutputFormat::Text,
         })) {
-        AccountCooldownCommand::Show(args) => show(ctx, &args),
+        AccountCooldownCommand::Show(args) => show(ctx, args),
         AccountCooldownCommand::Clear(args) => clear(ctx, &args),
     }
 }
 
 fn show(
     ctx: &crate::context::AppContext,
-    args: &AccountCooldownShowArgs,
+    args: AccountCooldownShowArgs,
 ) -> Result<(), crate::error::AppError> {
     let registry = Registry::from_config(&ctx.config);
     let entries = if let Some(account) = selected_account(ctx)? {
@@ -39,14 +39,8 @@ fn show(
         }
         entries
     };
-    ctx.ui.write_account_cooldowns(
-        &AccountCooldownView { entries },
-        if args.json {
-            crate::cli::OutputFormat::Json
-        } else {
-            crate::cli::OutputFormat::Text
-        },
-    )?;
+    ctx.ui
+        .write_account_cooldowns(&AccountCooldownView { entries }, args.format)?;
     Ok(())
 }
 

@@ -34,6 +34,9 @@ pub(crate) enum AccountCommand {
 pub(crate) struct AccountAddArgs {
     /// Account name (regex `[a-z0-9][a-z0-9_-]{0,31}`).
     pub(crate) name: AccountId,
+    /// Output format for the mutation result.
+    #[arg(long, value_name = "FMT", value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
 }
 
 #[derive(Debug, Clone, Copy, clap::Args)]
@@ -54,6 +57,9 @@ pub(crate) struct AccountCurrentArgs {
 pub(crate) struct AccountUseArgs {
     /// Account name to pin.
     pub(crate) name: AccountId,
+    /// Output format for the mutation result.
+    #[arg(long, value_name = "FMT", value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -63,12 +69,18 @@ pub(crate) struct AccountRemoveArgs {
     /// Skip interactive confirmation.
     #[arg(long)]
     pub(crate) yes: bool,
+    /// Output format for the mutation result.
+    #[arg(long, value_name = "FMT", value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
 }
 
 #[derive(Debug, Clone, clap::Args)]
 pub(crate) struct AccountRefreshArgs {
     /// Account name to refresh. Defaults to the current account if omitted.
     pub(crate) name: Option<AccountId>,
+    /// Output format for the mutation result.
+    #[arg(long, value_name = "FMT", value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
 }
 
 #[derive(Debug, Clone, Copy, clap::Args)]
@@ -111,11 +123,11 @@ pub(crate) enum AccountCooldownCommand {
     Clear(AccountCooldownClearArgs),
 }
 
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Debug, Clone, Copy, clap::Args)]
 pub(crate) struct AccountCooldownShowArgs {
-    /// Emit machine-readable JSON instead of the text table.
-    #[arg(long)]
-    pub(crate) json: bool,
+    /// Output format for cooldown state.
+    #[arg(long, value_name = "FMT", value_enum, default_value_t = crate::cli::OutputFormat::Text)]
+    pub(crate) format: crate::cli::OutputFormat,
 }
 
 #[derive(Debug, Clone, clap::Args)]

@@ -40,9 +40,11 @@ pub(crate) fn run(
     ctx.ui.write_account_mutation(
         "added",
         &crate::commands::account::AccountMutationView {
+            verb: "added",
             name: entry.id.to_string(),
             path: entry.dir,
         },
+        args.format,
     )?;
     Ok(())
 }

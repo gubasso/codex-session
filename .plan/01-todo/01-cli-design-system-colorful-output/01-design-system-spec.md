@@ -8,7 +8,7 @@
 codex-session is a CLI wrapper around OpenAI's `codex` binary. It adds multi-account management,
 config-recipe-layered session composition, quota-aware account selection, and health monitoring. The
 wrapper produces its own output for ~15 wrapper-owned commands (account list/current/health/quota/
-cooldown, doctor, config status, config_recipe list/show/compose, version) plus error rendering and
+cooldown, doctor, config status, config-recipe list/show/compose, version) plus error rendering and
 runtime narration (authentication warnings, retry messages, interactive prompts).
 
 Currently, output quality varies wildly across commands. `account quota` has colored progress bars,
@@ -283,7 +283,7 @@ when writing any output code.
     ...
 
     STATUS   CHECK                      DETAIL
-    OK       config_recipe.active             default (source: config.default)
+    OK       config-recipe.active             default (source: config.default)
     WARN     account.cooldowns          1 account(s) in cooldown: default
     FAIL     child.binary               could not find `codex` on PATH=...
 
@@ -299,14 +299,14 @@ when writing any output code.
     Key-value pairs with labels in DIM, values plain. Boolean values colored
     (true→BOLD_GREEN, false→DIM). Paths in DIM. Layer sub-items indented.
 
-    **config_recipe list:**
+    **config-recipe list:**
     ```text
     CONFIG_RECIPE    LAYERS   VALID   MANIFEST
     default    3        ✓       /path/to/default.yaml
     work       2        ✗       /path/to/work.yaml
     ```
 
-    **config_recipe show:**
+    **config-recipe show:**
     Key-value pairs similar to config status.
 
     **version:**

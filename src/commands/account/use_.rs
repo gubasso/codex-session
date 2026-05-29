@@ -9,11 +9,13 @@ pub(crate) fn run(
     registry.set_current(&args.name)?;
     tracing::info!(op = "account.use", outcome = "ok", account = %args.name);
     ctx.ui.write_account_mutation(
-        "used",
+        "selected",
         &crate::commands::account::AccountMutationView {
+            verb: "selected",
             name: args.name.to_string(),
             path: registry.account_dir(&args.name),
         },
+        args.format,
     )?;
     Ok(())
 }

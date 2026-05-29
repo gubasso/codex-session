@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-05-28
+- **Last verified:** 2026-05-29
 - **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -351,6 +351,58 @@ mismatch to validate.
   sandbox flags — they pass through to the codex binary unchanged.  The
   constraint is upstream in the OpenAI Codex backend.
 
+## F16 — Cross-account thread resume is not possible in stock codex
+
+A thread/rollout created while authenticated as account **A** **cannot** be
+resumed under a different account **B** using stock codex.  Resumption is
+bound to the originating account at two independent layers — either alone is
+sufficient to make a true cross-account resume fail.
+
+**Layer 1 — Filesystem (fully `CODEX_HOME`-scoped).**
+Rollouts live at `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` and
+discovery never crosses `CODEX_HOME` boundaries (see F6, F14).  Account A's
+rollout under `…/accounts/A/groups/<g>/sessions/…` is simply not visible to
+a resume run with account B's `CODEX_HOME`.  Stock `codex resume <id>` from B
+fails to locate any rollout.
+
+**Layer 2 — Server-side account/provider binding.**
+Even if the rollout file were made reachable, the OpenAI backend ties a
+conversation to the provider/account that created it.  Discovery and
+continuation default to filtering by the *active* provider/account, so a
+mismatched auth token loses the original context.  This is the same family
+of validation that produces the -32600 "no rollout found" response in F15.
+
+**Consequence / failure signature.**
+Because both layers reject it, any path that lets a resume run under a
+*different* account than the one that owns the thread reproduces the
+"no rollout found" failure — the canonical example being `--account auto`
+re-resolving to a different account between the stage that *created* the
+thread and the stage that *resumes* it.
+
+**How `codex-session` avoids it (it does not actually resume cross-account).**
+The wrapper's job on resume is to pin back to the **owning** account, never
+to cross accounts.  It uses the out-of-band `thread-index.jsonl`
+(`<state_dir>/thread-index.jsonl`) to map thread ID → originating
+account + group-id, then sets `CODEX_HOME` to that account's directory
+before forwarding to codex (see F14).  Stock codex therefore always resumes
+*as the owning account, within a single `CODEX_HOME`* and never sees a
+cross-account request.  Corollary: the wrapper must keep the resume pinned to
+the index entry's account — if the resume re-resolves the account (e.g.
+`--account auto`, or a fallback path that ignores the index hit), both layers
+above will reject it.
+
+- **Sources:** Investigation 2026-05-29 (this repo:
+  `src/commands/pass_through.rs:430-526` `resolve_resume_account`,
+  `src/services/session/thread_index.rs:83-89` `lookup`; cross-refs F6, F14, F15),
+  [issue #20004 — "Preserve local history visibility/continuation across providers/accounts"](https://github.com/openai/codex/issues/20004),
+  [issue #15494 — "Switching model_provider hides existing local sessions from resume/fork/history"](https://github.com/openai/codex/issues/15494),
+  [docs: features](https://developers.openai.com/codex/cli/features),
+  [DeepWiki: Session Resumption and Forking](https://deepwiki.com/openai/codex/4.4-session-resumption-and-forking).
+- **Implementation note:** This is a hard upstream constraint, not a wrapper
+  limitation.  Do not attempt to add a cross-account resume shim; the correct
+  design is to always resolve a resume back to the thread's owning account via
+  `thread-index.jsonl`.
+
 ## Sources (full list)
 
 - Docs: <https://developers.openai.com/codex/local-config/>,
@@ -370,6 +422,7 @@ mismatch to validate.
   [#13242](https://github.com/openai/codex/issues/13242),
   [#14547](https://github.com/openai/codex/issues/14547),
   [#15433](https://github.com/openai/codex/issues/15433),
+  [#15494](https://github.com/openai/codex/issues/15494),
   [#15538](https://github.com/openai/codex/issues/15538),
   [#15767](https://github.com/openai/codex/issues/15767),
   [#16994](https://github.com/openai/codex/issues/16994),
@@ -378,6 +431,7 @@ mismatch to validate.
   [#18676](https://github.com/openai/codex/issues/18676),
   [#18771](https://github.com/openai/codex/issues/18771),
   [#19661](https://github.com/openai/codex/issues/19661),
+  [#20004](https://github.com/openai/codex/issues/20004),
   [#21196](https://github.com/openai/codex/issues/21196),
   [#23875](https://github.com/openai/codex/issues/23875)
 - Discussions: [#1076](https://github.com/openai/codex/discussions/1076)

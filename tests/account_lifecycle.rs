@@ -6,6 +6,10 @@ mod support;
 use predicates::prelude::*;
 use support::TestEnv;
 
+fn has_ansi(bytes: &[u8]) -> bool {
+    String::from_utf8_lossy(bytes).contains('\u{1b}')
+}
+
 #[test]
 fn account_add_creates_dir() {
     let env = TestEnv::new();
@@ -44,11 +48,19 @@ fn account_add_non_interactive_fails() {
 fn account_remove_deletes_permanently() {
     let env = TestEnv::new();
     env.seed_account("work", "{\"token\":\"abc\"}\n");
-    env.cmd()
-        .args(["account", "remove", "work", "--yes"])
+    let stdout = env
+        .cmd()
+        .args(["account", "remove", "work", "--yes", "--format", "json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("account removed: work"));
+        .stdout(predicate::str::contains("\"verb\": \"removed\""))
+        .stdout(predicate::str::contains("\"name\": \"work\""))
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(value["verb"], "removed");
+    assert_eq!(value["name"], "work");
     assert!(!env.named_account_root("work").exists());
 }
 
@@ -102,9 +114,11 @@ fn account_use_pins_lru() {
     let env = TestEnv::new();
     env.seed_account("personal", "{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "use", "personal"])
+        .args(["account", "use", "personal", "--format", "json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("\"verb\": \"selected\""))
+        .stdout(predicate::str::contains("\"name\": \"personal\""));
     assert_eq!(
         std::fs::read_to_string(env.last_account_path()).unwrap(),
         "personal"
@@ -115,6 +129,81 @@ fn account_use_pins_lru() {
         .success()
         .stdout(predicate::str::contains("\"name\": \"personal\""))
         .stdout(predicate::str::contains("\"source\": \"lru\""));
+}
+
+#[test]
+fn account_use_text_splits_marker_color() {
+    let env = TestEnv::new();
+    env.seed_account("personal", "{\"token\":\"abc\"}\n");
+    let output = env
+        .cmd()
+        .env("FORCE_COLOR", "1")
+        .args(["account", "use", "personal"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(output).unwrap();
+    assert!(text.contains("\u{1b}[32m✓\u{1b}[0m "));
+    assert!(text.contains("\u{1b}[1m\u{1b}[32maccount selected:\u{1b}[0m"));
+    assert!(text.contains("\u{1b}[1mpersonal\u{1b}[0m"));
+    assert!(text.contains("\u{1b}[2m  path: "));
+    assert!(!text.contains("\u{1b}[1m\u{1b}[32m✓"));
+}
+
+#[test]
+fn account_list_no_color_and_json_work() {
+    let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"abc\"}\n");
+    env.cmd()
+        .args(["account", "use", "default"])
+        .assert()
+        .success();
+
+    let stdout = env
+        .cmd()
+        .env("NO_COLOR", "1")
+        .args(["account", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert!(!has_ansi(&stdout));
+
+    let json = env
+        .cmd()
+        .args(["account", "list", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    let accounts = value["accounts"].as_array().unwrap();
+    assert_eq!(accounts.len(), 2);
+    assert_eq!(value["active"]["name"], "default");
+}
+
+#[test]
+fn account_add_and_refresh_help_expose_format() {
+    let env = TestEnv::new();
+    for args in [
+        ["account", "add", "--help"],
+        ["account", "refresh", "--help"],
+    ] {
+        let stdout = env
+            .cmd()
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(stdout).unwrap();
+        assert!(text.contains("--format <FMT>"));
+    }
 }
 
 #[test]

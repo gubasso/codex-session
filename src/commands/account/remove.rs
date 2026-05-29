@@ -61,9 +61,11 @@ pub(crate) fn run(
     ctx.ui.write_account_mutation(
         "removed",
         &crate::commands::account::AccountMutationView {
+            verb: "removed",
             name: args.name.to_string(),
             path,
         },
+        args.format,
     )?;
     Ok(())
 }

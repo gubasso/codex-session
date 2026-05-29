@@ -51,9 +51,6 @@ Use only the 8 basic ANSI colors through `anstyle::AnsiColor`. Do not use RGB,
 `GREEN` is for symbols and checkmarks only. `BOLD_GREEN` is for text labels and
 values.
 
-Current implementation note: `GREEN` does not yet exist in `quota_styles`.
-Until Round 02 adds it, checkmarks may use `BOLD_GREEN`.
-
 ## 4. Color Gating
 
 All user-facing styling must use the color policy module (`color::should_color`):
@@ -187,9 +184,6 @@ Wrapper read commands use `--format <text|json>` through the `OutputFormat`
 enum. Do not introduce wrapper `--json` flags because upstream
 `codex --json` means JSONL event streaming.
 
-Migration gap: `account cooldown show` currently uses a bare `--json` boolean
-flag. It must migrate to `--format json` in a later round.
-
 ## 14. Per-Command Output Specifications
 
 These are target layouts for wrapper-owned output surfaces. Current code may
@@ -318,7 +312,7 @@ account-source:  lru
 ...
 
 STATUS   CHECK                      DETAIL
-OK       config_recipe.active             default (source: config.default)
+OK       config-recipe.active             default (source: config.default)
 WARN     account.cooldowns          1 account(s) in cooldown: default
 FAIL     child.binary               could not find `codex` on PATH=...
 
@@ -350,7 +344,8 @@ last-used values use `—` in `DIM`.
 ▸ cwnt (lru)
 ```
 
-The marker uses `BOLD_CYAN`; the account name uses `BOLD`.
+The marker uses `BOLD_CYAN`; the account name uses `BOLD`; the `({source})`
+suffix uses `DIM` (secondary metadata).
 
 ### `account add/use/remove/refresh`
 

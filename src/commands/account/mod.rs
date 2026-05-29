@@ -37,6 +37,7 @@ pub(crate) struct AccountCurrentView {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct AccountMutationView {
+    pub(crate) verb: &'static str,
     pub(crate) name: String,
     pub(crate) path: camino::Utf8PathBuf,
 }

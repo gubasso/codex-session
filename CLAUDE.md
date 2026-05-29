@@ -46,10 +46,8 @@ layers for obsolete wrapper behavior. Prefer direct migrations to the
 intended interface.
 
 Wrapper-owned machine-readable output uses `--format json`, never `--json`.
-Known migration gap: `account cooldown show` still exposes a bare `--json`
-flag that will move to `--format json` in a later round. Avoid introducing
-wrapper flags that overlap with native `codex` flags unless the forwarding
-behavior is explicitly designed and documented.
+Avoid introducing wrapper flags that overlap with native `codex` flags unless
+the forwarding behavior is explicitly designed and documented.
 
 ## Codex config compatibility
 

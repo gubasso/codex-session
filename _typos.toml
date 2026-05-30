@@ -1,0 +1,20 @@
+# typos configuration — REPORT-ONLY spell check.
+#
+# Philosophy (sane default): typos NEVER auto-edits code. The pre-commit
+# hook runs without --write-changes, so typos only *reports* misspellings;
+# you fix real ones in a normal edit and allowlist false positives here.
+# Add an entry ONLY when typos' suggestion is wrong — project terms,
+# deliberate spellings, or ambiguous tokens. Real typos should be fixed in
+# a dedicated commit, not silenced.
+
+[files]
+# Snapshot fixtures hold arbitrary recorded output; don't spell-check them.
+extend-exclude = ["*.snap"]
+
+[default.extend-words]
+# Project's deliberate spelling: the `Unparseable` enum variant,
+# `ChildVersionUnparseable` error, and `child_version_unparseable` kind
+# string (part of the machine-readable error contract).
+unparseable = "unparseable"
+# "mis-configured" — typos flags the `mis` token ambiguously (miss/mist).
+mis = "mis"

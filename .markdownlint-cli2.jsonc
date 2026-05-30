@@ -1,0 +1,87 @@
+// markdownlint-cli2 config — tuned for a free-form knowledge base / docs repo.
+// Rule reference: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+//
+// Single source of truth: this .jsonc is the ONLY markdownlint config. Do not add
+// a `.markdownlint.{yaml,json,...}` — when both exist, the `.markdownlint.*` rules
+// win and silently override the `config` block below. (markdownlint-cli2 also
+// reads this file in VS Code, so editor + pre-commit stay in sync.)
+//
+// Tooling split (researched): markdownlint is a LINTER with surgical per-span
+// autofixes, NOT a formatter. It cannot reflow/unwrap prose, normalize GFM table
+// column padding, or format code inside fenced blocks — so it cannot replace
+// dprint. dprint owns ALL canonical formatting; this config gates on what dprint
+// can't normalize, AND autofixes the one thing dprint can't do: ordered-list
+// renumbering (MD029). Refs:
+//   - MD029 rule:    https://github.com/DavidAnson/markdownlint/blob/main/doc/md029.md
+//   - linter≠fmt:    https://github.com/DavidAnson/markdownlint/blob/main/doc/Prettier.md
+//   - dprint md cfg: https://dprint.dev/plugins/markdown/config/
+//   - full note:     $DOCS_NOTES_REPO/tech/programming/configs/markdown-formatting-toolchain.md
+//
+// "fix": true enables autofix — but it is GLOBAL (no per-rule fix toggle). To
+// keep fix-mode from fighting dprint or auto-editing content, every OTHER fixable
+// rule is disabled below, leaving MD029 as the only rule fix-mode can act on.
+// Non-fixable rules are unaffected and still gate (report-only).
+{
+  "fix": true,
+  "config": {
+    "default": true,
+
+    // Ordered-list numbering: 1.→2.→3. (one=1/1/1, ordered=1/2/3, zero=0/0/0).
+    // The ONLY rule left fixable, so this is the only autofix that ever fires.
+    "MD029": { "style": "ordered" },
+
+    // --- fixable rules OFF: isolate fix-mode to MD029 only (dprint owns formatting) ---
+    // Each is owned by dprint, by another hook, or low-value for a free-form KB.
+    // Disabling drops them as gates too; that's fine — dprint/lychee/typos cover them.
+    // NOTE: if a future markdownlint version makes a new rule fixable, add it here.
+    "MD004": false,  // ul-style              (dprint owns list markers)
+    "MD005": false,  // list-indent           (dprint owns)
+    "MD007": false,  // ul-indent             (dprint owns)
+    "MD009": false,  // trailing-spaces       (trailing-whitespace hook + dprint own)
+    "MD010": false,  // hard-tabs             (dprint owns)
+    "MD011": false,  // reversed-link-syntax  (would auto-edit content)
+    "MD014": false,  // $-before-commands     (would auto-edit content)
+    "MD018": false,  // no-space-atx          (dprint owns heading spacing)
+    "MD019": false,  // multiple-space-atx    (dprint owns)
+    "MD020": false,  // no-space-closed-atx   (dprint owns)
+    "MD023": false,  // heading-start-left    (dprint owns)
+    "MD026": false,  // heading-trailing-punct(would auto-edit content)
+    "MD027": false,  // multiple-space-bq     (dprint owns blockquote spacing)
+    "MD030": false,  // list-marker-space     (dprint owns)
+    "MD037": false,  // spaces-in-emphasis    (dprint owns)
+    "MD038": false,  // spaces-in-code-span   (dprint owns)
+    "MD039": false,  // spaces-in-links       (dprint owns)
+    "MD044": false,  // proper-names          (would auto-edit content)
+    "MD047": false,  // single-trailing-nl    (end-of-file-fixer + dprint own)
+    "MD049": false,  // emphasis-style        (dprint owns)
+    "MD050": false,  // strong-style          (dprint owns)
+    "MD051": false,  // link-fragments        (would auto-edit; lychee covers links)
+    "MD054": false,  // link/image-style      (would auto-edit content)
+    // --- end fixable-OFF block ---
+
+
+    "MD001": false,  // heading-increment — notes skip levels intentionally
+    "MD003": false,  // heading-style — allow mixed atx/setext
+    "MD012": false,  // multiple blank lines — used for visual breathing room
+    "MD013": false,  // line length — notes wrap naturally
+    "MD024": { "siblings_only": true },  // dup headings OK across sections, not within
+    "MD025": false,  // multiple top-level H1 — sub-note files do this often
+    "MD028": false,  // blank lines inside blockquotes — common in notes
+    "MD031": false,  // blanks-around-fences — dprint owns fence spacing
+    "MD033": false,  // inline HTML — needed for <!--TOC-->, <details>, <kbd>
+    "MD034": false,  // bare URLs — common in notes
+    "MD036": false,  // emphasis-as-heading — used for callouts
+    "MD041": false,  // first-line H1 — some files start with frontmatter
+    "MD042": false,  // empty links — placeholder links common in WIP notes
+    "MD046": { "style": "fenced" },  // require fenced code blocks
+    "MD052": false,  // reference labels — many notes use ad-hoc footnote refs
+    "MD060": false   // table column style — too strict for hand-edited tables
+  },
+  "customRules": ["markdownlint-rule-relative-links"],
+  "ignores": [
+    "node_modules/",
+    ".obsidian/",
+    ".trash/",
+    "draft*"
+  ]
+}

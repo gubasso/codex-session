@@ -190,7 +190,7 @@ In `/workspaces/codex-session/src/services/account/selector.rs`:
 - In the candidate filter, add `if exclude.contains(&entry.id) { tracing::debug!(account=%entry.id,
   reason="already-tried"); continue; }`.
 - **Delete `registry.set_current(&picked.id)?;`** — `pick` becomes side-effect-free (quota cache
-  writes aside). The LRU recency penalty still reads `registry.current()` (the last *committed*
+  writes aside). The LRU recency penalty still reads `registry.current()` (the last _committed_
   selection from a prior invocation); within-invocation no-repeat is handled by `exclude`.
 - Extract from the filter two reusable helpers (used by gate and the exhaustion error):
 
@@ -228,7 +228,7 @@ In `/workspaces/codex-session/src/error.rs`:
 - Remove `NoneResolved` from the exit-code match and from `error_detail` / user-facing arms.
 - Map `AutoExhausted` to exit **75** (alongside `NoEligible`/`AuthMissing`).
 - Render `AutoExhausted` as a multi-line detail, one line per account
-  (`  • <id>   <outcome>`), ending with a hint:
+  (`• <id>   <outcome>`), ending with a hint:
   "Run `codex-session account health` for details, or clear cooldowns with
   `codex-session account cooldown clear --all`."
 - Update the `NoneSelected` why-line to match the new message.

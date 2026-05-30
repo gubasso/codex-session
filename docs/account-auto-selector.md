@@ -31,7 +31,7 @@ The algorithm has two phases:
 
 1. **Filter** — disqualify accounts that shouldn't be used right now
 2. **Score and rank** — compute a composite score for each remaining account and
-  pick the highest
+   pick the highest
 
 ## Phase 1: filtering
 
@@ -45,10 +45,10 @@ API that just told you to slow down wastes time and may make things worse.
 
 Two minimum bars an account must clear:
 
-| Threshold | Default | Purpose |
-|---|---|---|
-| 5-hour quota | > 50% | Prevents picking an account that is burning too fast right now |
-| Weekly quota | > 10% | Prevents picking an account that is nearly dry for the rest of the week |
+| Threshold    | Default | Purpose                                                                 |
+| ------------ | ------- | ----------------------------------------------------------------------- |
+| 5-hour quota | > 50%   | Prevents picking an account that is burning too fast right now          |
+| Weekly quota | > 10%   | Prevents picking an account that is nearly dry for the rest of the week |
 
 Why two? They protect against different failure modes. The 5-hour window catches
 "I'm using this too fast right now." The weekly window catches "I've been
@@ -61,7 +61,7 @@ fetch failed are treated as eligible — they skip both gates.
 
 Every account that passes filtering gets a composite score:
 
-```
+```text
 total = health_bonus
       + penalty
       + plan_bonus
@@ -95,11 +95,11 @@ else — but when two accounts are otherwise similar, the higher-tier plan wins.
 
 This is the rotation engine. It has three states:
 
-| Situation | Value | Rationale |
-|---|---|---|
-| Account was the **last one used** (LRU) | -30.0 | Spread the load; don't keep hammering the same account |
+| Situation                                | Value | Rationale                                              |
+| ---------------------------------------- | ----- | ------------------------------------------------------ |
+| Account was the **last one used** (LRU)  | -30.0 | Spread the load; don't keep hammering the same account |
 | Account hasn't been used in **> 7 days** | +20.0 | It has been resting; quotas are fully reset; reward it |
-| Neither | 0.0 | Neutral |
+| Neither                                  | 0.0   | Neutral                                                |
 
 **Why the LRU penalty?** Without it, the same account would win every time
 (highest quota stays highest if you keep picking it). The -30 penalty pushes the
@@ -135,11 +135,11 @@ positive, below average go negative.
 Example values (at default 0.70 weight):
 
 | 5-hour | Weekly | Weighted avg | avail_score |
-|---|---|---|---|
-| 90% | 80% | 87% | +37.0 |
-| 60% | 50% | 57% | +7.0 |
-| 45% | 95% | 60% | +10.0 |
-| 75% | 65% | 72% | +22.0 |
+| ------ | ------ | ------------ | ----------- |
+| 90%    | 80%    | 87%          | +37.0       |
+| 60%    | 50%    | 57%          | +7.0        |
+| 45%    | 95%    | 60%          | +10.0       |
+| 75%    | 65%    | 72%          | +22.0       |
 
 Note: with equal-weight midpoint, 45/95 and 75/65 would both score +20.0 — a
 tie. The weighted formula correctly prefers 75/65 (+22.0 vs +10.0) because its
@@ -191,15 +191,15 @@ When two accounts end up with the same total score, ties are broken in order:
 
 Three accounts, all eligible after filtering:
 
-| Component | A (LRU, Pro) | B (Free) | C (Team, idle 10d) |
-|---|---|---|---|
-| health_bonus | +100 | +100 | +100 |
-| plan_bonus | +20 | +0 | +30 |
-| recency | -30 (just used) | 0 | +20 (idle > 7d) |
-| avail_score | 0.7×80+0.3×60-50 = +24 | 0.7×70+0.3×50-50 = +14 | 0.7×90+0.3×85-50 = +38.5 |
-| weekly_pressure | 0 | 0 | 0 |
-| five_hour_pressure | 0 | 0 | 0 |
-| **Total** | **114** | **114** | **188.5** |
+| Component          | A (LRU, Pro)           | B (Free)               | C (Team, idle 10d)       |
+| ------------------ | ---------------------- | ---------------------- | ------------------------ |
+| health_bonus       | +100                   | +100                   | +100                     |
+| plan_bonus         | +20                    | +0                     | +30                      |
+| recency            | -30 (just used)        | 0                      | +20 (idle > 7d)          |
+| avail_score        | 0.7×80+0.3×60-50 = +24 | 0.7×70+0.3×50-50 = +14 | 0.7×90+0.3×85-50 = +38.5 |
+| weekly_pressure    | 0                      | 0                      | 0                        |
+| five_hour_pressure | 0                      | 0                      | 0                        |
+| **Total**          | **114**                | **114**                | **188.5**                |
 
 Account C wins by a wide margin: it has been resting (recency +20), it has the
 best plan (plan +30), and it has the most quota available (avail +38.5).
@@ -216,13 +216,13 @@ The scoring system asks five questions about each account:
 1. **"Are you alive?"** — health_bonus: yes, you're in the running.
 2. **"How capable are you?"** — plan_bonus: higher tier means more capacity.
 3. **"Were you just used?"** — recency: spread the load, don't hammer one
-  account.
+   account.
 4. **"How full is your tank?"** — avail_score: prefer accounts with more
-  remaining quota, weighted 70/30 toward 5-hour headroom.
+   remaining quota, weighted 70/30 toward 5-hour headroom.
 5. **"Are you dangerously low on weekly?"** — weekly_pressure: emergency weekly
-  avoidance.
+   avoidance.
 6. **"Are you dangerously low on 5-hour?"** — five_hour_pressure: emergency
-  5-hour avoidance.
+   5-hour avoidance.
 
 Each question addresses a different failure mode: capacity limits, quota
 exhaustion, rate-limiting, weekly burnout, and imminent 5-hour exhaustion.
@@ -246,9 +246,9 @@ fails over to account B without user intervention.
 
 Defaults in `src/config/mod.rs` (`AccountConfig`):
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `quota_ttl_secs` | 30 | Cache quota lookups for 30 seconds |
-| `weekly_floor` | 10.0 | Minimum weekly quota % to be eligible |
-| `five_hour_threshold` | 50.0 | Minimum 5-hour quota % to be eligible |
-| `five_hour_weight` | 0.70 | Weight for 5-hour window in avail_score (weekly = 1 - this) |
+| Setting               | Default | Purpose                                                     |
+| --------------------- | ------- | ----------------------------------------------------------- |
+| `quota_ttl_secs`      | 30      | Cache quota lookups for 30 seconds                          |
+| `weekly_floor`        | 10.0    | Minimum weekly quota % to be eligible                       |
+| `five_hour_threshold` | 50.0    | Minimum 5-hour quota % to be eligible                       |
+| `five_hour_weight`    | 0.70    | Weight for 5-hour window in avail_score (weekly = 1 - this) |

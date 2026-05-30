@@ -326,44 +326,46 @@ rename only.
 In `src/services/config_recipe/mod.rs::compose()`:
 
 1. After parsing the manifest and the base config layers, build a `Vec<ProfileFileRef>` to pack
-  into the returned `Composition`.
+   into the returned `Composition`.
 
 2. Determine which profile files to collect:
-  - If the manifest's optional `profile-files:` array is present, take exactly those names. For
-    each `name`, read `paths.profiles_dir().join(format!("{name}.config.toml"))`. Missing file
-    is an error with a clear message ("manifest declares profile-file `{name}` but
-    `{path}` does not exist").
-  - If the manifest's `profile-files:` is absent, scan `paths.profiles_dir()` for
-    `*.config.toml` entries (sorted alphabetically for determinism) and emit all of them. Empty
-    or missing dir → empty Vec.
 
-3. For each collected file, do BOTH:
-  - Read the raw bytes (for verbatim 1:1 emission).
-  - Parse to `toml::Table` and call `layer::reject_legacy_profile_syntax(&table, &format!("profile file `{name}.config.toml`"))`.
+- If the manifest's optional `profile-files:` array is present, take exactly those names. For
+  each `name`, read `paths.profiles_dir().join(format!("{name}.config.toml"))`. Missing file
+  is an error with a clear message ("manifest declares profile-file `{name}` but
+  `{path}` does not exist").
+- If the manifest's `profile-files:` is absent, scan `paths.profiles_dir()` for
+  `*.config.toml` entries (sorted alphabetically for determinism) and emit all of them. Empty
+  or missing dir → empty Vec.
 
-4. Pack into `Composition.profile_files: Vec<ProfileFileRef>` where:
+1. For each collected file, do BOTH:
 
-  ```rust
-  pub(crate) struct ProfileFileRef {
-      pub(crate) name: String,
-      pub(crate) path: Utf8PathBuf,
-      pub(crate) raw_toml: String,
-  }
-  ```
+- Read the raw bytes (for verbatim 1:1 emission).
+- Parse to `toml::Table` and call `layer::reject_legacy_profile_syntax(&table, &format!("profile file`{name}.config.toml`"))`.
 
-  (Add to `composition.rs` next to `LayerRef`. Derive `Debug, Clone, Serialize` with
-  `#[serde(rename_all = "kebab-case")]`.)
+1. Pack into `Composition.profile_files: Vec<ProfileFileRef>` where:
 
-5. Also call `reject_legacy_profile_syntax(&merged_config, "merged base config")` AFTER
-  `[env]` extraction and `[projects]` snapshot, BEFORE returning the `Composition`. This
-  catches the case where a `configs/<layer>.toml` carries `[profiles.deep]` — the same check
-  runs at layer-read time in step 6, but doing it again on the merged result defends against
-  future merge logic changes.
+```rust
+pub(crate) struct ProfileFileRef {
+    pub(crate) name: String,
+    pub(crate) path: Utf8PathBuf,
+    pub(crate) raw_toml: String,
+}
+```
 
-6. **Layer-read-time check:** in the loop that reads each `configs/<layer>.toml`, immediately
-  after `read_layer()` returns the `toml::Table`, call
-  `reject_legacy_profile_syntax(&table, &format!("config layer `{name}.toml`"))`. Same for the
-  cache layer.
+(Add to `composition.rs` next to `LayerRef`. Derive `Debug, Clone, Serialize` with
+`#[serde(rename_all = "kebab-case")]`.)
+
+1. Also call `reject_legacy_profile_syntax(&merged_config, "merged base config")` AFTER
+   `[env]` extraction and `[projects]` snapshot, BEFORE returning the `Composition`. This
+   catches the case where a `configs/<layer>.toml` carries `[profiles.deep]` — the same check
+   runs at layer-read time in step 6, but doing it again on the merged result defends against
+   future merge logic changes.
+
+2. **Layer-read-time check:** in the loop that reads each `configs/<layer>.toml`, immediately
+   after `read_layer()` returns the `toml::Table`, call
+   `reject_legacy_profile_syntax(&table, &format!("config layer`{name}.toml`"))`. Same for the
+   cache layer.
 
 ### Step 6: Modify `write_session_artifacts` to emit profile siblings
 
@@ -474,20 +476,20 @@ In `tests/config_recipe_composition.rs`:
 - Add new tests:
   1. `composer_emits_profile_sibling_files_one_to_one` — manifest with `profile-files: [deep,
     fast]`, two profile files written, assert session dir contains both
-    `deep.config.toml` and `fast.config.toml` with content bit-equal to the input files.
+     `deep.config.toml` and `fast.config.toml` with content bit-equal to the input files.
   2. `composer_emits_all_profile_files_when_manifest_omits_list` — three profile files on disk,
-    manifest omits `profile-files`, assert all three emitted, sorted by name in the sidecar
-    `profiles` array.
+     manifest omits `profile-files`, assert all three emitted, sorted by name in the sidecar
+     `profiles` array.
   3. `composer_rejects_legacy_profile_selector_in_input_layer` — `configs/base.toml` containing
-    `profile = "deep"`, assert `compose()` returns `ConfigError::LegacyProfileSyntax` with
-    `location` containing "config layer `base.toml`".
+     `profile = "deep"`, assert `compose()` returns `ConfigError::LegacyProfileSyntax` with
+     `location` containing "config layer `base.toml`".
   4. `composer_rejects_legacy_profiles_table_in_input_layer` — `configs/base.toml` containing
-    `[profiles.deep]`, same expected error.
+     `[profiles.deep]`, same expected error.
   5. `composer_rejects_legacy_profile_header_in_profile_file` —
-    `configs/profiles/deep.config.toml` containing `[profiles.deep]` (user error mirroring the
-    old shape inside the new file), same expected error.
+     `configs/profiles/deep.config.toml` containing `[profiles.deep]` (user error mirroring the
+     old shape inside the new file), same expected error.
   6. `composer_emits_clean_base_config_when_profiles_present` — assert emitted `config.toml`
-    contains no `profile` key and no `profiles` table, even when profile files are present.
+     contains no `profile` key and no `profiles` table, even when profile files are present.
 
 ### Step 12: Update other test files
 

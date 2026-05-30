@@ -19,6 +19,7 @@ establishes the shared style foundations.
 ## Previous Rounds
 
 **Round 01** created:
+
 - `docs/design/cli-style-guide.md` — the authoritative CLI design system specification
 - Updated `CLAUDE.md` with a pointer to the spec and pre-v1.0 breaking changes policy
 
@@ -29,6 +30,7 @@ symbol usage (▸ ✓ ✗), time formatting rules, and per-command target layout
 ## Scope of This Round
 
 **IN scope:**
+
 - Rename `quota_styles` module to `styles` in `src/ui/mod.rs`
 - Add `GREEN` constant to the styles module
 - Rewrite `write_account_list` text output to use colored table with ▸ marker
@@ -41,6 +43,7 @@ symbol usage (▸ ✓ ✗), time formatting rules, and per-command target layout
 - Update snapshot tests for help text changes
 
 **OUT of scope:**
+
 - `account quota` (already styled — the gold standard)
 - `doctor`, `config status`, `config-recipe`, `version`, error rendering (Round 03)
 - Changes to the design system spec itself
@@ -90,12 +93,14 @@ The `quota_styles` module name is misleading — its constants are used by all r
 quota. References to `quota_styles::` appear ~15 times in `src/ui/mod.rs`.
 
 The existing color application pattern (from quota rendering):
+
 ```rust
 let c = color::should_color(color::Stream::Stdout);
 write!(stdout, "{}text{}", style_open(SOME_STYLE, c), style_close(SOME_STYLE, c))?;
 ```
 
 `OutputFormat` enum is defined in `/workspaces/codex-session/src/cli/mod.rs`:
+
 ```rust
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
 pub(crate) enum OutputFormat {
@@ -117,11 +122,13 @@ support (list, current, quota, health) get it from their own args struct or the 
 
 1. Rename the module declaration at line 661 from `mod quota_styles` to `mod styles`
 2. Add to the module:
-  ```rust
-  pub(super) const GREEN: Style = Style::new()
-      .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)));
-  ```
-3. Find-replace all `quota_styles::` → `styles::` in the file (~15 occurrences)
+
+```rust
+pub(super) const GREEN: Style = Style::new()
+    .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Green)));
+```
+
+1. Find-replace all `quota_styles::` → `styles::` in the file (~15 occurrences)
 
 This is a mechanical rename with one new constant.
 
@@ -138,6 +145,7 @@ Replace the raw dump with a colored table matching the design system spec:
 ```
 
 Implementation:
+
 - Compute `use_color` from `color::should_color(color::Stream::Stdout)`
 - Compute dynamic column width from max account name length (minimum 7 for "ACCOUNT")
 - Print DIM header row: `ACCOUNT`, `AUTH`, `LAST USED`, `STATUS`
@@ -154,10 +162,13 @@ Implementation:
 **File:** `/workspaces/codex-session/src/ui/mod.rs` — method at line 365
 
 Change from:
+
 ```rust
 writeln!(stdout, "{} ({})", view.name, view.source)
 ```
+
 To styled output:
+
 ```text
 ▸ cwnt (lru)
 ```
@@ -189,6 +200,7 @@ Modify `write_account_health` to pass `use_color` down to `write_health_table`.
 
 Similar treatment to the table: add `use_color`, colorize the key values using the same semantic
 mapping. The verbose output is key-value pairs, not a table, so apply color to the values:
+
 - `token:` value colored by content (ok/invalid/unknown)
 - `status:` value colored by content (live/cache_only/cache_missing)
 - `active:` value colored BOLD_CYAN if true
@@ -209,6 +221,7 @@ Modify `write_account_health` to pass `use_color` to `write_health_verbose` as w
 ### Step 7: Migrate cooldown `--json` to `--format json`
 
 **Files:**
+
 - `/workspaces/codex-session/src/cli/account.rs` — Change `AccountCooldownShowArgs`: replace
   `json: bool` with `format: OutputFormat` using `#[arg(long, value_name = "FMT", value_enum,
   default_value_t = OutputFormat::Text)]`
@@ -226,6 +239,7 @@ remove it in the same change so `CLAUDE.md` stays accurate.
 ### Step 8: Add `--format json` to mutation commands
 
 **Files to modify:**
+
 - `/workspaces/codex-session/src/cli/account.rs` — Add `format: OutputFormat` field to
   `AccountAddArgs`, `AccountUseArgs`, `AccountRemoveArgs`, `AccountRefreshArgs`
 - `/workspaces/codex-session/src/ui/mod.rs` — Change `write_account_mutation` signature to accept
@@ -241,10 +255,12 @@ remove it in the same change so `CLAUDE.md` stays accurate.
 - `/workspaces/codex-session/src/commands/account/refresh.rs` — Same
 
 Colorized text output:
+
 ```text
 ✓ account added: cwnt
   path: /home/gu/.local/state/codex-session/accounts/cwnt
 ```
+
 - `✓` in GREEN
 - `account {verb}:` in BOLD_GREEN
 - account name in BOLD
@@ -254,9 +270,11 @@ Colorized text output:
 ### Step 9: Update snapshot tests
 
 **Files:**
+
 - All snapshot files under `tests/snapshots/` that capture help text for account subcommands
 
 Run `just test` and update snapshots with `cargo insta review`. The help text will change because:
+
 - `cooldown show` loses `--json` and gains `--format`
 - `add`, `use`, `remove`, `refresh` gain `--format`
 

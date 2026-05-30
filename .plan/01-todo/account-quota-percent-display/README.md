@@ -11,7 +11,7 @@ window has just reset and is effectively unused. Users expect a freshly-reset wi
 
 Root cause (confirmed against the live API): the ChatGPT backend endpoint
 `GET https://chatgpt.com/backend-api/wham/usage` reports usage as a coarse **integer**
-`used_percent` per window, and that is the *only* usage signal — there are no token counts and no
+`used_percent` per window, and that is the _only_ usage signal — there are no token counts and no
 `percent_left` field. A near-empty window comes back as `used_percent: 1`, which the wrapper
 faithfully turns into `percent_left = 99.0` and prints as `99.0%`. The arithmetic is correct; the
 problem is purely how that coarse value is presented.
@@ -36,9 +36,9 @@ they always agree.
 
 ## Execution Order
 
-| Round | File                              | Topic                          | Status | Completed |
-| ----- | --------------------------------- | ------------------------------ | ------ | --------- |
-| 01    | `01-display-percent-helper.md`    | Display helper + renderer + tests | todo   | --        |
+| Round | File                           | Topic                             | Status | Completed |
+| ----- | ------------------------------ | --------------------------------- | ------ | --------- |
+| 01    | `01-display-percent-helper.md` | Display helper + renderer + tests | todo   | --        |
 
 ## Execution Commands
 

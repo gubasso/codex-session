@@ -14,22 +14,22 @@ obsolete leftovers, and syncs codex-session-relevant docs across the
 external repos.
 
 1. **Block A — Dotfiles propagation** (in `~/.dotfiles/codex-session`):
-  migrate the stow-managed source-of-truth to the final sibling layout.
-  Rename `settings/` → `configs/`, extract `[profiles.{deep,fast,ping}]`
-  blocks into the new sibling `profiles/<name>.config.toml` files, update
-  `default.yaml`'s manifest key `settings-layers:` → `config-layers:`.
+   migrate the stow-managed source-of-truth to the final sibling layout.
+   Rename `settings/` → `configs/`, extract `[profiles.{deep,fast,ping}]`
+   blocks into the new sibling `profiles/<name>.config.toml` files, update
+   `default.yaml`'s manifest key `settings-layers:` → `config-layers:`.
 2. **Block B — Dotfiles cleanup** (in `~/.dotfiles/codex-session`): remove
-  obsolete leftovers from prior plan iterations (an existing
-  `settings.bak.20260528/` backup and a half-migrated `configs/` tree
-  alongside the legacy `settings/`) and prune anything no longer relevant
-  under the new sibling layout. Keep the repo lean and on-par with the
-  final wrapper implementation.
+   obsolete leftovers from prior plan iterations (an existing
+   `settings.bak.20260528/` backup and a half-migrated `configs/` tree
+   alongside the legacy `settings/`) and prune anything no longer relevant
+   under the new sibling layout. Keep the repo lean and on-par with the
+   final wrapper implementation.
 3. **Block C — Cross-repo docs sync**: sweep `~/DocsNNotes` and
-  `~/.dotfiles/{claude,claude-session}` for codex-session-relevant docs
-  that still describe pre-v0.134 / nested-layout / `settings/`-vocabulary
-  state and update each to match. Scope is strictly **codex-session-relevant
-  content only** — unrelated Claude/Claude-session config files and skill
-  bundles are not touched.
+   `~/.dotfiles/{claude,claude-session}` for codex-session-relevant docs
+   that still describe pre-v0.134 / nested-layout / `settings/`-vocabulary
+   state and update each to match. Scope is strictly **codex-session-relevant
+   content only** — unrelated Claude/Claude-session config files and skill
+   bundles are not touched.
 
 Each affected repo gets its own commit. The four repos are independent git
 repos; the executor must `cd` into each one explicitly and not cross commit
@@ -73,7 +73,7 @@ external-repo follow-up.
 - Rename `.config/codex-session/settings/` → `.config/codex-session/configs/`
   (via `git mv`) — but note that `.config/codex-session/configs/` already
   exists on disk from an earlier ad-hoc migration. Block B handles the
-  reconciliation between the two; block A authors the *final* target state
+  reconciliation between the two; block A authors the _final_ target state
   for `configs/` (base config layers, no profile keys).
 - Author the final `configs/base.toml` content: strip `profile = "deep"`
   and the `[profiles.{deep,fast,ping}]` tables. Keep `web_search` and
@@ -144,7 +144,7 @@ external-repo follow-up.
 
 State as of plan generation (`find` output):
 
-```
+```text
 .gitignore
 .config/codex-session/config.toml
 .config/codex-session/config-recipes/default.yaml
@@ -168,7 +168,7 @@ deletes `settings/` and `settings.bak.20260528/`.
 Cleanup candidates already identified:
 
 - `.config/codex-session/settings/` (entire dir) — replaced by `configs/`
-  + `profiles/`.
+  - `profiles/`.
 - `.config/codex-session/settings.bak.20260528/` (entire dir) — stale
   backup.
 - Any reference to `settings-layers:` / `settings_dir` / `configs/profiles/`
@@ -523,7 +523,7 @@ Update `.plan/01-todo/configs-rename-split-profiles/README.md` (in
 2. Change `Status` from `todo` to `done`.
 3. Change `Completed` from `--` to today's date (`YYYY-MM-DD`).
 4. In the README.md header blockquote, change `Status: todo` to
-  `Status: done`.
+   `Status: done`.
 5. Move the plan directory to done:
 
 ```bash
@@ -540,42 +540,42 @@ mkdir -p .plan/02-done && mv .plan/01-todo/configs-rename-split-profiles .plan/0
 
 - [ ] `.config/codex-session/settings/` directory no longer exists.
 - [ ] `.config/codex-session/settings.bak.20260528/` directory no longer
-    exists.
+      exists.
 - [ ] `.config/codex-session/configs/` contains `base.toml`, `plugins.toml`,
-    `projects.toml` — content matches the round-05 specs (no
-    `profile = "..."` / `[profiles.*]`).
+      `projects.toml` — content matches the round-05 specs (no
+      `profile = "..."` / `[profiles.*]`).
 - [ ] `.config/codex-session/profiles/` (sibling of `configs/`) contains
-    `deep.config.toml`, `fast.config.toml`, `ping.config.toml` with bare
-    top-level keys.
+      `deep.config.toml`, `fast.config.toml`, `ping.config.toml` with bare
+      top-level keys.
 - [ ] `config-recipes/default.yaml` uses `config-layers:` and lists `base`,
-    `projects`, `plugins` in that order.
+      `projects`, `plugins` in that order.
 - [ ] `config.toml` comment header references `configs/` and sibling
-    `profiles/`.
+      `profiles/`.
 - [ ] `grep -rn "settings-layers\|settings_dir\|configs/profiles\|\[profiles\."
     --exclude-dir=.git --exclude-dir=.agents` returns no matches.
 - [ ] A single commit in `~/.dotfiles/codex-session` captures blocks A + B
-    with a Conventional Commit message citing codex v0.134+ and the
-    sibling profiles layout.
+      with a Conventional Commit message citing codex v0.134+ and the
+      sibling profiles layout.
 
 ### Block C (cross-repo)
 
 - [ ] `~/DocsNNotes` has at least one updated codex-session-relevant doc
-    (or, if the pre-scan found none stale, the implementation report
-    documents that no updates were needed). Where updates happen, one
-    Conventional Commit captures them.
+      (or, if the pre-scan found none stale, the implementation report
+      documents that no updates were needed). Where updates happen, one
+      Conventional Commit captures them.
 - [ ] `~/.dotfiles/claude` and `~/.dotfiles/claude-session` are inspected;
-    if updates are needed, each gets one Conventional Commit. If not,
-    the report documents the no-op.
+      if updates are needed, each gets one Conventional Commit. If not,
+      the report documents the no-op.
 - [ ] No drive-by edits outside codex-session-relevant content.
 
 ### Plan index
 
 - [ ] Plan `README.md` execution order table shows round 05 as `done`
-    with today's date.
+      with today's date.
 - [ ] Plan `README.md` header status is `done`.
 - [ ] Plan directory moved from
-    `.plan/01-todo/configs-rename-split-profiles` to
-    `.plan/02-done/configs-rename-split-profiles`.
+      `.plan/01-todo/configs-rename-split-profiles` to
+      `.plan/02-done/configs-rename-split-profiles`.
 
 ## Next Round
 

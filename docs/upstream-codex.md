@@ -215,7 +215,7 @@ wrapper aligned with codex.
   the wrapper — that's the composeability contract.
 - **Replay requires an active config-recipe.** `compose()` is the only producer
   that reads the cache layer. Stock-mode invocations (no config-recipe) still
-  *write* trust to the cache (the post-flight sync runs unconditionally),
+  _write_ trust to the cache (the post-flight sync runs unconditionally),
   but they do not replay it on the next launch — codex re-prompts. Users
   who want trust persistence should ensure a config-recipe is active (typically
   by having a `default.yaml` manifest in `config-recipes/`).
@@ -237,14 +237,14 @@ If revocation fails, login still succeeds (graceful failure).
 ## F11 — Token revocation on logout
 
 `codex logout` sends the stored `refresh_token` to the revocation
-endpoint before deleting local auth.  Fail-closed: if revocation fails,
+endpoint before deleting local auth. Fail-closed: if revocation fails,
 local auth is preserved so the user can retry.
 
 - **Sources:** [PR #17825 — "Revoke ChatGPT tokens on logout"](https://github.com/openai/codex/pull/17825).
 
 ## F12 — `CODEX_HOME` fully scopes auth
 
-All auth operations read/write `$CODEX_HOME/auth.json`.  When
+All auth operations read/write `$CODEX_HOME/auth.json`. When
 `CODEX_HOME` is set, codex does not touch `~/.codex/auth.json`.
 
 Keyring entries (when `cli_auth_credentials_store` is `keyring` or
@@ -266,8 +266,8 @@ OAuth refresh at `POST https://auth.openai.com/oauth/token` with:
 }
 ```
 
-Returns new `access_token` + new `refresh_token` (rotation).  The old
-`refresh_token` is permanently invalidated after a single use.  Reusing
+Returns new `access_token` + new `refresh_token` (rotation). The old
+`refresh_token` is permanently invalidated after a single use. Reusing
 it returns `refresh_token_reused`.
 
 - **Sources:** [OpenAI Apps SDK Auth](https://developers.openai.com/apps-sdk/build/auth),
@@ -286,13 +286,13 @@ it returns `refresh_token_reused`.
 - `codex exec resume --last [PROMPT]` — non-interactive, most recent.
 
 Session transcripts are stored as date-sharded JSONL rollout files under
-`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`.  A separate
+`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`. A separate
 `$CODEX_HOME/session_index.jsonl` indexes sessions for the picker.
 `CODEX_HOME` fully scopes session storage (see F6); there are no
 cross-`CODEX_HOME` lookups.
 
 Thread IDs are client-generated UUIDs (currently v7 via `UUID::now_v7()`
-in `Session::new`).  The format is an implementation detail — callers
+in `Session::new`). The format is an implementation detail — callers
 should treat the ID as an opaque string.
 
 - **Sources:** [docs: features](https://developers.openai.com/codex/cli/features),
@@ -306,37 +306,37 @@ should treat the ID as an opaque string.
   [discussion #1076 — "Resuming a previous session"](https://github.com/openai/codex/discussions/1076).
 - **Implementation note:** `codex-session` maintains a cross-account
   `thread-index.jsonl` at `<state_dir>/thread-index.jsonl` that maps each
-  session's thread ID to the originating account **and group-id**.  On
+  session's thread ID to the originating account **and group-id**. On
   `resume`, the wrapper looks up the thread ID (or resolves `--last`) from
   this index, using the stored account and group-id to select the correct
-  `CODEX_HOME` before forwarding to codex.  This means `exec resume <ID>`
+  `CODEX_HOME` before forwarding to codex. This means `exec resume <ID>`
   works across terminals and PIDs because both account and group-id are
-  persisted in `thread-index.jsonl`.  When the index has no hit, the
+  persisted in `thread-index.jsonl`. When the index has no hit, the
   wrapper falls back to normal account resolution and forwards the resume
-  command as-is.  See F15 for the constraint that sandbox flags must match
+  command as-is. See F15 for the constraint that sandbox flags must match
   between original and resumed calls.
 
 ## F15 — Sandbox mode mismatch on resume
 
 `exec resume` fails with JSON-RPC -32600 ("no rollout found") when the
 sandbox mode of the resumed call differs from the sandbox mode of the
-original session.  The OpenAI backend validates that session parameters
+original session. The OpenAI backend validates that session parameters
 match on resume and rejects requests with incompatible sandbox changes.
 
 Observed failure chain:
 
 1. Stage 1 creates a thread with `--sandbox read-only`.
 2. Stage 3 attempts `exec resume <thread-id>` with `--full-auto`
-    (or `--sandbox workspace-write`).
+   (or `--sandbox workspace-write`).
 3. Backend returns -32600 "no rollout found" despite the thread
-    existing in the local index and the local rollout file being present.
+   existing in the local index and the local rollout file being present.
 
 The local `codex-session` wrapper correctly resolves the thread ID and
-routes to the right account/group via `thread-index.jsonl`.  The failure
+routes to the right account/group via `thread-index.jsonl`. The failure
 is purely server-side parameter validation.
 
 Workaround: use `--dangerously-bypass-approvals-and-sandbox` uniformly
-across all stages that share a thread.  This flag bypasses bubblewrap
+across all stages that share a thread. This flag bypasses bubblewrap
 entirely and sends no sandbox parameters to the backend, so there is no
 mismatch to validate.
 
@@ -348,45 +348,45 @@ mismatch to validate.
   [issue #19661 — "exec resume fails with encrypted_content"](https://github.com/openai/codex/issues/19661),
   [issue #23875 — "Desktop drops approvals_reviewer after resume"](https://github.com/openai/codex/issues/23875).
 - **Implementation note:** `codex-session` does not intercept or translate
-  sandbox flags — they pass through to the codex binary unchanged.  The
+  sandbox flags — they pass through to the codex binary unchanged. The
   constraint is upstream in the OpenAI Codex backend.
 
 ## F16 — Cross-account thread resume is not possible in stock codex
 
 A thread/rollout created while authenticated as account **A** **cannot** be
-resumed under a different account **B** using stock codex.  Resumption is
+resumed under a different account **B** using stock codex. Resumption is
 bound to the originating account at two independent layers — either alone is
 sufficient to make a true cross-account resume fail.
 
 **Layer 1 — Filesystem (fully `CODEX_HOME`-scoped).**
 Rollouts live at `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` and
-discovery never crosses `CODEX_HOME` boundaries (see F6, F14).  Account A's
+discovery never crosses `CODEX_HOME` boundaries (see F6, F14). Account A's
 rollout under `…/accounts/A/groups/<g>/sessions/…` is simply not visible to
-a resume run with account B's `CODEX_HOME`.  Stock `codex resume <id>` from B
+a resume run with account B's `CODEX_HOME`. Stock `codex resume <id>` from B
 fails to locate any rollout.
 
 **Layer 2 — Server-side account/provider binding.**
 Even if the rollout file were made reachable, the OpenAI backend ties a
-conversation to the provider/account that created it.  Discovery and
-continuation default to filtering by the *active* provider/account, so a
-mismatched auth token loses the original context.  This is the same family
+conversation to the provider/account that created it. Discovery and
+continuation default to filtering by the _active_ provider/account, so a
+mismatched auth token loses the original context. This is the same family
 of validation that produces the -32600 "no rollout found" response in F15.
 
 **Consequence / failure signature.**
 Because both layers reject it, any path that lets a resume run under a
-*different* account than the one that owns the thread reproduces the
+_different_ account than the one that owns the thread reproduces the
 "no rollout found" failure — the canonical example being `--account auto`
-re-resolving to a different account between the stage that *created* the
-thread and the stage that *resumes* it.
+re-resolving to a different account between the stage that _created_ the
+thread and the stage that _resumes_ it.
 
 **How `codex-session` avoids it (it does not actually resume cross-account).**
 The wrapper's job on resume is to pin back to the **owning** account, never
-to cross accounts.  It uses the out-of-band `thread-index.jsonl`
+to cross accounts. It uses the out-of-band `thread-index.jsonl`
 (`<state_dir>/thread-index.jsonl`) to map thread ID → originating
 account + group-id, then sets `CODEX_HOME` to that account's directory
-before forwarding to codex (see F14).  Stock codex therefore always resumes
-*as the owning account, within a single `CODEX_HOME`* and never sees a
-cross-account request.  Corollary: the wrapper must keep the resume pinned to
+before forwarding to codex (see F14). Stock codex therefore always resumes
+_as the owning account, within a single `CODEX_HOME`_ and never sees a
+cross-account request. Corollary: the wrapper must keep the resume pinned to
 the index entry's account — if the resume re-resolves the account (e.g.
 `--account auto`, or a fallback path that ignores the index hit), both layers
 above will reject it.
@@ -399,7 +399,7 @@ above will reject it.
   [docs: features](https://developers.openai.com/codex/cli/features),
   [DeepWiki: Session Resumption and Forking](https://deepwiki.com/openai/codex/4.4-session-resumption-and-forking).
 - **Implementation note:** This is a hard upstream constraint, not a wrapper
-  limitation.  Do not attempt to add a cross-account resume shim; the correct
+  limitation. Do not attempt to add a cross-account resume shim; the correct
   design is to always resolve a resume back to the thread's owning account via
   `thread-index.jsonl`.
 

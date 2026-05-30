@@ -28,12 +28,14 @@ This is the first round — no prior rounds.
 ## Scope of This Round
 
 **IN scope:**
+
 - Write `docs/design/cli-style-guide.md` — the main design system specification
 - Optionally write `docs/design/color-reference.md` if the color catalog warrants a separate file
 - Add a pointer to the spec in `CLAUDE.md` so agents and contributors know to consult it
 - Add a note in `CLAUDE.md` about the pre-v1.0 breaking-changes policy
 
 **OUT of scope:**
+
 - Any code changes to `src/`
 - Any changes to `Cargo.toml` or dependencies
 - Test changes
@@ -102,6 +104,7 @@ Structured logging uses `tracing::info!()`, `tracing::warn!()`, `tracing::error!
 optional pretty or JSON. No ANSI in log output.
 
 User-facing stderr messages use two methods:
+
 - `write_warning(body)` — prints to stderr with trailing newline
 - `write_prompt(body)` — prints to stderr without trailing newline (for interactive prompts)
 
@@ -112,6 +115,7 @@ The `[codex-session]` prefix is used in `gate.rs::narrate()` for runtime status 
 ### Step 1: Create `docs/design/` directory structure
 
 Create the directory:
+
 ```text
 docs/design/
 ```
@@ -125,197 +129,201 @@ when writing any output code.
 **Required sections:**
 
 1. **Principles** — 3-5 guiding principles for CLI output (e.g., "scannable at a glance",
-  "degrade gracefully without color", "two-channel separation: user-facing vs logs").
+   "degrade gracefully without color", "two-channel separation: user-facing vs logs").
 
 2. **Output Channels** — Formal definition of the two channels:
-  - **User-facing** (stdout for command results, stderr for warnings/prompts/errors): full styling,
-    human-readable times, colored status indicators, Unicode symbols.
-  - **Structured logs** (tracing → file + optional stderr mirror): JSON, no ANSI, structured
-    fields (`op`, `status`, `err.kind`, etc.), machine-parseable. Never rendered to the user
-    unless `--log-stderr` is enabled.
-  - Rules for what goes where: command results → stdout, warnings → stderr, errors → stderr,
-    progress narration → stderr, debug/trace → logs only.
 
-3. **Color Palette** — The canonical color assignments. Use ONLY the 8 basic ANSI colors (via
-  `anstyle::AnsiColor`) for maximum terminal compatibility. Document each style constant, its
-  semantic meaning, and when to use it:
+- **User-facing** (stdout for command results, stderr for warnings/prompts/errors): full styling,
+  human-readable times, colored status indicators, Unicode symbols.
+- **Structured logs** (tracing → file + optional stderr mirror): JSON, no ANSI, structured
+  fields (`op`, `status`, `err.kind`, etc.), machine-parseable. Never rendered to the user
+  unless `--log-stderr` is enabled.
+- Rules for what goes where: command results → stdout, warnings → stderr, errors → stderr,
+  progress narration → stderr, debug/trace → logs only.
 
-  | Constant     | ANSI           | Semantic meaning                                |
-  |--------------|----------------|-------------------------------------------------|
-  | BOLD         | bold           | Entity names, emphasis                          |
-  | DIM          | dimmed         | Headers, metadata, secondary info, paths        |
-  | BOLD_CYAN    | bold+cyan      | Active/current item, selection indicator         |
-  | GREEN        | green          | Checkmarks (✓), positive indicators             |
-  | BOLD_GREEN   | bold+green     | OK status, eligible, positive values, success   |
-  | BOLD_YELLOW  | bold+yellow    | Warning, unknown, pending, countdown values     |
-  | RED          | red            | Error markers (✗), negative indicators          |
-  | BOLD_RED     | bold+red       | Fail status, cooldown active, critical errors   |
+1. **Color Palette** — The canonical color assignments. Use ONLY the 8 basic ANSI colors (via
+   `anstyle::AnsiColor`) for maximum terminal compatibility. Document each style constant, its
+   semantic meaning, and when to use it:
 
-  Include the rule: GREEN (non-bold) is for checkmarks/symbols only; BOLD_GREEN is for text
-  labels and values.
+| Constant    | ANSI        | Semantic meaning                              |
+| ----------- | ----------- | --------------------------------------------- |
+| BOLD        | bold        | Entity names, emphasis                        |
+| DIM         | dimmed      | Headers, metadata, secondary info, paths      |
+| BOLD_CYAN   | bold+cyan   | Active/current item, selection indicator      |
+| GREEN       | green       | Checkmarks (✓), positive indicators           |
+| BOLD_GREEN  | bold+green  | OK status, eligible, positive values, success |
+| BOLD_YELLOW | bold+yellow | Warning, unknown, pending, countdown values   |
+| RED         | red         | Error markers (✗), negative indicators        |
+| BOLD_RED    | bold+red    | Fail status, cooldown active, critical errors |
 
-4. **Color Gating** — Every color usage MUST go through `color::should_color(Stream)` →
-  `style_open()`/`style_close()`. Document the `NO_COLOR` / `FORCE_COLOR` / `CLICOLOR` hierarchy.
-  Emphasize: when `use_color` is false, output must be perfectly readable (no invisible text, no
-  broken alignment from ANSI escape sequences).
+Include the rule: GREEN (non-bold) is for checkmarks/symbols only; BOLD_GREEN is for text
+labels and values.
 
-5. **Typography & Symbols** — Standard Unicode symbols and their usage:
-  - `▸` (U+25B8) — Current/active item marker (used with BOLD_CYAN)
-  - `✓` (U+2713) — Positive/authenticated/OK (used with GREEN)
-  - `✗` (U+2717) — Negative/no-auth/fail (used with RED)
-  - Spacing: `▸` is always followed by a space; `✓`/`✗` are used inline in table cells
+1. **Color Gating** — Every color usage MUST go through `color::should_color(Stream)` →
+   `style_open()`/`style_close()`. Document the `NO_COLOR` / `FORCE_COLOR` / `CLICOLOR` hierarchy.
+   Emphasize: when `use_color` is false, output must be perfectly readable (no invisible text, no
+   broken alignment from ANSI escape sequences).
 
-6. **Table Layout** — Rules for tabular output:
-  - Header row: ALL CAPS, DIM styled
-  - Column widths: dynamic from data, with minimum widths for each column type
-  - Alignment: left-align text, right-align numbers
-  - Active/current row: `▸` prefix + BOLD_CYAN
-  - No trailing whitespace
-  - No box-drawing characters (plain space-aligned columns)
+2. **Typography & Symbols** — Standard Unicode symbols and their usage:
 
-7. **Status Indicators** — Semantic color mapping for common status values:
+- `▸` (U+25B8) — Current/active item marker (used with BOLD_CYAN)
+- `✓` (U+2713) — Positive/authenticated/OK (used with GREEN)
+- `✗` (U+2717) — Negative/no-auth/fail (used with RED)
+- Spacing: `▸` is always followed by a space; `✓`/`✗` are used inline in table cells
 
-  | Value pattern          | Style       | Example context                 |
-  |------------------------|-------------|---------------------------------|
-  | ok / valid / live      | BOLD_GREEN  | token status, health status     |
-  | warn / unknown / cache | BOLD_YELLOW | token unknown, cache_only       |
-  | fail / invalid / error | BOLD_RED    | token invalid, cache_missing    |
-  | active / current       | BOLD_CYAN   | active account, current marker  |
-  | eligible               | BOLD_GREEN  | cooldown eligible               |
-  | cooled-down            | BOLD_RED    | cooldown active                 |
-  | true (boolean)         | depends     | context-dependent (see below)   |
-  | false (boolean)        | depends     | context-dependent (see below)   |
+1. **Table Layout** — Rules for tabular output:
 
-  Boolean styling depends on context: `active: true` → BOLD_CYAN, `cooldown: true` → BOLD_RED,
-  `has_auth: true` → GREEN ✓.
+- Header row: ALL CAPS, DIM styled
+- Column widths: dynamic from data, with minimum widths for each column type
+- Alignment: left-align text, right-align numbers
+- Active/current row: `▸` prefix + BOLD_CYAN
+- No trailing whitespace
+- No box-drawing characters (plain space-aligned columns)
 
-8. **Time Formatting** — All timestamps shown to users use `human_age()` (e.g., "2m 30s ago") or
-  `human_duration_until()` (e.g., "1h 23m"). Raw unix timestamps are never shown in text mode
-  (they belong in `--format json` and logs). The `human_duration_secs()` format:
-  - `>= 1d`: `{d}d {h}h`
-  - `>= 1h`: `{h}h {m}m`
-  - `>= 1m`: `{m}m {s}s`
-  - `< 1m`: `{s} s`
-  - `0` or missing: `"never"` in DIM style
+1. **Status Indicators** — Semantic color mapping for common status values:
 
-9. **Progress Bars** — The `quota_bar()` pattern: filled blocks `█` and empty blocks `░`, colored
-  by percentage threshold (>50% green, >20% yellow, ≤20% red). Width: 20 columns. Used only for
-  quota percentage displays.
+| Value pattern          | Style       | Example context                |
+| ---------------------- | ----------- | ------------------------------ |
+| ok / valid / live      | BOLD_GREEN  | token status, health status    |
+| warn / unknown / cache | BOLD_YELLOW | token unknown, cache_only      |
+| fail / invalid / error | BOLD_RED    | token invalid, cache_missing   |
+| active / current       | BOLD_CYAN   | active account, current marker |
+| eligible               | BOLD_GREEN  | cooldown eligible              |
+| cooled-down            | BOLD_RED    | cooldown active                |
+| true (boolean)         | depends     | context-dependent (see below)  |
+| false (boolean)        | depends     | context-dependent (see below)  |
 
-10. **Error Rendering** — The standard error format (rendered by `error.rs::render()`):
-    ```text
-    codex-session: {what}
-      where: {path} (line {N})
-      why:   {why_line}
-      hint:  {hint}
-      caused by: {chain}
-    ```
-    - `codex-session:` label: BOLD
-    - `where:` / `why:` / `hint:` / `caused by:` labels: BOLD
-    - Path in `where:` line: as-is (no color)
-    - Hint text: as-is (no color, already actionable)
+Boolean styling depends on context: `active: true` → BOLD_CYAN, `cooldown: true` → BOLD_RED,
+`has_auth: true` → GREEN ✓.
 
-11. **Warnings & Prompts (stderr)** — Standard patterns:
-    - Deprecation warnings: `"warning: {message}"` — BOLD_YELLOW prefix `warning:`, rest plain
-    - Auth warnings: multi-line, BOLD_YELLOW `warning:` prefix on first line
-    - Interactive prompts: `"remove account 'X' permanently? [y/N]: "` — no color (prompt text)
-    - Runtime narration: `"[codex-session] {message}"` — DIM `[codex-session]` prefix, rest plain
-    - All stderr messages respect `--quiet` (suppress non-errors) and `--silent` (suppress all)
+1. **Time Formatting** — All timestamps shown to users use `human_age()` (e.g., "2m 30s ago") or
+   `human_duration_until()` (e.g., "1h 23m"). Raw unix timestamps are never shown in text mode
+   (they belong in `--format json` and logs). The `human_duration_secs()` format:
 
-12. **JSON Output** — When `--format json` is used:
-    - Pretty-printed JSON (`serde_json::to_writer_pretty`)
-    - No ANSI escape codes, ever
-    - All timestamps as unix epoch integers (not human-readable)
-    - snake_case or kebab-case field names matching the `#[serde(rename_all = "kebab-case")]`
-      convention already used
-    - Single JSON object per command (not JSONL — that's upstream codex's `--json`)
+- `>= 1d`: `{d}d {h}h`
+- `>= 1h`: `{h}h {m}m`
+- `>= 1m`: `{m}m {s}s`
+- `< 1m`: `{s} s`
+- `0` or missing: `"never"` in DIM style
 
-13. **`--format` Flag Convention** — The wrapper uses `--format <text|json>` (via `OutputFormat`
-    enum), never `--json`. Reason: upstream `codex` uses `--json` for JSONL event streaming; using
-    the same flag name in the wrapper would cause confusion and potential passthrough collision.
-    Every wrapper-owned read command must accept `--format`.
+1. **Progress Bars** — The `quota_bar()` pattern: filled blocks `█` and empty blocks `░`, colored
+   by percentage threshold (>50% green, >20% yellow, ≤20% red). Width: 20 columns. Used only for
+   quota percentage displays.
 
-14. **Per-Command Output Specifications** — A table or subsection for each command showing its
-    target output layout. This is the detailed reference for rounds 02 and 03.
+2. **Error Rendering** — The standard error format (rendered by `error.rs::render()`):
+   ```text
+   codex-session: {what}
+     where: {path} (line {N})
+     why:   {why_line}
+     hint:  {hint}
+     caused by: {chain}
+   ```
+   - `codex-session:` label: BOLD
+   - `where:` / `why:` / `hint:` / `caused by:` labels: BOLD
+   - Path in `where:` line: as-is (no color)
+   - Hint text: as-is (no color, already actionable)
 
-    **account list:**
-    ```text
-      ACCOUNT    AUTH   LAST USED      STATUS
-    ▸ cwnt       ✓      2m ago         active (lru)
-      default    ✓      1d 14h ago
-    ```
+3. **Warnings & Prompts (stderr)** — Standard patterns:
+   - Deprecation warnings: `"warning: {message}"` — BOLD_YELLOW prefix `warning:`, rest plain
+   - Auth warnings: multi-line, BOLD_YELLOW `warning:` prefix on first line
+   - Interactive prompts: `"remove account 'X' permanently? [y/N]: "` — no color (prompt text)
+   - Runtime narration: `"[codex-session] {message}"` — DIM `[codex-session]` prefix, rest plain
+   - All stderr messages respect `--quiet` (suppress non-errors) and `--silent` (suppress all)
 
-    **account current:**
-    ```text
-    ▸ cwnt (lru)
-    ```
+4. **JSON Output** — When `--format json` is used:
+   - Pretty-printed JSON (`serde_json::to_writer_pretty`)
+   - No ANSI escape codes, ever
+   - All timestamps as unix epoch integers (not human-readable)
+   - snake_case or kebab-case field names matching the `#[serde(rename_all = "kebab-case")]`
+     convention already used
+   - Single JSON object per command (not JSONL — that's upstream codex's `--json`)
 
-    **account health (table mode):**
-    ```text
-    RANK  SCORE   ACCOUNT      TOKEN   PLAN            STATUS       ACTIVE  COOLDOWN  FETCHED
-    1     12.50   cwnt         ok      pro             live         true    false     2m ago
-    —     0.00    default      invalid unknown         cache_only   false   true      1d 3h ago
-    ```
-    With colors: header DIM, token ok→BOLD_GREEN / invalid→BOLD_RED / unknown→BOLD_YELLOW,
-    status live→BOLD_GREEN / cache_only→BOLD_YELLOW / cache_missing→BOLD_RED,
-    active true→BOLD_CYAN, cooldown true→BOLD_RED, fetched→DIM, active account name→BOLD.
+5. **`--format` Flag Convention** — The wrapper uses `--format <text|json>` (via `OutputFormat`
+   enum), never `--json`. Reason: upstream `codex` uses `--json` for JSONL event streaming; using
+   the same flag name in the wrapper would cause confusion and potential passthrough collision.
+   Every wrapper-owned read command must accept `--format`.
 
-    **account cooldown show:**
-    ```text
-    ACCOUNT     STATUS       RESETS         REASON
-    cwnt        eligible     —              —
-    default     cooled-down  1h 23m         RateLimit429
-    ```
-    With colors: header DIM, eligible→BOLD_GREEN, cooled-down→BOLD_RED, reset countdown→BOLD_YELLOW,
-    account name→BOLD.
+6. **Per-Command Output Specifications** — A table or subsection for each command showing its
+   target output layout. This is the detailed reference for rounds 02 and 03.
 
-    **account mutations (add/use/remove/refresh):**
-    ```text
-    ✓ account added: cwnt
-      path: /home/gu/.local/state/codex-session/accounts/cwnt
-    ```
-    With colors: `✓ account {verb}:` → BOLD_GREEN, name → BOLD, path → DIM.
+   **account list:**
+   ```text
+     ACCOUNT    AUTH   LAST USED      STATUS
+   ▸ cwnt       ✓      2m ago         active (lru)
+     default    ✓      1d 14h ago
+   ```
 
-    **doctor:**
-    ```text
-    account:         cwnt
-    account-source:  lru
-    ...
+   **account current:**
+   ```text
+   ▸ cwnt (lru)
+   ```
 
-    STATUS   CHECK                      DETAIL
-    OK       config-recipe.active             default (source: config.default)
-    WARN     account.cooldowns          1 account(s) in cooldown: default
-    FAIL     child.binary               could not find `codex` on PATH=...
+   **account health (table mode):**
+   ```text
+   RANK  SCORE   ACCOUNT      TOKEN   PLAN            STATUS       ACTIVE  COOLDOWN  FETCHED
+   1     12.50   cwnt         ok      pro             live         true    false     2m ago
+   —     0.00    default      invalid unknown         cache_only   false   true      1d 3h ago
+   ```
+   With colors: header DIM, token ok→BOLD_GREEN / invalid→BOLD_RED / unknown→BOLD_YELLOW,
+   status live→BOLD_GREEN / cache_only→BOLD_YELLOW / cache_missing→BOLD_RED,
+   active true→BOLD_CYAN, cooldown true→BOLD_RED, fetched→DIM, active account name→BOLD.
 
-    Next:
-      - child.binary: set CODEX_SESSION_CHILD_BIN or install `codex` on PATH
+   **account cooldown show:**
+   ```text
+   ACCOUNT     STATUS       RESETS         REASON
+   cwnt        eligible     —              —
+   default     cooled-down  1h 23m         RateLimit429
+   ```
+   With colors: header DIM, eligible→BOLD_GREEN, cooled-down→BOLD_RED, reset countdown→BOLD_YELLOW,
+   account name→BOLD.
 
-    summary: 8 OK, 1 WARN, 1 FAIL
-    ```
-    With colors: header DIM, OK→BOLD_GREEN, WARN→BOLD_YELLOW, FAIL→BOLD_RED,
-    check names→BOLD, summary counts colored to match their status.
+   **account mutations (add/use/remove/refresh):**
+   ```text
+   ✓ account added: cwnt
+     path: /home/gu/.local/state/codex-session/accounts/cwnt
+   ```
+   With colors: `✓ account {verb}:` → BOLD_GREEN, name → BOLD, path → DIM.
 
-    **config status:**
-    Key-value pairs with labels in DIM, values plain. Boolean values colored
-    (true→BOLD_GREEN, false→DIM). Paths in DIM. Layer sub-items indented.
+   **doctor:**
+   ```text
+   account:         cwnt
+   account-source:  lru
+   ...
 
-    **config-recipe list:**
-    ```text
-    CONFIG_RECIPE    LAYERS   VALID   MANIFEST
-    default    3        ✓       /path/to/default.yaml
-    work       2        ✗       /path/to/work.yaml
-    ```
+   STATUS   CHECK                      DETAIL
+   OK       config-recipe.active             default (source: config.default)
+   WARN     account.cooldowns          1 account(s) in cooldown: default
+   FAIL     child.binary               could not find `codex` on PATH=...
 
-    **config-recipe show:**
-    Key-value pairs similar to config status.
+   Next:
+     - child.binary: set CODEX_SESSION_CHILD_BIN or install `codex` on PATH
 
-    **version:**
-    ```text
-    codex-session 0.1.0
-    codex /usr/local/bin/codex 1.0.2
-    account:         cwnt (source: lru)
-    ```
-    With colors: version numbers→BOLD, account info→same as account current.
+   summary: 8 OK, 1 WARN, 1 FAIL
+   ```
+   With colors: header DIM, OK→BOLD_GREEN, WARN→BOLD_YELLOW, FAIL→BOLD_RED,
+   check names→BOLD, summary counts colored to match their status.
+
+   **config status:**
+   Key-value pairs with labels in DIM, values plain. Boolean values colored
+   (true→BOLD_GREEN, false→DIM). Paths in DIM. Layer sub-items indented.
+
+   **config-recipe list:**
+   ```text
+   CONFIG_RECIPE    LAYERS   VALID   MANIFEST
+   default    3        ✓       /path/to/default.yaml
+   work       2        ✗       /path/to/work.yaml
+   ```
+
+   **config-recipe show:**
+   Key-value pairs similar to config status.
+
+   **version:**
+   ```text
+   codex-session 0.1.0
+   codex /usr/local/bin/codex 1.0.2
+   account:         cwnt (source: lru)
+   ```
+   With colors: version numbers→BOLD, account info→same as account current.
 
 ### Step 3: Update CLAUDE.md
 

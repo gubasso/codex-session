@@ -27,26 +27,26 @@ wrapper-owned command and error path.
 The work splits into three rounds following layer boundaries (bottom-up):
 
 1. **Round 01 — Design System Spec**: Write the authoritative reference document in `docs/design/`.
-  No code changes. This document defines every color, every layout pattern, every symbol, and the
-  stdout/stderr/log boundary rules. All subsequent rounds reference it.
+   No code changes. This document defines every color, every layout pattern, every symbol, and the
+   stdout/stderr/log boundary rules. All subsequent rounds reference it.
 
 2. **Round 02 — Foundations + Account Commands**: Rename `quota_styles` → `styles`, add missing
-  color constants, then apply the design system to all account commands (list, current, health,
-  cooldown show, mutations). Migrate remaining `--json` flags to `--format json`. The account
-  quota command is already styled — skip it.
+   color constants, then apply the design system to all account commands (list, current, health,
+   cooldown show, mutations). Migrate remaining `--json` flags to `--format json`. The account
+   quota command is already styled — skip it.
 
 3. **Round 03 — Doctor, Config, ConfigRecipe, Version, Errors, Narration**: Apply the design system to
-  every remaining output path: `doctor` report, `config status`, `config-recipe list/show/compose`,
-  `version`, error rendering (`error.rs`), and runtime narration (`gate.rs` / `retry.rs`
-  `write_warning`/`write_prompt`).
+   every remaining output path: `doctor` report, `config status`, `config-recipe list/show/compose`,
+   `version`, error rendering (`error.rs`), and runtime narration (`gate.rs` / `retry.rs`
+   `write_warning`/`write_prompt`).
 
 ## Execution Order
 
-| Round | File                                    | Topic                             | Status | Completed |
-| ----- | --------------------------------------- | --------------------------------- | ------ | --------- |
-| 01    | `01-design-system-spec.md`              | CLI design system specification   | done   | 2026-05-27 |
-| 02    | `02-foundations-and-account-commands.md` | Styles module + account commands  | done   | 2026-05-29 |
-| 03    | `03-doctor-config-config_recipe-errors.md`    | Doctor, config, config_recipe, errors   | done   | 2026-05-29 |
+| Round | File                                       | Topic                                 | Status | Completed  |
+| ----- | ------------------------------------------ | ------------------------------------- | ------ | ---------- |
+| 01    | `01-design-system-spec.md`                 | CLI design system specification       | done   | 2026-05-27 |
+| 02    | `02-foundations-and-account-commands.md`   | Styles module + account commands      | done   | 2026-05-29 |
+| 03    | `03-doctor-config-config_recipe-errors.md` | Doctor, config, config_recipe, errors | done   | 2026-05-29 |
 
 ## Execution Commands
 
@@ -63,32 +63,32 @@ The work splits into three rounds following layer boundaries (bottom-up):
 ## Decisions & Constraints
 
 1. **Pre-v1.0 breaking changes are acceptable.** codex-session has not committed to a stable
-  interface. Make clean breaks — no hidden aliases, deprecation shims, or compatibility layers.
+   interface. Make clean breaks — no hidden aliases, deprecation shims, or compatibility layers.
 
 2. **Use `--format json` everywhere, never `--json`.** Upstream `codex` already uses `--json` for
-  JSONL event streaming. Our wrapper uses `--format json` (via `OutputFormat` enum) to avoid flag
-  collision when the user passes flags through to the child.
+   JSONL event streaming. Our wrapper uses `--format json` (via `OutputFormat` enum) to avoid flag
+   collision when the user passes flags through to the child.
 
 3. **Design system spec goes in `docs/design/`.** It can span multiple files (e.g., a main spec
-  plus a color reference). It is committed to git and referenced from `CLAUDE.md`.
+   plus a color reference). It is committed to git and referenced from `CLAUDE.md`.
 
 4. **Two message channels: user-facing vs logs.** User-facing output (stdout commands + stderr
-  warnings/prompts/errors) gets the full design system treatment. Structured logs (`tracing::*`
-  macros → file/stderr mirror) stay machine-readable JSON — no ANSI, no tables.
+   warnings/prompts/errors) gets the full design system treatment. Structured logs (`tracing::*`
+   macros → file/stderr mirror) stay machine-readable JSON — no ANSI, no tables.
 
 5. **No new dependencies.** Everything is built on the existing `anstyle` crate, `color::should_color()`,
-  `style_open()`/`style_close()`, `human_age()`, `human_duration_until()`.
+   `style_open()`/`style_close()`, `human_age()`, `human_duration_until()`.
 
 6. **`account quota` is the gold standard.** Its patterns (colored bars, human times, conditional
-  ANSI, rank/score display) are extended to other commands, not modified.
+   ANSI, rank/score display) are extended to other commands, not modified.
 
 7. **`NO_COLOR` / `FORCE_COLOR` / `CLICOLOR` respected everywhere.** The existing `color.rs`
-  module handles this. All new color usage must call `color::should_color()` and pass the result
-  through the `style_open()`/`style_close()` gate.
+   module handles this. All new color usage must call `color::should_color()` and pass the result
+   through the `style_open()`/`style_close()` gate.
 
 ## Rejected Alternatives
 
-- **Using a TUI framework (ratatui, tui-rs):** Over-engineered for a CLI wrapper. The commands
+- **Using a TUI framework (ratatouille, tui-rs):** Over-engineered for a CLI wrapper. The commands
   produce one-shot output, not interactive screens.
 
 - **Adding `colored` or `owo-colors` crate:** Would duplicate functionality already provided by

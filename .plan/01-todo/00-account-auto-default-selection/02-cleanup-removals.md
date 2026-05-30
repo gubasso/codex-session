@@ -14,12 +14,12 @@ Two pieces of "past logic" are now orphaned and must be removed to keep the impl
 no leftover:
 
 1. **`account use <name>`** — set a persistent "current" account. In the new model there is no
-  persistent resolution pin (you pin per-invocation with `--account <name>`), and the same
-  `state/last-account` file is now read by the auto-selector only as a recency *penalty* — so
-  `account use X` would perversely make X *less* likely to be picked next. The command no longer has
-  coherent semantics.
+   persistent resolution pin (you pin per-invocation with `--account <name>`), and the same
+   `state/last-account` file is now read by the auto-selector only as a recency _penalty_ — so
+   `account use X` would perversely make X _less_ likely to be picked next. The command no longer has
+   coherent semantics.
 2. **`config.account.pinned`** and the **`CODEX_SESSION_ACCOUNT_PINNED`** env var — a config-level
-  default-selection mechanism the resolver no longer consults after Round 01. The field is dead.
+   default-selection mechanism the resolver no longer consults after Round 01. The field is dead.
 
 No back-compat: delete both outright (the user explicitly accepted breaking existing configs).
 

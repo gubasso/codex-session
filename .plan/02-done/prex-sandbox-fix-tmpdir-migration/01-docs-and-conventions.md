@@ -28,6 +28,7 @@ This is the first round — no prior rounds.
 ## Scope of This Round
 
 **IN scope:**
+
 - Add F15 (sandbox mode mismatch constraint) to `docs/upstream-codex.md`
 - Update `~/DocsNNotes/tech/tools/claude-code/codex-conventions.md` with:
   - Unified sandbox approach for resume-compatible workflows
@@ -40,6 +41,7 @@ This is the first round — no prior rounds.
 - Bump `last-synced` in `~/DocsNNotes/tech/tools/claude-code/AGENTS.md`
 
 **OUT of scope:**
+
 - Modifying any skill files (rounds 02 and 03)
 - Modifying dctl devcontainer config (round 03)
 - Any changes to Rust source code
@@ -81,23 +83,23 @@ Add a new section after F14 (line 275) in `/workspaces/codex-session/docs/upstre
 
 `exec resume` fails with JSON-RPC -32600 ("no rollout found") when the
 sandbox mode of the resumed call differs from the sandbox mode of the
-original session.  The OpenAI backend validates that session parameters
+original session. The OpenAI backend validates that session parameters
 match on resume and rejects requests with incompatible sandbox changes.
 
 Observed failure chain:
 
 1. Stage 1 creates a thread with `--sandbox read-only`.
 2. Stage 3 attempts `exec resume <thread-id>` with `--full-auto`
-  (or `--sandbox workspace-write`).
+   (or `--sandbox workspace-write`).
 3. Backend returns -32600 "no rollout found" despite the thread
-  existing in the local index and the local rollout file being present.
+   existing in the local index and the local rollout file being present.
 
 The local `codex-session` wrapper correctly resolves the thread ID and
-routes to the right account/group via `thread-index.jsonl`.  The failure
+routes to the right account/group via `thread-index.jsonl`. The failure
 is purely server-side parameter validation.
 
 Workaround: use `--dangerously-bypass-approvals-and-sandbox` uniformly
-across all stages that share a thread.  This flag bypasses bubblewrap
+across all stages that share a thread. This flag bypasses bubblewrap
 entirely and sends no sandbox parameters to the backend, so there is no
 mismatch to validate.
 
@@ -109,7 +111,7 @@ mismatch to validate.
   [issue #19661 — "exec resume fails with encrypted_content"](https://github.com/openai/codex/issues/19661),
   [issue #23875 — "Desktop drops approvals_reviewer after resume"](https://github.com/openai/codex/issues/23875).
 - **Implementation note:** `codex-session` does not intercept or translate
-  sandbox flags — they pass through to the codex binary unchanged.  The
+  sandbox flags — they pass through to the codex binary unchanged. The
   constraint is upstream in the OpenAI Codex backend.
 ```
 
@@ -150,7 +152,7 @@ case. Keep the `--dangerously-bypass-approvals-and-sandbox` example for the fall
 Add a new subsection "Unified Sandbox for Resume Workflows" after the "Fallback Patterns" subsection
 (around line 151). Content:
 
-```markdown
+````markdown
 ### Unified Sandbox for Resume Workflows
 
 Workflows that use `exec resume` across stages with different access needs (e.g., read-only planning
@@ -167,6 +169,7 @@ codex-session --account auto exec \
   "<planning prompt with read-only orientation>" \
   < /dev/null > "$RUN_DIR/stage1-events.jsonl"
 ```
+````
 
 Implementation call (resuming planning session):
 
@@ -180,8 +183,8 @@ codex-session --account auto exec resume "$THREAD_ID" \
 
 This pattern applies to: `prex`, `prex-resume`, and any future skill that resumes threads across
 access mode boundaries.
-```
 
+````markdown
 ### Step 5: Update codex-conventions.md — Strengthened Orientation Blocks
 
 Replace the "Behavioral Orientation" section (lines 219-239) with strengthened blocks that serve as
@@ -203,6 +206,7 @@ PERMITTED actions:
 Produce your plan as text output only.
 ===
 ```
+````
 
 Write orientation:
 
@@ -225,7 +229,7 @@ Keep the existing contract note about injecting orientation on every call.
 
 Add a new section "Skill Run Directories" after "Timeout Requirement" (line 283). Content:
 
-```markdown
+````markdown
 ## Skill Run Directories
 
 Skills that create temporary run directories must use the XDG-compliant base path:
@@ -236,6 +240,7 @@ mkdir -p "$_SKILL_RUNS"
 RUN_DIR="$_SKILL_RUNS/<skill>-$(date -u +%Y%m%dT%H%M%S)-$$"
 mkdir -p "$RUN_DIR"
 ```
+````
 
 This produces paths like `~/.local/state/claude-session/skill-runs/prex-20260527T200809-12345/`.
 
@@ -247,8 +252,8 @@ Lock files follow the same pattern:
 ```bash
 LOCK_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs}"
 ```
-```
 
+```markdown
 ### Step 7: Update codex-conventions.md — Safety Rules
 
 In the "Safety Rules" section (lines 287-306), update the flag matrices:
@@ -291,3 +296,4 @@ Update the plan's `README.md` (in the same directory as this round file) to reco
 
 Round 02 applies the sandbox fix and run-dir migration to the two prex skills (`prex/SKILL.md` and
 `prex-resume/SKILL.md`), referencing the conventions established in this round.
+```

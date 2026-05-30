@@ -36,6 +36,13 @@ repos:
       - id: editorconfig-checker
         alias: ec
         args: [-disable-insert-final-newline, '-exclude', 'LICENSE']
+        # Markdown is owned by dprint + markdownlint-cli2. editorconfig-checker
+        # can't parse markdown (it flags code-fence interiors and the odd-width
+        # ordered-list continuations dprint emits, and defaults to indent_size=4
+        # even when unset), so it must not police .md. eol / final-newline /
+        # trailing-whitespace for markdown are covered by dprint and the
+        # pre-commit-hooks end-of-file-fixer / trailing-whitespace hooks.
+        exclude: '\.md$'
 
   # --- Rust: format & lint (auto-fix) ---
   - repo: local
@@ -67,6 +74,56 @@ repos:
         entry: taplo format
         language: system
         types: [toml]
+
+  # --- Markdown formatter: dprint (canonical CommonMark + GFM) ---
+  #
+  # dprint is the single source of truth for markdown whitespace, list
+  # style, emphasis, table padding, etc. Config in ./dprint.json. Requires
+  # `dprint` on PATH (cargo install dprint). pre-commit only — the format
+  # has already been applied by commit time, no need to re-run on push.
+  - repo: local
+    hooks:
+      - id: dprint
+        name: dprint fmt
+        entry: dprint fmt
+        language: system
+        types: [markdown]
+        pass_filenames: true
+        stages: [pre-commit]
+
+  # --- Table of contents (updates <!--TOC--> blocks; no-op without markers) ---
+  - repo: https://github.com/frnmst/md-toc
+    rev: 9.0.0
+    hooks:
+      - id: md-toc
+        # -c: don't gate on TOC list coherence. -p: write in place.
+        # --skip-lines 1: don't TOC the H1 title.
+        args: [-p, -c, --skip-lines, '1', github]
+
+  # --- Markdown lint (style gate + MD029 ordered-list renumber autofix) ---
+  #
+  # Runs after dprint. dprint owns all formatting; markdownlint-cli2 gates
+  # what dprint can't normalize and autofixes the one thing it can't —
+  # ordered-list renumbering (MD029). Fix-mode is isolated to MD029 via
+  # "fix": true + per-rule disables in ./.markdownlint-cli2.jsonc.
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
+        additional_dependencies: ['markdownlint-rule-relative-links']
+
+  # --- Spelling (REPORT-ONLY; config + allowlist in ./_typos.toml) ---
+  #
+  # No --write-changes by design: typos must never auto-edit source. It
+  # only reports — you fix real typos in a normal edit and allowlist false
+  # positives in _typos.toml. (With --write-changes it once silently
+  # renamed the `Unparseable` variant and the `child_version_unparseable`
+  # error-kind string, which is part of the machine-readable error
+  # contract.) Snapshot fixtures and the seed allowlist live in _typos.toml.
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.46.2
+    hooks:
+      - id: typos
 
   # --- Tests (layered per docs-n-notes cli-design/08-testing-strategy.md) ---
   #
@@ -147,6 +204,17 @@ repos:
         entry: gitleaks git --redact --verbose
         pass_filenames: false
         stages: [pre-push]
+
+  # --- Link checker (pre-push only; network; tuned via ./lychee.toml) ---
+  - repo: https://github.com/lycheeverse/lychee
+    rev: lychee-v0.24.2
+    hooks:
+      - id: lychee
+        stages: [pre-push]
+        types: [markdown]
+        # Args intentionally minimal so lychee.toml owns the behavior.
+        args:
+          - --no-progress
 
   # --- Unused dependency detection ---
   - repo: https://github.com/bnjbvr/cargo-machete

@@ -81,8 +81,8 @@ unchanged beyond the `settings_dir` → `configs_dir` field rename.
   - any base layer `configs/<name>.toml` containing `profile = "..."` or `[profiles.*]`,
   - any profile file `configs/profiles/<name>.config.toml` containing `[profiles.*]`,
   - cache file at the legacy path `cache_dir.join("codex-session/settings.toml")`.
-  Each finding surfaces a one-line user-facing error pointing at the doc reference and the
-  exact migration step.
+    Each finding surfaces a one-line user-facing error pointing at the doc reference and the
+    exact migration step.
 - `tests/account_health_cli.rs`: rewrite fixtures to use `configs/profiles/ping.config.toml`.
   Update missing-profile assertion text.
 - `tests/trust_sync_roundtrip.rs`, `tests/cmd_config_status.rs`, `tests/cmd_doctor.rs`,
@@ -457,13 +457,13 @@ If the test creates a fixture WITHOUT a ping profile file, assert the new
 In `tests/cmd_doctor.rs`, add three integration tests:
 
 1. `doctor_warns_on_legacy_settings_dir_present` — create a `<config>/settings/` dir on disk
-  alongside `<config>/configs/`, assert doctor stderr contains the migration hint.
+   alongside `<config>/configs/`, assert doctor stderr contains the migration hint.
 2. `doctor_warns_on_legacy_profile_selector_in_layer` —
-  `<config>/configs/base.toml` contains `profile = "deep"`, assert doctor surfaces the
-  legacy-form warning with `docs/upstream-codex.md §F6c` mentioned.
+   `<config>/configs/base.toml` contains `profile = "deep"`, assert doctor surfaces the
+   legacy-form warning with `docs/upstream-codex.md §F6c` mentioned.
 3. `doctor_warns_on_legacy_profiles_table_in_profile_file` —
-  `<config>/configs/profiles/deep.config.toml` contains `[profiles.deep]`, assert doctor
-  surfaces the warning.
+   `<config>/configs/profiles/deep.config.toml` contains `[profiles.deep]`, assert doctor
+   surfaces the warning.
 
 ### Step 12: Verify the build + run gates
 

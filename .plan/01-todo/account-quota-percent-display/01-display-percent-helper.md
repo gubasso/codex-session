@@ -9,7 +9,7 @@
 window has just reset and is effectively unused. Users expect `100% left` in that case.
 
 The ChatGPT backend endpoint `GET https://chatgpt.com/backend-api/wham/usage` reports usage as a
-coarse **integer** `used_percent` per window, and that is the *only* usage signal (no token counts,
+coarse **integer** `used_percent` per window, and that is the _only_ usage signal (no token counts,
 no `percent_left` field). A near-empty window returns `used_percent: 1`, which the wrapper
 faithfully converts to `percent_left = 100 - used_percent = 99.0` and renders as `99.0%`. The
 arithmetic is correct; the issue is purely presentation.
@@ -249,8 +249,8 @@ Update the plan's `README.md` (same directory as this round file) to record comp
 
 Because this is the final (and only) round, also:
 
-4. In the README.md header blockquote, change `Status: todo` to `Status: done`.
-5. Move the plan directory to done:
+1. In the README.md header blockquote, change `Status: todo` to `Status: done`.
+2. Move the plan directory to done:
 
 ```bash
 mkdir -p .plan/02-done && mv .plan/01-todo/account-quota-percent-display .plan/02-done/account-quota-percent-display

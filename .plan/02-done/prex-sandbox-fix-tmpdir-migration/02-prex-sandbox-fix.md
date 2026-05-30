@@ -17,6 +17,7 @@ directories from `/tmp` to `~/.local/state/claude-session/skill-runs/`.
 ## Previous Rounds
 
 Round 01 updated the documentation and conventions:
+
 - Added F15 (sandbox mismatch constraint) to `docs/upstream-codex.md`
 - Updated `codex-conventions.md` with unified sandbox approach, strengthened orientation blocks,
   `--full-auto` deprecation, run-dir base path convention, and resume constraint documentation
@@ -24,10 +25,12 @@ Round 01 updated the documentation and conventions:
 ## Scope of This Round
 
 **IN scope:**
+
 - `~/.claude/skills/prex/SKILL.md` — sandbox fix + run-dir migration + resume fallback
 - `~/.claude/skills/prex-resume/SKILL.md` — same changes
 
 **OUT of scope:**
+
 - Other skill files (round 03)
 - dctl devcontainer config (round 03)
 - Rust source code changes
@@ -57,6 +60,7 @@ Round 01 updated the documentation and conventions:
 ### Existing Patterns
 
 Both skills reference `$DOCS_NOTES_REPO/tech/tools/claude-code/codex-conventions.md` for:
+
 - Behavioral orientation blocks (read-only and write)
 - Codex command patterns
 - Thread ID extraction
@@ -73,11 +77,13 @@ read-only` / `--full-auto`) and fallback (`-c sandbox_permissions` /
 In `/home/gu/.claude/skills/prex/SKILL.md`, replace the run directory creation (around line 137):
 
 **Before:**
+
 ```bash
 RUN_DIR="$(mktemp -d /tmp/prex-XXXXXX)"
 ```
 
 **After:**
+
 ```bash
 _SKILL_RUNS="${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs"
 mkdir -p "$_SKILL_RUNS"
@@ -90,11 +96,13 @@ mkdir -p "$RUN_DIR"
 In the same file, replace the lock directory (around line 169):
 
 **Before:**
+
 ```bash
 LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 ```
 
 **After:**
+
 ```bash
 LOCK_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs}"
 ```
@@ -106,6 +114,7 @@ Remove the `SANDBOX_MODE` extraction and fallback notification block (lines 248-
 health check (account availability, codex-session on PATH) is still needed and stays.
 
 Remove these lines:
+
 ```markdown
 SANDBOX_MODE="$(jq -r '.codex_session.sandbox_mode' "$RUN_DIR/preflight.json")"
 echo "SANDBOX_MODE=$SANDBOX_MODE"
@@ -119,13 +128,15 @@ user` block.
 Replace the dual-branch stage 1 command (lines 351-368) with a single command:
 
 **Before:**
-```markdown
+
+````markdown
 When `SANDBOX_MODE=native`:
 
 ```bash
 codex-session --account auto exec --sandbox read-only --json \
   ...
 ```
+````
 
 When `SANDBOX_MODE=fallback`:
 
@@ -134,10 +145,11 @@ codex-session --account auto exec \
   -c 'sandbox_permissions=["disk-full-read-access"]' --json \
   ...
 ```
-```
 
+`````markdown
 **After:**
-```markdown
+
+````markdown
 ```bash
 codex-session --account auto exec \
   --dangerously-bypass-approvals-and-sandbox --json \
@@ -145,8 +157,10 @@ codex-session --account auto exec \
   "<planning prompt>" \
   < /dev/null > "$RUN_DIR/stage1-events.jsonl"
 ```
-```
+````
+`````
 
+`````markdown
 Also update the stage 1 prompt construction note (lines 338-339) to emphasize that the read-only
 orientation block is the **primary** enforcement mechanism, not just defense-in-depth.
 
@@ -154,7 +168,7 @@ orientation block is the **primary** enforcement mechanism, not just defense-in-
 
 Replace the dual-branch stage 3 command (lines 600-618) with a single command:
 
-```markdown
+````markdown
 ```bash
 codex-session --account auto exec resume "$PLAN_THREAD_ID" \
   --dangerously-bypass-approvals-and-sandbox --json \
@@ -163,23 +177,26 @@ codex-session --account auto exec resume "$PLAN_THREAD_ID" \
   < /dev/null > "$RUN_DIR/stage3-events.jsonl"
 echo "EXIT_CODE=$?"
 ```
-```
+````
+`````
 
+`````markdown
 After the command, add a resume fallback procedure:
 
-```markdown
+````markdown
 ### Resume Fallback
 
 If the resume call fails (non-zero exit code, empty `stage3-events.jsonl`, or stderr containing
 "no rollout found" or "thread not found"):
 
 1. Build a self-contained implementation prompt that **inlines** all context directly in the prompt
-  body:
-  - The write orientation block from codex-conventions.md
-  - The full content of `$RUN_DIR/stage2-reviewed-plan.md` (not a file path reference)
-  - The full content of `$RUN_DIR/request.md` (not a file path reference)
-  - Relevant repo constraints and conventions from CLAUDE.md
-  - The implementation instructions (implement phases in order, report files changed, etc.)
+   body:
+
+- The write orientation block from codex-conventions.md
+- The full content of `$RUN_DIR/stage2-reviewed-plan.md` (not a file path reference)
+- The full content of `$RUN_DIR/request.md` (not a file path reference)
+- Relevant repo constraints and conventions from CLAUDE.md
+- The implementation instructions (implement phases in order, report files changed, etc.)
 
 2. Run a fresh `exec` (not resume) with the inlined prompt:
 
@@ -190,12 +207,14 @@ codex-session --account auto exec \
   "$(cat "$RUN_DIR/stage3-prompt-full.md")" \
   < /dev/null > "$RUN_DIR/stage3-events.jsonl"
 ```
+````
+`````
 
 **Critical:** The fallback prompt must NEVER reference `/tmp` or `$RUN_DIR` file paths as
 instructions for Codex to read. Codex cannot access paths outside the workspace under most sandbox
 modes. Inline all content directly in the prompt body.
-```
 
+````markdown
 Also update line 591-592: change "Do not re-send the original task description or repo
 constraints/conventions. Those remain available in the resumed session context from stage 1." to:
 
@@ -208,11 +227,14 @@ back to fresh exec, inline all context (see Resume Fallback above)."
 Replace the stage 5 review-loop directory scanning (around lines 787-826) to use the new base dir:
 
 **Before:**
+
 ```bash
 find /tmp -maxdepth 1 -type d -name 'review-loop-*' -printf '%p\n' 2>/dev/null | sort > "$RUN_DIR/stage5-pre-rl.snap"
 ```
+````
 
 **After:**
+
 ```bash
 _SKILL_RUNS="${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs"
 find "$_SKILL_RUNS" -maxdepth 1 -type d -name 'review-loop-*' -printf '%p\n' 2>/dev/null | sort > "$RUN_DIR/stage5-pre-rl.snap"
@@ -225,17 +247,17 @@ Apply the same change to the post-delegation snapshot and the error messages tha
 In `/home/gu/.claude/skills/prex-resume/SKILL.md`:
 
 1. **Lock dir** (line 103): Replace `${XDG_RUNTIME_DIR:-/tmp}` with
-  `${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs}`
+   `${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs}`
 
 2. **Remove SANDBOX_MODE** (lines 172-177): Remove the extraction and persistence instructions.
 
 3. **Stage 3 instructions** (lines 213-214): Replace "Use the write-capable variant (`--full-auto`
-  / `--dangerously-bypass-approvals-and-sandbox`) based on `SANDBOX_MODE`" with: "Use
-  `--dangerously-bypass-approvals-and-sandbox`."
+   / `--dangerously-bypass-approvals-and-sandbox`) based on `SANDBOX_MODE`" with: "Use
+   `--dangerously-bypass-approvals-and-sandbox`."
 
 4. **Resume fallback** (after line 217): Add the same resume fallback procedure as prex. This is
-  especially critical for prex-resume since it runs from exec-queue (automated, no user
-  interaction).
+   especially critical for prex-resume since it runs from exec-queue (automated, no user
+   interaction).
 
 5. **Context re-send** (lines 208-209): Make conditional on resume success, same as step 5 above.
 

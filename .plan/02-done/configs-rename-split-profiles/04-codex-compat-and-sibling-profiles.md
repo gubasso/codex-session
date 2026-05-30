@@ -9,29 +9,29 @@ This round closes the wrapper-side gaps that rounds 01–03 left open, in two
 ordered blocks confined to `/workspaces/codex-session`:
 
 1. **Block A — Codex v0.134+ fail-fast gate.** Rounds 01–03 codified the
-  contract (round 01), aligned the wrapper's emitted output to v0.134+'s
-  input shape (round 02), and detected legacy *on-disk input* forms (round
-  03). What none of them check is the **installed `codex` binary's version
-  itself.** If a user runs `codex-session …` against codex < 0.134.0, the
-  wrapper happily emits the new sibling/no-profile-table shape and the child
-  rejects it with its own legacy-form error — a confusing handoff that
-  points at our emitted file instead of the version skew that caused it.
-  Block A adds an explicit pre-launch gate (probes `codex --version`, parses
-  it, refuses to launch if below 0.134.0) and mirrors the same check in
-  `doctor` so users can diagnose the situation without running a
-  pass-through.
+   contract (round 01), aligned the wrapper's emitted output to v0.134+'s
+   input shape (round 02), and detected legacy _on-disk input_ forms (round
+   03). What none of them check is the **installed `codex` binary's version
+   itself.** If a user runs `codex-session …` against codex < 0.134.0, the
+   wrapper happily emits the new sibling/no-profile-table shape and the child
+   rejects it with its own legacy-form error — a confusing handoff that
+   points at our emitted file instead of the version skew that caused it.
+   Block A adds an explicit pre-launch gate (probes `codex --version`, parses
+   it, refuses to launch if below 0.134.0) and mirrors the same check in
+   `doctor` so users can diagnose the situation without running a
+   pass-through.
 2. **Block B — Sibling `profiles/` restructure.** Rounds 02 and 03 introduced
-  and exercised the nested `configs/profiles/<name>.config.toml` layout as
-  an intermediate. This block lifts `profiles/` to be a sibling of
-  `configs/` — i.e. `~/.config/codex-session/profiles/<name>.config.toml`,
-  not `.../configs/profiles/...` — by promoting `profiles_dir` to a
-  first-class field defaulting to `config_dir.join("profiles")`. Every
-  consumer, test fixture, in-repo doc paragraph, and doctor finding is
-  updated; the doctor sweep gains a new detection for any surviving nested
-  layout.
+   and exercised the nested `configs/profiles/<name>.config.toml` layout as
+   an intermediate. This block lifts `profiles/` to be a sibling of
+   `configs/` — i.e. `~/.config/codex-session/profiles/<name>.config.toml`,
+   not `.../configs/profiles/...` — by promoting `profiles_dir` to a
+   first-class field defaulting to `config_dir.join("profiles")`. Every
+   consumer, test fixture, in-repo doc paragraph, and doctor finding is
+   updated; the doctor sweep gains a new detection for any surviving nested
+   layout.
 
 Block A lands before Block B: the gate is a contract-enforcement change
-(it codifies *which* upstream version the wrapper compiles against and
+(it codifies _which_ upstream version the wrapper compiles against and
 refuses to run against anything older), and the sibling restructure is a
 layout shift downstream of that contract. Doing the gate first means every
 subsequent test fixture in Block B can assume the new contract is in force.
@@ -75,7 +75,7 @@ codex-binary version gate exists yet** — block A in this round adds it.
 **Rationale.** The wrapper's emitted `$CODEX_HOME/` tree is byte-for-byte
 structurally compatible with codex v0.134+'s input contract (CLAUDE.md
 § Codex config compatibility). When the installed child binary is older than
-0.134, that output shape is *invalid* for the child — it will reject the
+0.134, that output shape is _invalid_ for the child — it will reject the
 emitted file with its own legacy-form error pointing at
 developers.openai.com. The wrapper must refuse to launch the child in that
 case, with a message that names the version skew directly instead of letting
@@ -89,27 +89,27 @@ the same gate: **present → executable → version compatible.**
 **Where the check runs.** Two points, both fed from a single cached probe:
 
 1. **Pre-launch, in every code path that invokes the child.** Today every
-  such path resolves the binary via `AppContext::resolved_child()`
-  (`src/context.rs:149-152`), which itself caches the result of
-  `StdSpawner::resolve_child()` (`src/adapters/spawner.rs:161-211`). The
-  version probe extends the existing `LazyChild` (`src/context.rs:20-42`)
-  so the parsed version is cached alongside the resolved path. Pass-through
-  (`src/commands/pass_through.rs:91-148`), account-health heartbeat (via
-  `src/services/account/gate.rs::extract_ping_config`), account login /
-  logout (`src/commands/pass_through.rs:44-47` → `gate::run_login` /
-  `gate::run_logout`), and any other current-or-future codex-invoking path
-  inherit the gate for free.
+   such path resolves the binary via `AppContext::resolved_child()`
+   (`src/context.rs:149-152`), which itself caches the result of
+   `StdSpawner::resolve_child()` (`src/adapters/spawner.rs:161-211`). The
+   version probe extends the existing `LazyChild` (`src/context.rs:20-42`)
+   so the parsed version is cached alongside the resolved path. Pass-through
+   (`src/commands/pass_through.rs:91-148`), account-health heartbeat (via
+   `src/services/account/gate.rs::extract_ping_config`), account login /
+   logout (`src/commands/pass_through.rs:44-47` → `gate::run_login` /
+   `gate::run_logout`), and any other current-or-future codex-invoking path
+   inherit the gate for free.
 2. **In `doctor`** as a new check function `check_codex_version_minimum`,
-  placed immediately after `check_child_binary`
-  (`src/commands/doctor.rs:806`). Same `CheckResult` shape as the
-  surrounding checks; status `Ok` when the parsed version's `major.minor`
-  is at least `0.134`, `Fail` when below, `Warn` when the version string is
-  unparseable. `doctor` continues to run end-to-end even when this finding
-  is `Fail` — that's the value: a single `codex-session doctor` invocation
-  surfaces the version skew without needing to attempt a pass-through.
+   placed immediately after `check_child_binary`
+   (`src/commands/doctor.rs:806`). Same `CheckResult` shape as the
+   surrounding checks; status `Ok` when the parsed version's `major.minor`
+   is at least `0.134`, `Fail` when below, `Warn` when the version string is
+   unparsable. `doctor` continues to run end-to-end even when this finding
+   is `Fail` — that's the value: a single `codex-session doctor` invocation
+   surfaces the version skew without needing to attempt a pass-through.
 
-"As early as possible" is interpreted as: as early as possible *on any code
-path that depends on the v0.134+ contract*. Putting the gate in `main()`
+"As early as possible" is interpreted as: as early as possible _on any code
+path that depends on the v0.134+ contract_. Putting the gate in `main()`
 before dispatch is **rejected** because it would block users from running
 `codex-session doctor` to diagnose the very problem the gate detects, and
 `codex-session --version` / `config-recipe list|show` (which don't invoke
@@ -121,7 +121,7 @@ including pre-release suffixes (`0.134.0-rc1`, `0.134.0-alpha.1`, etc.).
 Comparison floor is `0.134.0-0` (the lowest possible pre-release of
 0.134.0) so `0.134.0-alpha.1 >= 0.134.0-0` evaluates true while
 `0.133.99 >= 0.134.0-0` evaluates false. Versions below that floor are
-`Fail`. Unparseable version strings are `Warn`, not `Fail` — the wrapper
+`Fail`. Unparsable version strings are `Warn`, not `Fail` — the wrapper
 proceeds against odd-but-likely-fine builds and surfaces the situation in
 doctor.
 
@@ -129,27 +129,27 @@ doctor.
 
 - **New module `src/codex_compat.rs`** holding:
   - `pub const REQUIRED_CODEX_VERSION: &str = "0.134.0";` and an accessor
-  `pub fn required_floor() -> &'static semver::Version` returning the
-  parsed `0.134.0-0` floor (lazy-initialized via `OnceCell`).
+    `pub fn required_floor() -> &'static semver::Version` returning the
+    parsed `0.134.0-0` floor (lazy-initialized via `OnceCell`).
   - `pub enum VersionCheck { Ok(semver::Version), TooOld(semver::Version),
-  Unparseable(String) }`.
+  Unparsable(String) }`.
   - `pub fn classify(raw: &str) -> VersionCheck` — strips the leading
-  `codex` / `codex-cli` token, trims, parses via
-  `semver::Version::parse`, compares with `cmp_precedence` against
-  `required_floor()`.
+    `codex` / `codex-cli` token, trims, parses via
+    `semver::Version::parse`, compares with `cmp_precedence` against
+    `required_floor()`.
 - **New error variants in `src/error.rs`**:
   ```rust
   ChildVersionTooOld { found: String, required: &'static str }
-  ChildVersionUnparseable { raw: String }
+  ChildVersionUnparsable { raw: String }
   ```
   Both map to exit code **78** (config-error class — matches
   `Config(ConfigError)` at `src/error.rs:21-23` since this is a
   configuration-of-environment problem). `error_hint()` at
   `src/error.rs:586-689` gains hints citing
   `docs/upstream-codex.md §F6c` and naming the upgrade path
-  (`codex --version` / install instructions). `Unparseable` is reserved
-  for the rare case where the gate is called directly on an unparseable
-  string (e.g. a forced check); the doctor path treats `Unparseable` as
+  (`codex --version` / install instructions). `Unparsable` is reserved
+  for the rare case where the gate is called directly on an unparsable
+  string (e.g. a forced check); the doctor path treats `Unparsable` as
   `Warn` and continues without raising the error.
 - **Probe + parse**: extend `child_version_line` in
   `src/adapters/spawner.rs:213-244` with a sibling `child_version_parsed`
@@ -163,7 +163,7 @@ doctor.
 - **Gate method**: new `AppContext::ensure_child_version() -> Result<(),
   AppError>` short-circuits on the cached `OnceCell`. Returns
   `ChildVersionTooOld` for `TooOld`, `Ok(())` for both `Ok` and
-  `Unparseable` (warn-not-fail — see pre-release rule above).
+  `Unparsable` (warn-not-fail — see pre-release rule above).
 - **Pass-through wiring**: `pass_through::run()` calls
   `ctx.ensure_child_version()` immediately after the existing
   `resolved_child()` call at lines 632-656 in
@@ -185,21 +185,21 @@ doctor.
   - `classify("codex 1.0.0")` → `Ok`.
   - `classify("codex 0.133.99")` → `TooOld`.
   - `classify("codex 0.0.1")` → `TooOld`.
-  - `classify("garbage output")` → `Unparseable`.
+  - `classify("garbage output")` → `Unparsable`.
 - **Integration tests** (in `tests/`, exact module location follows the
   existing pattern — likely `tests/cmd_pass_through.rs` and
   `tests/cmd_doctor.rs`):
   - `pass_through_fails_fast_on_old_codex` — `MockSpawner` returns
-  `codex 0.133.0` for `--version`; the wrapper exits **78** before any
-  other child invocation, stderr cites
-  `docs/upstream-codex.md §F6c`.
+    `codex 0.133.0` for `--version`; the wrapper exits **78** before any
+    other child invocation, stderr cites
+    `docs/upstream-codex.md §F6c`.
   - `doctor_reports_codex_version_too_old` — same mock; doctor prints a
-  `FAIL` finding for the new check and still exits 1 (existing behavior:
-  `summary.fail > 0`).
+    `FAIL` finding for the new check and still exits 1 (existing behavior:
+    `summary.fail > 0`).
   - `doctor_reports_codex_version_ok` — mock returns `codex 0.134.0`;
-  doctor's new check is `OK`.
-  - `doctor_warns_on_unparseable_codex_version` — mock returns
-  `weird-output\n`; doctor's new check is `Warn`; exit code unaffected.
+    doctor's new check is `OK`.
+  - `doctor_warns_on_unparsable_codex_version` — mock returns
+    `weird-output\n`; doctor's new check is `Warn`; exit code unaffected.
 
 **Out of scope (Block A):**
 
@@ -255,8 +255,8 @@ doctor.
 - `CLAUDE.md` § Codex config compatibility: the rule itself does not name a
   path, but the example in the bullet about sibling files stays (already
   correct: emitted output is `$CODEX_HOME/<name>.config.toml` siblings —
-  that's the *output* shape, unchanged by this restructure). Verify and add
-  one clarifying parenthetical that the *input* layout in
+  that's the _output_ shape, unchanged by this restructure). Verify and add
+  one clarifying parenthetical that the _input_ layout in
   `$XDG_CONFIG_HOME/codex-session/` also uses sibling `configs/` and
   `profiles/` dirs.
 - `tests/support/mod.rs`: `write_profile_file(name, body)` now writes to
@@ -364,7 +364,7 @@ In `src/error.rs`:
 ChildVersionTooOld { found: String, required: &'static str },
 
 #[error("codex CLI version output not parseable: {raw}. See docs/upstream-codex.md §F6c.")]
-ChildVersionUnparseable { raw: String },
+ChildVersionUnparsable { raw: String },
 ```
 
 Both map to exit code 78 in `exit_code()`. In `error_hint()` (around lines
@@ -379,7 +379,7 @@ In `src/context.rs`, add a `version: OnceCell<VersionCheck>` field next to
 `(ResolvedChild, &VersionCheck)`. Add
 `AppContext::ensure_child_version() -> Result<(), AppError>`. The latter
 runs the cached classifier, returns `Err(ChildVersionTooOld)` for `TooOld`,
-`Ok(())` for `Ok` and `Unparseable`.
+`Ok(())` for `Ok` and `Unparsable`.
 
 #### A4. Wire the gate into pass-through dispatch
 
@@ -401,7 +401,7 @@ existing `check_child_binary` call at line 806, push a new
 - Maps `TooOld(v)` → `CheckResult::fail("codex.version", …)` with a detail
   string naming the required floor and pointing at
   `docs/upstream-codex.md §F6c`.
-- Maps `Unparseable(raw)` → `CheckResult::warn("codex.version", …)` with
+- Maps `Unparsable(raw)` → `CheckResult::warn("codex.version", …)` with
   detail naming the raw output.
 
 #### A6. Unit tests for `codex_compat::classify`
@@ -417,7 +417,7 @@ Extend `MockSpawner` (or its equivalent in `tests/support/`) so its
 integration tests enumerated in Block A's scope:
 `pass_through_fails_fast_on_old_codex`,
 `doctor_reports_codex_version_too_old`, `doctor_reports_codex_version_ok`,
-`doctor_warns_on_unparseable_codex_version`.
+`doctor_warns_on_unparsable_codex_version`.
 
 #### A8. Doc updates (no-op verification)
 
@@ -641,7 +641,7 @@ Block A — codex version fail-fast:
   a `VersionCheck` enum, and a `classify` parser tolerating
   `codex` / `codex-cli` prefixes and pre-release suffixes.
 - New error variants `AppError::ChildVersionTooOld` and
-  `ChildVersionUnparseable` (exit 78) with hints citing
+  `ChildVersionUnparsable` (exit 78) with hints citing
   `docs/upstream-codex.md §F6c`.
 - `LazyChild` caches the parsed version;
   `AppContext::ensure_child_version()` short-circuits on the cache and
@@ -685,76 +685,76 @@ The plan directory move (from `01-todo/` to `02-done/`) happens in Round
 ### Block A — codex v0.134+ fail-fast
 
 - [ ] `src/codex_compat.rs` exists with `REQUIRED_CODEX_VERSION = "0.134.0"`,
-    a `VersionCheck` enum, and a `classify(raw: &str) -> VersionCheck`
-    parser tolerating `codex` / `codex-cli` prefixes and pre-release
-    suffixes. Unit tests cover every case listed in the Block A scope.
+      a `VersionCheck` enum, and a `classify(raw: &str) -> VersionCheck`
+      parser tolerating `codex` / `codex-cli` prefixes and pre-release
+      suffixes. Unit tests cover every case listed in the Block A scope.
 - [ ] `AppError::ChildVersionTooOld { found, required }` and
-    `AppError::ChildVersionUnparseable { raw }` variants exist with exit
-    code **78**; `error_hint()` for both names
-    `docs/upstream-codex.md §F6c` and the upgrade path.
+      `AppError::ChildVersionUnparsable { raw }` variants exist with exit
+      code **78**; `error_hint()` for both names
+      `docs/upstream-codex.md §F6c` and the upgrade path.
 - [ ] `LazyChild` caches the parsed version via `OnceCell`. Second-and-later
-    calls within a process do not re-invoke `codex --version`.
+      calls within a process do not re-invoke `codex --version`.
 - [ ] `AppContext::ensure_child_version()` short-circuits on the cache,
-    returns `Err(ChildVersionTooOld)` for `TooOld`, `Ok(())` for `Ok`
-    and `Unparseable`.
+      returns `Err(ChildVersionTooOld)` for `TooOld`, `Ok(())` for `Ok`
+      and `Unparsable`.
 - [ ] `pass_through::run()` calls `ensure_child_version()` before any
-    child invocation. Account health, login, logout inherit the gate
-    via the same `resolved_child()` plumbing — verified by tracing
-    every `Spawner::spawn` / `Command::new` call site in `src/`.
+      child invocation. Account health, login, logout inherit the gate
+      via the same `resolved_child()` plumbing — verified by tracing
+      every `Spawner::spawn` / `Command::new` call site in `src/`.
 - [ ] `doctor::check_codex_version_minimum` exists, runs after
-    `check_child_binary` (`src/commands/doctor.rs:806`), surfaces
-    `Ok` / `Fail` / `Warn` per spec. `doctor` continues running other
-    checks even when this finding is `Fail`.
+      `check_child_binary` (`src/commands/doctor.rs:806`), surfaces
+      `Ok` / `Fail` / `Warn` per spec. `doctor` continues running other
+      checks even when this finding is `Fail`.
 - [ ] Integration tests exist and pass:
-    `pass_through_fails_fast_on_old_codex`,
-    `doctor_reports_codex_version_too_old`,
-    `doctor_reports_codex_version_ok`,
-    `doctor_warns_on_unparseable_codex_version`.
+      `pass_through_fails_fast_on_old_codex`,
+      `doctor_reports_codex_version_too_old`,
+      `doctor_reports_codex_version_ok`,
+      `doctor_warns_on_unparsable_codex_version`.
 - [ ] Pre-release rule verified: `0.134.0-rc1`, `0.134.0-alpha.1`, and
-    `0.134.0` all parse as `Ok`; `0.133.99` parses as `TooOld`;
-    `garbage` parses as `Unparseable`.
+      `0.134.0` all parse as `Ok`; `0.133.99` parses as `TooOld`;
+      `garbage` parses as `Unparsable`.
 
 ### Block B — sibling `profiles/` restructure
 
 - [ ] `ConfigRecipeConfig.profiles_dir: Utf8PathBuf` exists; default
-    constructor sets it to `config_dir.join("profiles")`.
+      constructor sets it to `config_dir.join("profiles")`.
 - [ ] `FileConfigRecipeConfig.profiles_dir: Option<Utf8PathBuf>` exists
-    with `#[serde(rename = "profiles-dir", default)]` and is merged into
-    the runtime config next to `configs_dir`.
+      with `#[serde(rename = "profiles-dir", default)]` and is merged into
+      the runtime config next to `configs_dir`.
 - [ ] `ConfigRecipePaths.profiles_dir: Utf8PathBuf` is a first-class
-    field; the derived `profiles_dir()` method from round 02 is deleted.
+      field; the derived `profiles_dir()` method from round 02 is deleted.
 - [ ] Every `ConfigRecipePaths { … }` constructor in `src/` passes
-    `profiles_dir`.
+      `profiles_dir`.
 - [ ] `compose()` in `src/services/config_recipe/mod.rs` scans
-    `paths.profiles_dir` (field, not `configs_dir.join("profiles")`).
+      `paths.profiles_dir` (field, not `configs_dir.join("profiles")`).
 - [ ] `doctor::check_legacy_profile_forms` emits a warning when an
-    obsolete nested `<configs_dir>/profiles/` dir exists and differs
-    from `<profiles_dir>`. Warning cites `docs/upstream-codex.md §F6c`
-    and names the sibling target path.
+      obsolete nested `<configs_dir>/profiles/` dir exists and differs
+      from `<profiles_dir>`. Warning cites `docs/upstream-codex.md §F6c`
+      and names the sibling target path.
 - [ ] `README.md` filesystem-layout and prose sections describe sibling
-    `profiles/<name>.config.toml`. No `configs/profiles/` substring
-    survives in `README.md`.
+      `profiles/<name>.config.toml`. No `configs/profiles/` substring
+      survives in `README.md`.
 - [ ] `docs/upstream-codex.md` lines previously naming
-    `configs/profiles/...` now name sibling `profiles/...`.
-    `Last verified` date bumped to today.
+      `configs/profiles/...` now name sibling `profiles/...`.
+      `Last verified` date bumped to today.
 - [ ] `CLAUDE.md` § Codex config compatibility input-layer bullet
-    clarifies sibling layout.
+      clarifies sibling layout.
 - [ ] `tests/support/mod.rs` exposes `profiles_dir()` and
-    `write_profile_file(name, body)` rooted at
-    `<config_home>/codex-session/profiles/`.
+      `write_profile_file(name, body)` rooted at
+      `<config_home>/codex-session/profiles/`.
 - [ ] `grep -rn "configs/profiles" src/ tests/ README.md CLAUDE.md docs/`
-    returns no matches.
+      returns no matches.
 - [ ] New doctor test `doctor_warns_on_nested_configs_profiles_dir` exists
-    and passes.
+      and passes.
 
 ### Round-level
 
 - [ ] `just lint`, `just test`, and `just precommit-all` all pass.
 - [ ] One commit in `/workspaces/codex-session` captures Block A + Block B
-    with a Conventional Commit message citing round 04 and naming both
-    blocks.
+      with a Conventional Commit message citing round 04 and naming both
+      blocks.
 - [ ] Plan `README.md` execution order table shows round 04 as `done`
-    with today's date.
+      with today's date.
 
 ## Next Round
 

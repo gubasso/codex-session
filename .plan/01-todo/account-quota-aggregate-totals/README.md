@@ -9,7 +9,7 @@
 `codex-session account quota` renders one chart per account — a 5-hour bar
 and a weekly bar with reset countdowns. When operating a multi-account
 failover pool, the operator question "how much capacity does my pool have
-*in total* right now?" requires eyeballing the per-account list and
+_in total_ right now?" requires eyeballing the per-account list and
 averaging mentally.
 
 This plan adds an aggregate **TOTAL** panel that surfaces pool-wide
@@ -31,9 +31,9 @@ session under `prex`'s in-round review-loop is the right shape.
 
 ## Execution Order
 
-| Round | File                            | Topic                  | Status | Completed |
-| ----- | ------------------------------- | ---------------------- | ------ | --------- |
-| 01    | `01-aggregate-totals-panel.md`  | aggregate totals panel | todo   | --        |
+| Round | File                           | Topic                  | Status | Completed |
+| ----- | ------------------------------ | ---------------------- | ------ | --------- |
+| 01    | `01-aggregate-totals-panel.md` | aggregate totals panel | todo   | --        |
 
 ## Execution Commands
 

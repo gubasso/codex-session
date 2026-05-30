@@ -18,10 +18,12 @@ round, every user-visible string produced by the wrapper follows the same visual
 ## Previous Rounds
 
 **Round 01** created:
+
 - `docs/design/cli-style-guide.md` — CLI Design System specification
 - Updated `CLAUDE.md` with design system reference and pre-v1.0 breaking changes policy
 
 **Round 02** implemented:
+
 - Renamed `quota_styles` → `styles` module in `src/ui/mod.rs`
 - Added `GREEN` constant to the styles module
 - Colorized `account list`, `account current`, `account health` (table + verbose),
@@ -32,6 +34,7 @@ round, every user-visible string produced by the wrapper follows the same visual
 - All account commands now follow the design system
 
 Expected state after Round 02:
+
 - `styles::` module with constants: BOLD, DIM, BOLD_CYAN, GREEN, BOLD_GREEN, BOLD_YELLOW, RED,
   BOLD_RED
 - Helper functions `style_open()`, `style_close()` unchanged
@@ -40,6 +43,7 @@ Expected state after Round 02:
 ## Scope of This Round
 
 **IN scope:**
+
 - Colorize `write_doctor` output (check table with OK/WARN/FAIL colors, summary, accounts section)
 - Colorize `write_config_status` output (key-value pairs with semantic colors)
 - Colorize `write_config_recipe_list` output (table with ✓/✗ valid column)
@@ -51,6 +55,7 @@ Expected state after Round 02:
 - Update snapshot tests for any help text changes
 
 **OUT of scope:**
+
 - Account commands (already done in Round 02)
 - Quota rendering (already the gold standard)
 - Changes to the design system spec
@@ -99,6 +104,7 @@ Expected state after Round 02:
 ### Existing Patterns
 
 After Round 02, the established pattern for colorized output is:
+
 ```rust
 let c = color::should_color(color::Stream::Stdout);
 // For headers:
@@ -116,6 +122,7 @@ write!(stdout, "{}{}{}", style_open(status_style, c), status, style_close(status
 For stderr, `color::stderr_color()` provides the boolean gate.
 
 The `format_status()` function in `ui/mod.rs` converts `CheckStatus` to strings:
+
 ```rust
 const fn format_status(status: CheckStatus) -> &'static str {
     match status {
@@ -135,12 +142,14 @@ const fn format_status(status: CheckStatus) -> &'static str {
 This is the largest change in this round. The doctor output has multiple sections.
 
 **Accounts section** (lines 253-279):
+
 - Account name in BOLD
 - `current=true` in BOLD_CYAN
 - `has_auth=true` → GREEN ✓, `has_auth=false` → RED ✗
 - `cooldown=active(...)` in BOLD_RED when active, plain otherwise
 
 **Check table** (lines 282-304):
+
 - Header row (`status`, `check`, `detail`) in DIM
 - `OK` status in BOLD_GREEN
 - `WARN` status in BOLD_YELLOW
@@ -148,11 +157,13 @@ This is the largest change in this round. The doctor output has multiple section
 - Check names in BOLD
 
 **Summary line** (lines 319-323):
+
 - OK count in BOLD_GREEN
 - WARN count in BOLD_YELLOW
 - FAIL count in BOLD_RED
 
 **Next steps** (lines 305-309):
+
 - Each step as-is (the text is already actionable)
 
 Add `let c = color::should_color(color::Stream::Stdout);` at the top of the text branch and
@@ -163,6 +174,7 @@ thread it through.
 **File:** `/workspaces/codex-session/src/ui/mod.rs` — method at line 84
 
 This is a key-value dump. Apply the design system:
+
 - Labels (`active-config-recipe:`, `manifest-path:`, etc.) in DIM
 - ConfigRecipe name value in BOLD when present
 - `(stock mode)` / `(none)` / `(unavailable)` in DIM
@@ -245,6 +257,7 @@ style and the use_color boolean). The `use_color` is already computed from `stde
 **File:** `/workspaces/codex-session/src/ui/mod.rs`
 
 **`write_warning`** — Add optional color support:
+
 - When the body starts with `"warning:"`, style that prefix in BOLD_YELLOW
 - The rest of the message stays plain
 - Gate on `color::stderr_color()`
@@ -255,11 +268,13 @@ No change needed.
 **File:** `/workspaces/codex-session/src/services/account/gate.rs`
 
 **`narrate()`** function at line 858:
+
 - Style the `[codex-session]` prefix in DIM
 - The message text stays plain
 - Gate on `color::stderr_color()`
 
 This requires either:
+
 - Passing `use_color` from `gate.rs` (it has access to `ctx.ui`)
 - Or having `write_prompt` accept an optional style hint
 

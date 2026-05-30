@@ -207,20 +207,28 @@ pub(crate) fn render(mut out: impl std::io::Write, err: &AppError) -> std::io::R
     writeln!(
         out,
         "{} {}",
-        style_label("codex-session:", use_color),
+        style_label("codex-session:", crate::ui::BOLD_RED, use_color),
         detail.what
     )?;
     if let Some(where_line) = format_where_line(err) {
-        writeln!(out, "  {} {where_line}", style_label("where:", use_color))?;
+        writeln!(
+            out,
+            "  {} {where_line}",
+            style_label("where:", crate::ui::BOLD, use_color)
+        )?;
     }
     writeln!(
         out,
         "  {} {}",
-        style_label("why:  ", use_color),
+        style_label("why:  ", crate::ui::BOLD, use_color),
         detail.why_line
     )?;
     if let Some(hint) = error_hint(err) {
-        writeln!(out, "  {} {hint}", style_label("hint: ", use_color))?;
+        writeln!(
+            out,
+            "  {} {hint}",
+            style_label("hint: ", crate::ui::BOLD_CYAN, use_color)
+        )?;
     }
 
     let mut prev = detail.why_line.clone();
@@ -228,7 +236,11 @@ pub(crate) fn render(mut out: impl std::io::Write, err: &AppError) -> std::io::R
     while let Some(cause) = source {
         let msg = cause.to_string();
         if msg != prev {
-            writeln!(out, "  {} {msg}", style_label("caused by:", use_color))?;
+            writeln!(
+                out,
+                "  {} {msg}",
+                style_label("caused by:", crate::ui::BOLD, use_color)
+            )?;
             prev = msg;
         }
         source = cause.source();
@@ -735,9 +747,13 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
     }
 }
 
-fn style_label(label: &str, use_color: bool) -> String {
+fn style_label(label: &str, style: anstyle::Style, use_color: bool) -> String {
     if use_color {
-        format!("\u{1b}[1m{label}\u{1b}[0m")
+        format!(
+            "{}{label}{}",
+            crate::ui::style_open(style, use_color),
+            crate::ui::style_close(style, use_color)
+        )
     } else {
         label.to_owned()
     }

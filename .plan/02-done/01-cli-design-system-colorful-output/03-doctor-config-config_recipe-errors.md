@@ -276,21 +276,21 @@ already have global `--format` or per-command format), update the corresponding 
 
 ## Acceptance Criteria
 
-- [ ] `doctor` output has colored check statuses (OK green, WARN yellow, FAIL red)
-- [ ] `doctor` summary line has colored counts
-- [ ] `config status` has DIM labels and colored boolean/status values
-- [ ] `config-recipe list` shows a colored table with ✓/✗ valid column
-- [ ] `config-recipe show` has DIM labels and BOLD values
-- [ ] `config-recipe compose` has DIM labels and appropriate value colors
-- [ ] `version` has BOLD version numbers and DIM paths
-- [ ] Error output uses BOLD_RED for the `codex-session:` label and BOLD_CYAN for `hint:`
-- [ ] `write_warning` styles `warning:` prefix in BOLD_YELLOW on stderr
-- [ ] `[codex-session]` narration prefix is DIM on stderr
-- [ ] `NO_COLOR=1 codex-session doctor` produces no ANSI escape codes
-- [ ] All JSON output paths remain unaffected (no ANSI in JSON)
-- [ ] `just lint` passes
-- [ ] `just test` passes (with snapshot updates accepted)
-- [ ] Manual verification: run each command and visually confirm consistency with the design system
+- [x] `doctor` output has colored check statuses (OK green, WARN yellow, FAIL red)
+- [x] `doctor` summary line has colored counts
+- [x] `config status` has DIM labels and colored boolean/status values
+- [x] `config-recipe list` shows a colored table with ✓/✗ valid column
+- [x] `config-recipe show` has DIM labels and BOLD values
+- [x] `config-recipe compose` has DIM labels and appropriate value colors
+- [x] `version` has BOLD version numbers and DIM paths
+- [x] Error output uses BOLD_RED for the `codex-session:` label and BOLD_CYAN for `hint:`
+- [x] `write_warning` styles `warning:` prefix in BOLD_YELLOW on stderr
+- [x] `[codex-session]` narration prefix is DIM on stderr
+- [x] `NO_COLOR=1 codex-session doctor` produces no ANSI escape codes
+- [x] All JSON output paths remain unaffected (no ANSI in JSON)
+- [x] `just lint` passes
+- [x] `just test` passes (with snapshot updates accepted)
+- [x] Manual verification: run each command and visually confirm consistency with the design system
 
 ## Next Round
 

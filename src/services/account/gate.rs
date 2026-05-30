@@ -872,5 +872,11 @@ fn narrate(ctx: &AppContext, msg: &str) {
     if ctx.global.silent {
         return;
     }
-    let _ = ctx.ui.write_prompt(&format!("[codex-session] {msg}\n"));
+    let use_color = crate::ui::color::stderr_color();
+    let prefix = format!(
+        "{}[codex-session]{}",
+        crate::ui::style_open(crate::ui::DIM, use_color),
+        crate::ui::style_close(crate::ui::DIM, use_color)
+    );
+    let _ = ctx.ui.write_prompt(&format!("{prefix} {msg}\n"));
 }

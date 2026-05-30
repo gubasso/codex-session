@@ -1,6 +1,6 @@
 # CLI Design System & Colorful, Consistent Output
 
-> Complexity: L | Rounds: 3 | Generated: 2026-05-26 | Repo: /workspaces/codex-session | Status: todo
+> Complexity: L | Rounds: 3 | Generated: 2026-05-26 | Repo: /workspaces/codex-session | Status: done
 
 ## Problem Statement
 
@@ -45,19 +45,19 @@ The work splits into three rounds following layer boundaries (bottom-up):
 | Round | File                                    | Topic                             | Status | Completed |
 | ----- | --------------------------------------- | --------------------------------- | ------ | --------- |
 | 01    | `01-design-system-spec.md`              | CLI design system specification   | done   | 2026-05-27 |
-| 02    | `02-foundations-and-account-commands.md` | Styles module + account commands  | todo   | --        |
-| 03    | `03-doctor-config-config_recipe-errors.md`    | Doctor, config, config_recipe, errors   | todo   | --        |
+| 02    | `02-foundations-and-account-commands.md` | Styles module + account commands  | done   | 2026-05-29 |
+| 03    | `03-doctor-config-config_recipe-errors.md`    | Doctor, config, config_recipe, errors   | done   | 2026-05-29 |
 
 ## Execution Commands
 
 ```bash
 # Execute a single round:
-/prex -ar .plan/01-todo/01-cli-design-system-colorful-output/01-design-system-spec.md
-/prex -ar .plan/01-todo/01-cli-design-system-colorful-output/02-foundations-and-account-commands.md
-/prex -ar .plan/01-todo/01-cli-design-system-colorful-output/03-doctor-config-config_recipe-errors.md
+/prex -ar .plan/02-done/01-cli-design-system-colorful-output/01-design-system-spec.md
+/prex -ar .plan/02-done/01-cli-design-system-colorful-output/02-foundations-and-account-commands.md
+/prex -ar .plan/02-done/01-cli-design-system-colorful-output/03-doctor-config-config_recipe-errors.md
 
 # Execute with full directory context:
-/prex -ar @.plan/01-todo/01-cli-design-system-colorful-output/
+/prex -ar @.plan/02-done/01-cli-design-system-colorful-output/
 ```
 
 ## Decisions & Constraints
@@ -111,10 +111,10 @@ The work splits into three rounds following layer boundaries (bottom-up):
 
 ## Completion
 
-When all rounds are done:
+All rounds are done (moved to `.plan/02-done/` on 2026-05-29). The steps taken:
 
 ```bash
-# Update status in this file to "done"
-# Fill in completion timestamps in the execution order table
+# Status in this file set to "done"
+# Completion timestamps filled in the execution order table
 mv .plan/01-todo/01-cli-design-system-colorful-output .plan/02-done/01-cli-design-system-colorful-output
 ```

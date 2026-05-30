@@ -47,7 +47,36 @@ impl Ui {
     #[allow(clippy::unused_self)]
     pub(crate) fn write_warning(&self, body: &str) -> std::io::Result<()> {
         let mut stderr = std::io::stderr().lock();
-        stderr.write_all(body.as_bytes())?;
+        let use_color = color::stderr_color();
+        let rendered = body.strip_prefix('\n').map_or_else(
+            || {
+                body.strip_prefix("warning:").map_or_else(
+                    || body.to_owned(),
+                    |suffix| {
+                        format!(
+                            "{}warning:{}{}",
+                            style_open(styles::BOLD_YELLOW, use_color),
+                            style_close(styles::BOLD_YELLOW, use_color),
+                            suffix
+                        )
+                    },
+                )
+            },
+            |rest| {
+                rest.strip_prefix("warning:").map_or_else(
+                    || body.to_owned(),
+                    |suffix| {
+                        format!(
+                            "\n{}warning:{}{}",
+                            style_open(styles::BOLD_YELLOW, use_color),
+                            style_close(styles::BOLD_YELLOW, use_color),
+                            suffix
+                        )
+                    },
+                )
+            },
+        );
+        stderr.write_all(rendered.as_bytes())?;
         if !body.ends_with('\n') {
             stderr.write_all(b"\n")?;
         }
@@ -64,15 +93,39 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         match fmt {
             crate::cli::OutputFormat::Text => {
-                writeln!(stdout, "codex-session {}", view.wrapper_version)?;
+                let use_color = color::should_color(color::Stream::Stdout);
+                writeln!(
+                    stdout,
+                    "codex-session {}",
+                    styled_text(&view.wrapper_version, styles::BOLD, use_color)
+                )?;
                 match (&view.child_path, &view.child_version) {
-                    (Some(path), Some(version)) => writeln!(stdout, "codex {path} {version}"),
-                    (Some(path), None) => writeln!(stdout, "codex {path} (unknown)"),
-                    (None, _) => writeln!(stdout, "codex (unresolved)"),
+                    (Some(path), Some(version)) => writeln!(
+                        stdout,
+                        "codex {} {}",
+                        styled_text(path, styles::DIM, use_color),
+                        styled_text(version, styles::BOLD, use_color)
+                    ),
+                    (Some(path), None) => writeln!(
+                        stdout,
+                        "codex {} {}",
+                        styled_text(path, styles::DIM, use_color),
+                        styled_text("(unknown)", styles::BOLD_YELLOW, use_color)
+                    ),
+                    (None, _) => writeln!(
+                        stdout,
+                        "codex {}",
+                        styled_text("(unresolved)", styles::BOLD_YELLOW, use_color)
+                    ),
                 }?;
                 if let Some(ref account) = view.account {
                     let source = view.account_source.as_deref().unwrap_or("unknown");
-                    writeln!(stdout, "account:         {account} (source: {source})")?;
+                    writeln!(
+                        stdout,
+                        "account:         {} (source: {})",
+                        styled_text(account, styles::BOLD, use_color),
+                        styled_text(source, styles::DIM, use_color),
+                    )?;
                 }
                 Ok(())
             }
@@ -80,6 +133,7 @@ impl Ui {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     #[allow(clippy::unused_self)]
     pub(crate) fn write_config_status(
         &self,
@@ -89,78 +143,192 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         match fmt {
             crate::cli::OutputFormat::Text => {
+                let use_color = color::should_color(color::Stream::Stdout);
                 writeln!(
                     stdout,
-                    "active-config-recipe: {}",
-                    view.active_config_recipe
-                        .as_deref()
-                        .unwrap_or("(stock mode)")
+                    "{} {}",
+                    styled_text("active-config-recipe:", styles::DIM, use_color),
+                    view.active_config_recipe.as_deref().map_or_else(
+                        || styled_text("(stock mode)", styles::DIM, use_color),
+                        |name| styled_text(name, styles::BOLD, use_color)
+                    )
                 )?;
                 writeln!(
                     stdout,
-                    "manifest-path:  {}",
-                    view.manifest_path
-                        .as_ref()
-                        .map_or_else(|| "(none)".to_owned(), ToString::to_string)
+                    "{}  {}",
+                    styled_text("manifest-path:", styles::DIM, use_color),
+                    view.manifest_path.as_ref().map_or_else(
+                        || styled_text("(none)", styles::DIM, use_color),
+                        |path| styled_text(path, styles::DIM, use_color)
+                    )
                 )?;
-                writeln!(stdout, "account:        {}", view.account)?;
-                writeln!(stdout, "account-source: {}", view.account_source)?;
-                writeln!(stdout, "group-id:       {}", view.group_id)?;
-                writeln!(stdout, "group-id-source: {}", view.group_id_source)?;
-                writeln!(stdout, "codex_home:     {}", view.codex_home)?;
                 writeln!(
                     stdout,
-                    "accounts:       {} ({} in cooldown)",
-                    view.accounts_count, view.accounts_in_cooldown
+                    "{}        {}",
+                    styled_text("account:", styles::DIM, use_color),
+                    styled_text(&view.account, styles::BOLD, use_color)
                 )?;
-                writeln!(stdout, "active-auth:    {}", view.active_account_has_auth)?;
-                writeln!(stdout, "session-root:   {}", view.session_root)?;
-                writeln!(stdout, "session-source: {}", view.session_root_source)?;
                 writeln!(
                     stdout,
-                    "child-bin:      {}",
-                    view.child_bin
-                        .as_ref()
-                        .map_or_else(|| "(unavailable)".to_owned(), ToString::to_string)
+                    "{} {}",
+                    styled_text("account-source:", styles::DIM, use_color),
+                    styled_text(&view.account_source, styles::DIM, use_color)
                 )?;
-                writeln!(stdout, "layers:")?;
+                writeln!(
+                    stdout,
+                    "{}       {}",
+                    styled_text("group-id:", styles::DIM, use_color),
+                    styled_text(&view.group_id, styles::DIM, use_color)
+                )?;
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    styled_text("group-id-source:", styles::DIM, use_color),
+                    styled_text(&view.group_id_source, styles::DIM, use_color)
+                )?;
+                writeln!(
+                    stdout,
+                    "{}     {}",
+                    styled_text("codex_home:", styles::DIM, use_color),
+                    styled_text(&view.codex_home, styles::DIM, use_color)
+                )?;
+                writeln!(
+                    stdout,
+                    "{}       {} ({} in cooldown)",
+                    styled_text("accounts:", styles::DIM, use_color),
+                    styled_text(view.accounts_count.to_string(), styles::BOLD, use_color),
+                    styled_text(
+                        view.accounts_in_cooldown.to_string(),
+                        styles::BOLD_RED,
+                        use_color
+                    )
+                )?;
+                writeln!(
+                    stdout,
+                    "{}    {}",
+                    styled_text("active-auth:", styles::DIM, use_color),
+                    if view.active_account_has_auth {
+                        styled_text("true", styles::BOLD_GREEN, use_color)
+                    } else {
+                        styled_text("false", styles::BOLD_RED, use_color)
+                    }
+                )?;
+                writeln!(
+                    stdout,
+                    "{}   {}",
+                    styled_text("session-root:", styles::DIM, use_color),
+                    styled_text(&view.session_root, styles::DIM, use_color)
+                )?;
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    styled_text("session-source:", styles::DIM, use_color),
+                    styled_text(&view.session_root_source, styles::DIM, use_color)
+                )?;
+                writeln!(
+                    stdout,
+                    "{}      {}",
+                    styled_text("child-bin:", styles::DIM, use_color),
+                    view.child_bin.as_ref().map_or_else(
+                        || styled_text("(unavailable)", styles::DIM, use_color),
+                        |path| styled_text(path, styles::DIM, use_color)
+                    )
+                )?;
+                writeln!(stdout, "{}", styled_text("layers:", styles::DIM, use_color))?;
                 if view.layer_paths.is_empty() {
-                    writeln!(stdout, "  (none)")?;
+                    writeln!(
+                        stdout,
+                        "  {}",
+                        styled_text("(none)", styles::DIM, use_color)
+                    )?;
                 } else {
                     for layer in &view.layer_paths {
                         writeln!(
                             stdout,
                             "  {} => {} (exists={})",
-                            layer.name, layer.path, layer.exists
+                            styled_text(&layer.name, styles::BOLD, use_color),
+                            styled_text(&layer.path, styles::DIM, use_color),
+                            if layer.exists {
+                                styled_text("true", styles::GREEN, use_color)
+                            } else {
+                                styled_text("false", styles::RED, use_color)
+                            }
                         )?;
                         if let Some(error) = layer.error.as_deref() {
-                            writeln!(stdout, "    error: {error}")?;
+                            writeln!(
+                                stdout,
+                                "    {} {error}",
+                                styled_text("error:", styles::BOLD_RED, use_color)
+                            )?;
                         }
                     }
                 }
-                writeln!(stdout, "log.file: {}", view.log.file)?;
-                writeln!(stdout, "log.verbose: {}", view.log.verbose)?;
-                writeln!(stdout, "log.mirror-stderr: {}", view.log.mirror_stderr)?;
-                writeln!(stdout, "log.format: {}", format_log(view.log.format))?;
                 writeln!(
                     stdout,
-                    "log.stderr-format: {}",
+                    "{} {}",
+                    styled_text("log.file:", styles::DIM, use_color),
+                    &view.log.file
+                )?;
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    styled_text("log.verbose:", styles::DIM, use_color),
+                    view.log.verbose
+                )?;
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    styled_text("log.mirror-stderr:", styles::DIM, use_color),
+                    view.log.mirror_stderr
+                )?;
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    styled_text("log.format:", styles::DIM, use_color),
+                    format_log(view.log.format)
+                )?;
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    styled_text("log.stderr-format:", styles::DIM, use_color),
                     view.log.stderr_format.map_or("auto", format_log)
                 )?;
-                writeln!(stdout, "sources:")?;
+                writeln!(
+                    stdout,
+                    "{}",
+                    styled_text("sources:", styles::DIM, use_color)
+                )?;
                 writeln!(stdout, "  defaults")?;
                 writeln!(
                     stdout,
-                    "  user:    {}",
-                    view.sources.user.as_deref().unwrap_or("none")
+                    "  {}    {}",
+                    styled_text("user:", styles::DIM, use_color),
+                    view.sources.user.as_deref().map_or_else(
+                        || styled_text("none", styles::DIM, use_color),
+                        |path| styled_text(path, styles::DIM, use_color)
+                    )
                 )?;
                 writeln!(
                     stdout,
-                    "  project: {}",
-                    view.sources.project.as_deref().unwrap_or("none")
+                    "  {} {}",
+                    styled_text("project:", styles::DIM, use_color),
+                    view.sources.project.as_deref().map_or_else(
+                        || styled_text("none", styles::DIM, use_color),
+                        |path| styled_text(path, styles::DIM, use_color)
+                    )
                 )?;
-                writeln!(stdout, "  env:     {}", view.sources.env)?;
-                writeln!(stdout, "  cli:     {}", view.sources.cli)
+                writeln!(
+                    stdout,
+                    "  {}     {}",
+                    styled_text("env:", styles::DIM, use_color),
+                    styled_text(&view.sources.env, anstyle::Style::new(), use_color)
+                )?;
+                writeln!(
+                    stdout,
+                    "  {}     {}",
+                    styled_text("cli:", styles::DIM, use_color),
+                    styled_text(&view.sources.cli, anstyle::Style::new(), use_color)
+                )
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
         }
@@ -178,17 +346,61 @@ impl Ui {
                 if view.recipes.is_empty() {
                     writeln!(stdout, "(no config recipes)")
                 } else {
+                    let use_color = color::should_color(color::Stream::Stdout);
+                    let name_width = view
+                        .recipes
+                        .iter()
+                        .map(|recipe| recipe.name.len())
+                        .chain(Some("CONFIG_RECIPE".len()))
+                        .max()
+                        .unwrap_or("CONFIG_RECIPE".len())
+                        .max("CONFIG_RECIPE".len());
+                    let layers_width = view
+                        .recipes
+                        .iter()
+                        .map(|recipe| recipe.layer_count.to_string().len())
+                        .chain(Some("LAYERS".len()))
+                        .max()
+                        .unwrap_or("LAYERS".len())
+                        .max("LAYERS".len());
+                    let valid_width = "VALID".len();
+                    writeln!(
+                        stdout,
+                        "{}  {}  {}  {}",
+                        styled_padded("CONFIG_RECIPE", name_width, styles::DIM, use_color),
+                        styled_padded_right("LAYERS", layers_width, styles::DIM, use_color),
+                        styled_padded("VALID", valid_width, styles::DIM, use_color),
+                        styled_text("MANIFEST", styles::DIM, use_color),
+                    )?;
                     for config_recipe in &view.recipes {
                         writeln!(
                             stdout,
-                            "{}: {} layers={} valid={}",
-                            config_recipe.name,
-                            config_recipe.manifest_path,
-                            config_recipe.layer_count,
-                            config_recipe.valid
+                            "{}  {}  {}  {}",
+                            styled_padded(&config_recipe.name, name_width, styles::BOLD, use_color),
+                            styled_padded_right(
+                                config_recipe.layer_count.to_string(),
+                                layers_width,
+                                anstyle::Style::new(),
+                                use_color
+                            ),
+                            styled_padded(
+                                if config_recipe.valid { "✓" } else { "✗" },
+                                valid_width,
+                                if config_recipe.valid {
+                                    styles::GREEN
+                                } else {
+                                    styles::RED
+                                },
+                                use_color,
+                            ),
+                            styled_text(&config_recipe.manifest_path, styles::DIM, use_color),
                         )?;
                         if let Some(error) = config_recipe.error.as_deref() {
-                            writeln!(stdout, "  error: {error}")?;
+                            writeln!(
+                                stdout,
+                                "  {} {error}",
+                                styled_text("error:", styles::BOLD_RED, use_color)
+                            )?;
                         }
                     }
                     Ok(())
@@ -208,26 +420,44 @@ impl Ui {
         match fmt {
             crate::cli::OutputFormat::Text => {
                 if view.stock_mode {
-                    return writeln!(stdout, "stock mode");
+                    let use_color = color::should_color(color::Stream::Stdout);
+                    return writeln!(
+                        stdout,
+                        "{}",
+                        styled_text("stock mode", styles::DIM, use_color)
+                    );
                 }
+                let use_color = color::should_color(color::Stream::Stdout);
                 writeln!(
                     stdout,
-                    "config-recipe: {}",
-                    view.active_config_recipe.as_deref().unwrap_or("(none)")
+                    "{} {}",
+                    styled_text("config-recipe:", styles::DIM, use_color),
+                    view.active_config_recipe.as_deref().map_or_else(
+                        || styled_text("(none)", styles::DIM, use_color),
+                        |name| styled_text(name, styles::BOLD, use_color)
+                    )
                 )?;
                 writeln!(
                     stdout,
-                    "manifest: {}",
-                    view.manifest_path
-                        .as_ref()
-                        .map_or_else(|| "(none)".to_owned(), ToString::to_string)
+                    "{} {}",
+                    styled_text("manifest:", styles::DIM, use_color),
+                    view.manifest_path.as_ref().map_or_else(
+                        || styled_text("(none)", styles::DIM, use_color),
+                        |path| styled_text(path, styles::DIM, use_color)
+                    )
                 )?;
-                writeln!(stdout, "layers:")?;
+                writeln!(stdout, "{}", styled_text("layers:", styles::DIM, use_color))?;
                 for layer in &view.layer_paths {
                     writeln!(
                         stdout,
                         "  {} => {} (exists={})",
-                        layer.name, layer.path, layer.exists
+                        styled_text(&layer.name, styles::BOLD, use_color),
+                        styled_text(&layer.path, styles::DIM, use_color),
+                        if layer.exists {
+                            styled_text("true", styles::GREEN, use_color)
+                        } else {
+                            styled_text("false", styles::RED, use_color)
+                        }
                     )?;
                 }
                 Ok(())
@@ -236,6 +466,7 @@ impl Ui {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     #[allow(clippy::unused_self)]
     pub(crate) fn write_doctor(
         &self,
@@ -245,6 +476,7 @@ impl Ui {
         let mut stdout = std::io::stdout().lock();
         match fmt {
             crate::cli::OutputFormat::Text => {
+                let use_color = color::should_color(color::Stream::Stdout);
                 writeln!(stdout, "account:         {}", report.account)?;
                 writeln!(stdout, "account-source:  {}", report.account_source)?;
                 writeln!(stdout, "group-id:        {}", report.group_id)?;
@@ -253,7 +485,8 @@ impl Ui {
                 writeln!(
                     stdout,
                     "active account:  {} ({})",
-                    report.active_account.name, report.active_account.source
+                    styled_text(&report.active_account.name, styles::BOLD, use_color),
+                    styled_text(&report.active_account.source, styles::DIM, use_color)
                 )?;
                 writeln!(stdout, "accounts:")?;
                 if report.accounts.is_empty() {
@@ -273,13 +506,26 @@ impl Ui {
                         writeln!(
                             stdout,
                             "  {} current={} has_auth={} last_used_at_unix={} {}",
-                            account.name,
-                            account.current,
-                            account.has_auth,
-                            account
-                                .last_used_at_unix
-                                .map_or_else(|| "(none)".to_owned(), |value| value.to_string()),
-                            cooldown_str,
+                            styled_text(&account.name, styles::BOLD, use_color),
+                            if account.current {
+                                styled_text("true", styles::BOLD_CYAN, use_color)
+                            } else {
+                                styled_text("false", anstyle::Style::new(), use_color)
+                            },
+                            if account.has_auth {
+                                styled_text("✓", styles::GREEN, use_color)
+                            } else {
+                                styled_text("✗", styles::RED, use_color)
+                            },
+                            account.last_used_at_unix.map_or_else(
+                                || styled_text("(none)", styles::DIM, use_color),
+                                |value| styled_text(value.to_string(), styles::DIM, use_color),
+                            ),
+                            if account.cooldown_active {
+                                styled_text(&cooldown_str, styles::BOLD_RED, use_color)
+                            } else {
+                                cooldown_str
+                            },
                         )?;
                     }
                 }
@@ -293,18 +539,27 @@ impl Ui {
                     .max(8);
                 writeln!(
                     stdout,
-                    "status   {:width$}  detail",
-                    "check",
-                    width = name_width
+                    "{}  {}  {}",
+                    styled_padded("STATUS", 7, styles::DIM, use_color),
+                    styled_padded("CHECK", name_width, styles::DIM, use_color),
+                    styled_text("DETAIL", styles::DIM, use_color),
                 )?;
                 for check in &report.checks {
                     writeln!(
                         stdout,
-                        "{:7}  {:width$}  {}",
-                        format_status(check.status),
-                        check.name,
+                        "{}  {}  {}",
+                        styled_padded(
+                            format_status(check.status),
+                            7,
+                            match check.status {
+                                crate::commands::doctor::CheckStatus::Ok => styles::BOLD_GREEN,
+                                crate::commands::doctor::CheckStatus::Warn => styles::BOLD_YELLOW,
+                                crate::commands::doctor::CheckStatus::Fail => styles::BOLD_RED,
+                            },
+                            use_color,
+                        ),
+                        styled_padded(&check.name, name_width, styles::BOLD, use_color),
                         check.detail,
-                        width = name_width
                     )?;
                 }
                 if !report.next_steps.is_empty() {
@@ -323,8 +578,22 @@ impl Ui {
                 }
                 writeln!(
                     stdout,
-                    "\nsummary: {} OK, {} WARN, {} FAIL",
-                    report.summary.ok, report.summary.warn, report.summary.fail
+                    "\nsummary: {}, {}, {}",
+                    styled_text(
+                        format!("{} OK", report.summary.ok),
+                        styles::BOLD_GREEN,
+                        use_color
+                    ),
+                    styled_text(
+                        format!("{} WARN", report.summary.warn),
+                        styles::BOLD_YELLOW,
+                        use_color
+                    ),
+                    styled_text(
+                        format!("{} FAIL", report.summary.fail),
+                        styles::BOLD_RED,
+                        use_color
+                    )
                 )
             }
             crate::cli::OutputFormat::Json => write_json_line(&mut stdout, report),
@@ -667,24 +936,63 @@ impl Ui {
         view: &crate::commands::config_recipe_compose::ConfigRecipeComposeView,
     ) -> std::io::Result<()> {
         let mut stdout = std::io::stdout().lock();
+        let use_color = color::should_color(color::Stream::Stdout);
         writeln!(
             stdout,
-            "config-recipe:      {}",
-            view.config_recipe.as_deref().unwrap_or("(stock mode)")
+            "{}      {}",
+            styled_text("config-recipe:", styles::DIM, use_color),
+            view.config_recipe.as_deref().map_or_else(
+                || styled_text("(stock mode)", styles::DIM, use_color),
+                |name| styled_text(name, styles::BOLD, use_color)
+            )
         )?;
-        writeln!(stdout, "group-id:     {}", view.group_id)?;
-        writeln!(stdout, "session-dir:  {}", view.session_dir)?;
-        writeln!(stdout, "config:       {}", view.config_path)?;
-        writeln!(stdout, "sidecar:      {}", view.sidecar_path)?;
-        writeln!(stdout, "session-meta: {}", view.session_meta_path)?;
+        writeln!(
+            stdout,
+            "{}     {}",
+            styled_text("group-id:", styles::DIM, use_color),
+            styled_text(&view.group_id, styles::BOLD, use_color)
+        )?;
+        writeln!(
+            stdout,
+            "{}  {}",
+            styled_text("session-dir:", styles::DIM, use_color),
+            styled_text(&view.session_dir, styles::DIM, use_color)
+        )?;
+        writeln!(
+            stdout,
+            "{}       {}",
+            styled_text("config:", styles::DIM, use_color),
+            styled_text(&view.config_path, styles::DIM, use_color)
+        )?;
+        writeln!(
+            stdout,
+            "{}      {}",
+            styled_text("sidecar:", styles::DIM, use_color),
+            styled_text(&view.sidecar_path, styles::DIM, use_color)
+        )?;
+        writeln!(
+            stdout,
+            "{} {}",
+            styled_text("session-meta:", styles::DIM, use_color),
+            styled_text(&view.session_meta_path, styles::DIM, use_color)
+        )?;
         // Emitted profile siblings, one per `profiles/<name>.config.toml`
         // input. Suppressed entirely when no profiles were emitted so the
         // output stays minimal in stock mode and for recipes without
         // profile files.
         if !view.profile_paths.is_empty() {
-            writeln!(stdout, "profiles:")?;
+            writeln!(
+                stdout,
+                "{}",
+                styled_text("profiles:", styles::DIM, use_color)
+            )?;
             for profile in &view.profile_paths {
-                writeln!(stdout, "  {}: {}", profile.name, profile.path)?;
+                writeln!(
+                    stdout,
+                    "  {}: {}",
+                    styled_text(&profile.name, styles::BOLD, use_color),
+                    styled_text(&profile.path, styles::DIM, use_color)
+                )?;
             }
         }
         Ok(())
@@ -957,9 +1265,9 @@ const fn fetched_label(_view: &crate::commands::account::AccountQuotaEntryView) 
 mod styles {
     use anstyle::{AnsiColor, Effects, Style};
 
-    pub(super) const BOLD: Style = Style::new().effects(Effects::BOLD);
-    pub(super) const DIM: Style = Style::new().effects(Effects::DIMMED);
-    pub(super) const BOLD_CYAN: Style = Style::new()
+    pub(crate) const BOLD: Style = Style::new().effects(Effects::BOLD);
+    pub(crate) const DIM: Style = Style::new().effects(Effects::DIMMED);
+    pub(crate) const BOLD_CYAN: Style = Style::new()
         .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)))
         .effects(Effects::BOLD);
     pub(super) const GREEN: Style =
@@ -971,12 +1279,14 @@ mod styles {
     pub(super) const BOLD_YELLOW: Style = Style::new()
         .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)))
         .effects(Effects::BOLD);
-    pub(super) const BOLD_RED: Style = Style::new()
+    pub(crate) const BOLD_RED: Style = Style::new()
         .fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)))
         .effects(Effects::BOLD);
 }
 
-fn style_open(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display {
+pub(crate) use styles::{BOLD, BOLD_CYAN, BOLD_RED, DIM};
+
+pub(crate) fn style_open(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display {
     if use_color {
         style.render()
     } else {
@@ -984,7 +1294,7 @@ fn style_open(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display 
     }
 }
 
-fn style_close(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display {
+pub(crate) fn style_close(style: anstyle::Style, use_color: bool) -> impl std::fmt::Display {
     if use_color {
         style.render_reset()
     } else {

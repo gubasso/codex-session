@@ -6,15 +6,22 @@ pub(crate) fn run(
     args: crate::cli::account::AccountListArgs,
 ) -> Result<(), crate::error::AppError> {
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
-    let active = match crate::services::account::resolver::resolve(ctx) {
-        Ok(resolved) => Some(crate::commands::account::AccountCurrentView {
-            name: resolved.id.to_string(),
-            source: crate::services::account::resolver::source_label(resolved.source).to_owned(),
+    let active = match crate::services::account::resolver::resolve_for_display(ctx)? {
+        crate::services::account::resolver::DisplayAccount::Pinned { id, source } => {
+            Some(crate::commands::account::AccountCurrentView {
+                name: id.to_string(),
+                source: crate::services::account::resolver::source_label(source).to_owned(),
+            })
+        }
+        crate::services::account::resolver::DisplayAccount::Auto {
+            last_selected: Some(id),
+        } => Some(crate::commands::account::AccountCurrentView {
+            name: id.to_string(),
+            source: "auto".to_owned(),
         }),
-        Err(crate::error::AppError::Account(
-            crate::services::account::AccountError::NoneResolved,
-        )) => None,
-        Err(err) => return Err(err),
+        crate::services::account::resolver::DisplayAccount::Auto {
+            last_selected: None,
+        } => None,
     };
     let active_name = active.as_ref().map(|value| value.name.as_str());
     let entries = registry

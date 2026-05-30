@@ -30,6 +30,6 @@ fn doctor_reports_accounts_section() {
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(value["active-account"]["name"], "work");
-    assert_eq!(value["active-account"]["source"], "lru");
+    assert_eq!(value["active-account"]["source"], "auto");
     assert!(value["accounts"].as_array().is_some());
 }

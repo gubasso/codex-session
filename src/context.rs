@@ -66,7 +66,22 @@ impl LazySession {
         }
 
         let resolved = crate::services::session::group_id::current(ctx)?;
-        let resolved_account = crate::services::account::resolver::resolve(ctx)?;
+        let resolved_account = match crate::services::account::resolver::resolve_for_display(ctx)? {
+            crate::services::account::resolver::DisplayAccount::Pinned { id, source } => {
+                crate::services::account::resolver::ResolvedAccount { id, source }
+            }
+            crate::services::account::resolver::DisplayAccount::Auto {
+                last_selected: Some(id),
+            } => crate::services::account::resolver::ResolvedAccount {
+                id,
+                source: crate::services::account::resolver::AccountResolutionSource::Auto,
+            },
+            crate::services::account::resolver::DisplayAccount::Auto {
+                last_selected: None,
+            } => {
+                return Err(crate::services::account::AccountError::NoneSelected.into());
+            }
+        };
         let root = crate::services::session::dir::resolve_session_root(
             ctx.config.paths.runtime_dir.as_deref(),
             &ctx.config.paths.state_dir,

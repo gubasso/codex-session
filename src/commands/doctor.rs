@@ -103,15 +103,43 @@ fn build_report(
         &ctx.config.paths.state_dir,
     )
     .ok();
-    // Match the `session.group_id` failure mode below: surface a `fail`
-    // check and render the report's top-level account fields as
-    // `(unresolved)` / `error` instead of fabricating a `default`/`fallback`
-    // value that would contradict the failed check.
-    let resolved_account_result = crate::services::account::resolver::resolve(ctx);
-    if let Err(err) = &resolved_account_result {
+    let display_account_result = crate::services::account::resolver::resolve_for_display(ctx);
+    if let Err(err) = &display_account_result {
         checks.push(fail("session.account", err.to_string()));
     }
-    let resolved_account = resolved_account_result.ok();
+    let (resolved_account, account_name, account_source) = display_account_result.map_or_else(
+        |_| (None, "(unresolved)".to_owned(), "error".to_owned()),
+        |display| match display {
+            crate::services::account::resolver::DisplayAccount::Pinned { id, source } => {
+                let name = id.to_string();
+                (
+                    Some(crate::services::account::resolver::ResolvedAccount { id, source }),
+                    name,
+                    crate::services::account::resolver::source_label(source).to_owned(),
+                )
+            }
+            crate::services::account::resolver::DisplayAccount::Auto {
+                last_selected: Some(id),
+            } => {
+                let name = id.to_string();
+                (
+                    Some(crate::services::account::resolver::ResolvedAccount {
+                        id,
+                        source: crate::services::account::resolver::AccountResolutionSource::Auto,
+                    }),
+                    name,
+                    "auto".to_owned(),
+                )
+            }
+            crate::services::account::resolver::DisplayAccount::Auto {
+                last_selected: None,
+            } => (
+                None,
+                "(auto — none selected yet)".to_owned(),
+                "auto".to_owned(),
+            ),
+        },
+    );
     let (group_id, group_id_source, codex_home) = match (
         crate::services::session::group_id::current(ctx),
         root.as_ref(),
@@ -272,15 +300,6 @@ fn build_report(
     populate_next_steps(&checks, &mut next_steps);
 
     let summary = summarize(&checks);
-    let (account_name, account_source) = resolved_account.as_ref().map_or_else(
-        || ("(unresolved)".to_owned(), "error".to_owned()),
-        |value| {
-            (
-                value.id.to_string(),
-                crate::services::account::resolver::source_label(value.source).to_owned(),
-            )
-        },
-    );
     DoctorReport {
         config_recipe: active,
         account: account_name.clone(),

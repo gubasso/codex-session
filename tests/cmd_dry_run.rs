@@ -23,7 +23,7 @@ fn dry_run_prints_invocation_session_and_codex_home_without_exec() {
         env.normalize_text(&String::from_utf8(assert.get_output().stdout.clone()).unwrap());
 
     assert!(
-        stdout.starts_with("account: default\naccount-source: lru\nbinary: "),
+        stdout.starts_with("account: default\naccount-source: auto\nbinary: "),
         "missing account/binary header lines: {stdout}"
     );
     assert!(stdout.contains("argv:"));

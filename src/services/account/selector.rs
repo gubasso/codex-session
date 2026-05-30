@@ -4,13 +4,21 @@
 
 #![allow(clippy::result_large_err)]
 
+use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
 
-use super::{AccountError, AccountId, cooldown, quota, registry::Registry, token_expiry};
+use super::{
+    AccountError, AccountId, cooldown, quota,
+    registry::{AccountEntry, Registry},
+    token_expiry,
+};
 
 const LONG_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
 
-pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, AccountError> {
+pub(crate) fn pick(
+    ctx: &crate::context::AppContext,
+    exclude: &HashSet<AccountId>,
+) -> Result<AccountId, AccountError> {
     let registry = Registry::from_config(&ctx.config);
     let accounts = registry.list()?;
     let lru = registry.current()?;
@@ -19,16 +27,12 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
 
     let mut candidates = Vec::with_capacity(accounts.len());
     for entry in accounts {
-        if !entry.has_auth {
-            tracing::debug!(account = %entry.id, reason = "no-auth");
+        if exclude.contains(&entry.id) {
+            tracing::debug!(account = %entry.id, reason = "already-tried");
             continue;
         }
-        if cooldown_active(&registry, &entry.id)? {
-            tracing::debug!(account = %entry.id, reason = "cooldown");
-            continue;
-        }
-        if token_expired(ctx, &entry.id) {
-            tracing::debug!(account = %entry.id, reason = "token-expired");
+        if let Some(reason) = usability_skip_reason(ctx, &registry, &entry) {
+            tracing::debug!(account = %entry.id, reason);
             continue;
         }
 
@@ -64,13 +68,103 @@ pub(crate) fn pick(ctx: &crate::context::AppContext) -> Result<AccountId, Accoun
         ctx.config.account.five_hour_weight,
     )?;
 
-    registry.set_current(&picked.id)?;
     tracing::info!(
         op = "account.select",
         account = %picked.id,
         total = picked.total
     );
     Ok(picked.id)
+}
+
+pub(crate) fn is_usable(
+    ctx: &crate::context::AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+) -> bool {
+    usability_skip_reason(ctx, registry, entry).is_none()
+}
+
+pub(crate) fn skip_reason(
+    ctx: &crate::context::AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+) -> Option<String> {
+    try_skip_reason(ctx, registry, entry, true)
+        .unwrap_or_else(|err| Some(format!("account state error: {err}")))
+}
+
+fn try_skip_reason(
+    ctx: &crate::context::AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+    include_quota_threshold: bool,
+) -> Result<Option<String>, AccountError> {
+    if !entry.has_auth {
+        return Ok(Some("no auth".to_owned()));
+    }
+    if let Some(reason) = cooldown_reason(registry, &entry.id)? {
+        return Ok(Some(reason));
+    }
+    if token_expired(ctx, &entry.id) {
+        return Ok(Some("token expired".to_owned()));
+    }
+    if include_quota_threshold && let Some(reason) = quota_threshold_reason(ctx, &entry.id) {
+        return Ok(Some(reason));
+    }
+    Ok(None)
+}
+
+fn usability_skip_reason(
+    ctx: &crate::context::AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+) -> Option<String> {
+    try_skip_reason(ctx, registry, entry, false)
+        .unwrap_or_else(|err| Some(format!("account state error: {err}")))
+}
+
+fn cooldown_reason(
+    registry: &Registry,
+    account: &AccountId,
+) -> Result<Option<String>, AccountError> {
+    let account_root = registry.account_dir(account);
+    let Some(cd) = cooldown::read(&account_root)? else {
+        return Ok(None);
+    };
+    if !cooldown::is_active(&cd, now_unix()) {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "cooldown until {}",
+        format_unix_rfc3339(cd.reset_at_unix)
+    )))
+}
+
+fn quota_threshold_reason(ctx: &crate::context::AppContext, account: &AccountId) -> Option<String> {
+    let ttl = Duration::from_secs(ctx.config.account.quota_ttl_secs);
+    let Ok(quota::QuotaResult::Ok(quota)) = quota::get(ctx, account, ttl) else {
+        return None;
+    };
+    let below_five_hour = quota.five_hour.percent_left <= ctx.config.account.five_hour_threshold;
+    let below_weekly = quota.weekly.percent_left <= ctx.config.account.weekly_floor;
+    (below_five_hour || below_weekly).then(|| {
+        format!(
+            "below quota threshold (5h {:.1}% / weekly {:.1}%)",
+            quota.five_hour.percent_left, quota.weekly.percent_left
+        )
+    })
+}
+
+fn format_unix_rfc3339(value: u64) -> String {
+    let Ok(timestamp) = i64::try_from(value) else {
+        return value.to_string();
+    };
+    let Ok(datetime) = time::OffsetDateTime::from_unix_timestamp(timestamp) else {
+        return value.to_string();
+    };
+    datetime
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| value.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -309,6 +403,7 @@ fn score_for_display(quota_state: &QuotaState, params: &ScoringParams) -> ScoreB
     }
 }
 
+#[cfg(test)]
 fn cooldown_active(registry: &Registry, account: &AccountId) -> Result<bool, AccountError> {
     let account_root = registry.account_dir(account);
     Ok(cooldown::read(&account_root)?
@@ -340,11 +435,12 @@ fn now_unix() -> u64 {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use std::collections::HashSet;
     use std::sync::Arc;
     use std::time::Duration;
 
     use super::{
-        Candidate, LONG_IDLE_SECS, QuotaState, ScoringParams, cooldown_active,
+        Candidate, LONG_IDLE_SECS, QuotaState, ScoringParams, cooldown_active, pick,
         pick_from_candidates, score_from_quota_result, token_expired,
     };
 
@@ -394,6 +490,30 @@ mod tests {
                 reset_at_unix: 0,
             },
         })
+    }
+
+    fn quota_cache(five_hour: f64, weekly: f64) -> String {
+        format!(
+            r#"{{
+    "fetched_at_unix": 4102444800,
+    "ttl_secs": 30,
+    "body": {{
+        "kind": "ok",
+        "five_hour": {{ "percent_left": {five_hour}, "reset_at_unix": 0 }},
+        "weekly": {{ "percent_left": {weekly}, "reset_at_unix": 0 }}
+    }}
+}}"#
+        )
+    }
+
+    fn write_quota_cache(ctx: &crate::context::AppContext, account: &str, body: &str) {
+        let cache_dir = ctx.config.paths.state_dir.join("cache").join("quota");
+        std::fs::create_dir_all(cache_dir.as_std_path()).unwrap();
+        std::fs::write(
+            cache_dir.join(format!("{account}.json")).as_std_path(),
+            body,
+        )
+        .unwrap();
     }
 
     fn candidate<'a>(
@@ -486,6 +606,34 @@ mod tests {
         let candidates = vec![candidate("unknown", QuotaState::Unknown, None, None, 0)];
         let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
         assert_eq!(picked.id.as_str(), "unknown");
+    }
+
+    #[test]
+    fn pick_excludes_already_tried_and_does_not_set_current() {
+        let (_temp, ctx, registry) = test_ctx();
+        let high: crate::services::account::AccountId = "high".parse().unwrap();
+        let low: crate::services::account::AccountId = "low".parse().unwrap();
+        registry.add(&high).unwrap();
+        registry.add(&low).unwrap();
+        std::fs::write(
+            registry.group_auth_seed_path(&high).as_std_path(),
+            r#"{"api_key":"sk-test"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            registry.group_auth_seed_path(&low).as_std_path(),
+            r#"{"api_key":"sk-test"}"#,
+        )
+        .unwrap();
+        write_quota_cache(&ctx, "high", &quota_cache(95.0, 95.0));
+        write_quota_cache(&ctx, "low", &quota_cache(70.0, 70.0));
+
+        let mut exclude = HashSet::new();
+        exclude.insert(high);
+        let picked = pick(&ctx, &exclude).unwrap();
+
+        assert_eq!(picked.as_str(), "low");
+        assert!(registry.current().unwrap().is_none());
     }
 
     #[test]

@@ -52,7 +52,7 @@ fn config_status_json_snapshot() {
         .clone();
     let mut value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     env.normalize_json(&mut value);
-    assert_eq!(value["account-source"], "lru");
+    assert_eq!(value["account-source"], "auto");
     assert!(value["accounts-count"].is_number());
     assert!(value["active-account-has-auth"].is_boolean());
     assert!(value["accounts-in-cooldown"].is_number());

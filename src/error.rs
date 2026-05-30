@@ -7,6 +7,7 @@
 #![allow(clippy::must_use_candidate)]
 
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -171,13 +172,13 @@ impl AppError {
             Self::Account(err) => match err {
                 crate::services::account::AccountError::InvalidName { .. }
                 | crate::services::account::AccountError::NonInteractive { .. }
-                | crate::services::account::AccountError::NoneResolved
                 | crate::services::account::AccountError::NoAccounts
                 | crate::services::account::AccountError::NoneSelected => 64,
                 crate::services::account::AccountError::NotFound { .. }
                 | crate::services::account::AccountError::AlreadyExists { .. }
                 | crate::services::account::AccountError::PingProfileMissing { .. } => 78,
                 crate::services::account::AccountError::NoEligible
+                | crate::services::account::AccountError::AutoExhausted { .. }
                 | crate::services::account::AccountError::LoginFailed { .. }
                 | crate::services::account::AccountError::AuthMissing { .. } => 75,
                 crate::services::account::AccountError::QuotaFetch { .. } => 69,
@@ -528,10 +529,16 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             what: "account: no native auth.json found".to_owned(),
             why_line: "~/.codex/auth.json does not exist; run `codex login` first".to_owned(),
         },
-        AccountError::NoneResolved => ErrorDetail {
-            what: "account: no account resolved".to_owned(),
-            why_line: "no account could be resolved from any source".to_owned(),
-        },
+        AccountError::AutoExhausted { report } => {
+            let mut why_line = "no account could complete the request".to_owned();
+            for line in report {
+                let _ = write!(why_line, "\n  • {}   {}", line.id, line.outcome);
+            }
+            ErrorDetail {
+                what: "account: auto-selection exhausted".to_owned(),
+                why_line,
+            }
+        }
         AccountError::AuthMissing { name } => ErrorDetail {
             what: format!("account: '{name}' has no valid authentication"),
             why_line: format!("run `codex-session account refresh {name}` to re-authenticate"),
@@ -543,9 +550,7 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
         },
         AccountError::NoneSelected => ErrorDetail {
             what: "account: no account selected".to_owned(),
-            why_line:
-                "run `codex-session account use <name>` or pass `--account <name>` to select one"
-                    .to_owned(),
+            why_line: "pass `--account <name>` to pin one, or run `codex-session login`".to_owned(),
         },
         AccountError::PingProfileMissing { detail } => ErrorDetail {
             what: "account: the `ping` profile file is missing from your active \
@@ -694,9 +699,10 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Account(crate::services::account::AccountError::NativeAuthMissing) => {
             Some("run `codex login` first to create ~/.codex/auth.json")
         }
-        AppError::Account(crate::services::account::AccountError::NoneResolved) => {
-            Some("run `codex-session account add <name>` or pass --account <name>")
-        }
+        AppError::Account(crate::services::account::AccountError::AutoExhausted { .. }) => Some(
+            "Run `codex-session account health` for details, or clear cooldowns with \
+                `codex-session account cooldown clear --all`.",
+        ),
         AppError::Account(crate::services::account::AccountError::AuthMissing { .. }) => {
             Some("run `codex-session account refresh <name>` to re-authenticate")
         }
@@ -704,7 +710,7 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             Some("run `codex-session account add <name>` to register your first account")
         }
         AppError::Account(crate::services::account::AccountError::NoneSelected) => {
-            Some("run `codex-session account use <name>` or pass --account <name>")
+            Some("pass `--account <name>` to pin one, or run `codex-session login`")
         }
         AppError::Account(crate::services::account::AccountError::PingProfileMissing {
             ..

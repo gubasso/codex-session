@@ -5,7 +5,7 @@ expression: value
 ---
 {
   "account": "default",
-  "account-source": "lru",
+  "account-source": "auto",
   "child-path": "<TMP>/bin/codex",
   "child-version": "codex 1.2.3",
   "wrapper-version": "0.1.0"

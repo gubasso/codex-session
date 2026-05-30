@@ -4,7 +4,7 @@ expression: value
 ---
 {
   "account": "default",
-  "account-source": "lru",
+  "account-source": "auto",
   "accounts-count": 1,
   "accounts-in-cooldown": 0,
   "active-account-has-auth": true,

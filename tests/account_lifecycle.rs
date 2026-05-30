@@ -110,7 +110,7 @@ fn account_remove_warns_on_recent_sessions() {
 }
 
 #[test]
-fn account_use_pins_lru() {
+fn account_use_sets_last_selected_shown_as_auto() {
     let env = TestEnv::new();
     env.seed_account("personal", "{\"token\":\"abc\"}\n");
     env.cmd()
@@ -128,7 +128,7 @@ fn account_use_pins_lru() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"name\": \"personal\""))
-        .stdout(predicate::str::contains("\"source\": \"lru\""));
+        .stdout(predicate::str::contains("\"source\": \"auto\""));
 }
 
 #[test]

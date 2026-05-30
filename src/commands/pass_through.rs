@@ -6,6 +6,7 @@
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
 use camino::Utf8PathBuf;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
 
@@ -48,17 +49,23 @@ pub(crate) fn run(
         _ => {}
     }
 
-    let gated = crate::services::account::gate::ensure(ctx)?;
+    let outcome = crate::services::account::gate::ensure(ctx)?;
 
     if let Some(intent) = detect_resume(argv) {
-        return run_resume(ctx, argv, &intent, &gated);
+        return run_resume(ctx, argv, &intent, outcome.resolved_or_none());
     }
 
     if ctx.global.dry_run {
-        let prepared = prepare_invocation(ctx, argv, &gated, None)?;
+        let resolved = match &outcome {
+            crate::services::account::gate::GateOutcome::Resolved(resolved) => resolved.clone(),
+            crate::services::account::gate::GateOutcome::AutoDeferred => {
+                crate::services::account::resolver::resolve_for_exec(ctx, &HashSet::new())?
+            }
+        };
+        let prepared = prepare_invocation(ctx, argv, &resolved, None)?;
         let dry_ctx = crate::domain::child_invocation::DryRunContext {
-            account: gated.id.to_string(),
-            account_source: crate::services::account::resolver::source_label(gated.source)
+            account: resolved.id.to_string(),
+            account_source: crate::services::account::resolver::source_label(resolved.source)
                 .to_owned(),
         };
         ctx.ui.write_dry_run(
@@ -70,7 +77,14 @@ pub(crate) fn run(
         tracing::info!(op = "pass-through", status = "ok", outcome = "dry-run");
         return Ok(0);
     }
-    crate::services::account::retry::run_with_retry(ctx, argv)
+    match outcome {
+        crate::services::account::gate::GateOutcome::Resolved(resolved) => {
+            crate::services::account::retry::single_attempt(ctx, argv, &resolved)
+        }
+        crate::services::account::gate::GateOutcome::AutoDeferred => {
+            crate::services::account::retry::run_auto(ctx, argv)
+        }
+    }
 }
 
 /// Run the child for one attempt. Returns the exit code plus stdout and
@@ -529,7 +543,7 @@ fn run_resume(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
     intent: &ResumeIntent,
-    gated: &crate::services::account::resolver::ResolvedAccount,
+    fallback: Option<&crate::services::account::resolver::ResolvedAccount>,
 ) -> Result<i32, crate::error::AppError> {
     tracing::info!(op = "resume", status = "start", ?intent);
 
@@ -577,10 +591,14 @@ fn run_resume(
         let sanitized = strip_wrapper_resume_flags(argv);
         let fallback_argv = sanitized.as_deref().unwrap_or(argv);
         if ctx.global.dry_run {
-            let prepared = prepare_invocation(ctx, fallback_argv, gated, None)?;
+            let resolved = fallback.cloned().map_or_else(
+                || crate::services::account::resolver::resolve_for_exec(ctx, &HashSet::new()),
+                Ok,
+            )?;
+            let prepared = prepare_invocation(ctx, fallback_argv, &resolved, None)?;
             let dry_ctx = crate::domain::child_invocation::DryRunContext {
-                account: gated.id.to_string(),
-                account_source: crate::services::account::resolver::source_label(gated.source)
+                account: resolved.id.to_string(),
+                account_source: crate::services::account::resolver::source_label(resolved.source)
                     .to_owned(),
             };
             ctx.ui.write_dry_run(
@@ -592,7 +610,12 @@ fn run_resume(
             tracing::info!(op = "resume", status = "ok", outcome = "dry-run-fallback");
             return Ok(0);
         }
-        crate::services::account::retry::run_with_retry(ctx, fallback_argv)
+        fallback.map_or_else(
+            || crate::services::account::retry::run_auto(ctx, fallback_argv),
+            |resolved| {
+                crate::services::account::retry::single_attempt(ctx, fallback_argv, resolved)
+            },
+        )
     }
 }
 

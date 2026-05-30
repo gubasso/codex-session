@@ -76,15 +76,24 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
         "retry should rotate to a different CODEX_HOME"
     );
     assert!(
-        homes[0].contains("/accounts/work/groups/"),
-        "first attempt should use work, got {homes:?}"
+        homes
+            .iter()
+            .any(|home| home.contains("/accounts/work/groups/")),
+        "work should be attempted, got {homes:?}"
     );
     assert!(
-        homes[1].contains("/accounts/personal/groups/"),
-        "second attempt should use personal, got {homes:?}"
+        homes
+            .iter()
+            .any(|home| home.contains("/accounts/personal/groups/")),
+        "personal should be attempted, got {homes:?}"
     );
     assert!(
         env.named_account_root("work")
+            .join("cooldown.json")
+            .exists()
+    );
+    assert!(
+        env.named_account_root("personal")
             .join("cooldown.json")
             .exists()
     );

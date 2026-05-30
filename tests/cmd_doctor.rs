@@ -99,9 +99,9 @@ fn doctor_json_shape() {
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(value["config-recipe"], "default");
     assert_eq!(value["account"], "work");
-    assert_eq!(value["account-source"], "lru");
+    assert_eq!(value["account-source"], "auto");
     assert_eq!(value["active-account"]["name"], "work");
-    assert_eq!(value["active-account"]["source"], "lru");
+    assert_eq!(value["active-account"]["source"], "auto");
     assert!(value["accounts"].as_array().is_some());
     let accounts = value["accounts"].as_array().unwrap();
     for account in accounts {
@@ -449,13 +449,13 @@ fn doctor_reports_state_when_session_root_not_yet_initialized() {
         "test precondition: runtime session root must not exist yet"
     );
 
-    // With no accounts, doctor now reports a FAIL for session.account,
-    // so exit code is 1. The assertions below only concern session.root.
+    // With no accounts, doctor reports auto-unset as passing. The assertions
+    // below only concern session.root.
     let stdout = String::from_utf8(
         env.cmd()
             .arg("doctor")
             .assert()
-            .code(1)
+            .success()
             .get_output()
             .stdout
             .clone(),

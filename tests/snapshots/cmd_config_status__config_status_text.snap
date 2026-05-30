@@ -5,7 +5,7 @@ expression: stdout
 active-config-recipe: default
 manifest-path:  <TMP>/config/codex-session/config-recipes/default.yaml
 account:        default
-account-source: lru
+account-source: auto
 group-id:       stable
 group-id-source: flag
 codex_home:     <TMP>/state/codex-session/accounts/default/groups/stable

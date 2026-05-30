@@ -62,5 +62,6 @@ fn auto_exec_returns_tempfail_when_all_are_below_threshold() {
         .assert()
         .failure()
         .code(75)
-        .stderr(predicate::str::contains("no eligible account"));
+        .stderr(predicate::str::contains("auto-selection exhausted"))
+        .stderr(predicate::str::contains("below quota threshold"));
 }

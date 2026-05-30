@@ -156,20 +156,20 @@ Reference: <https://developers.openai.com/codex/skills>
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| `0` | Success |
-| `64` | Usage / clap parse failure |
-| `65` | Data error |
-| `66` | Missing required input |
-| `69` | Service unavailable |
-| `70` | Internal software error |
-| `74` | Generic I/O failure or exec handoff failure |
-| `75` | Auth failure / all accounts exhausted |
-| `77` | Permission denied |
-| `78` | Configuration error |
-| `126` | Child resolved but is not executable |
-| `127` | Child not found |
+| Code  | Meaning                                     |
+| ----- | ------------------------------------------- |
+| `0`   | Success                                     |
+| `64`  | Usage / clap parse failure                  |
+| `65`  | Data error                                  |
+| `66`  | Missing required input                      |
+| `69`  | Service unavailable                         |
+| `70`  | Internal software error                     |
+| `74`  | Generic I/O failure or exec handoff failure |
+| `75`  | Auth failure / all accounts exhausted       |
+| `77`  | Permission denied                           |
+| `78`  | Configuration error                         |
+| `126` | Child resolved but is not executable        |
+| `127` | Child not found                             |
 
 Exit codes are a stable user-facing contract (SoT: `src/error.rs`). Child
 exit codes are passed through as-is.

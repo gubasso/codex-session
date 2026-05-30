@@ -32,32 +32,32 @@ wrapper's output dialect MUST track upstream codex's input dialect.
 Five sequential rounds, foundations-first:
 
 1. **Docs & principle** — codify the API-compatibility rule in `README.md`, `CLAUDE.md`,
-    `docs/upstream-codex.md` (§F6b rewrite + new §F6c), and the cross-repo
-    `~/DocsNNotes/tech/tools/claude-code/codex-conventions.md`. No code changes. Establishes the
-    contract the next four rounds enforce.
+   `docs/upstream-codex.md` (§F6b rewrite + new §F6c), and the cross-repo
+   `~/DocsNNotes/tech/tools/claude-code/codex-conventions.md`. No code changes. Establishes the
+   contract the next four rounds enforce.
 2. **Composer & input rename** — rename `settings/` → `configs/` everywhere in the Rust crate,
-    rename the manifest YAML field, add legacy-form rejection at layer read, modify
-    `write_session_artifacts` to emit `<name>.config.toml` siblings, add `profile-files:`
-    manifest support, update tests for composer + config-recipe surface.
+   rename the manifest YAML field, add legacy-form rejection at layer read, modify
+   `write_session_artifacts` to emit `<name>.config.toml` siblings, add `profile-files:`
+   manifest support, update tests for composer + config-recipe surface.
 3. **Heartbeat probe, cache rename, doctor** — `extract_ping_config` reads
-    `configs/profiles/ping.config.toml` directly; `heartbeat_probe` writes `ping.config.toml`
-    under the probe CODEX_HOME; cache file renamed to `configs.toml`; doctor messages updated and
-    legacy-form detection added.
+   `configs/profiles/ping.config.toml` directly; `heartbeat_probe` writes `ping.config.toml`
+   under the probe CODEX_HOME; cache file renamed to `configs.toml`; doctor messages updated and
+   legacy-form detection added.
 4. **Codex v0.134+ fail-fast gate + sibling `profiles/` restructure** — Block A adds a
-    pre-launch gate that probes `codex --version`, parses it, and refuses to launch any child
-    older than 0.134.0, with the same check mirrored as a doctor finding so users can diagnose
-    the version skew without running a pass-through. Block B promotes `profiles_dir` from a
-    derived `configs_dir.join("profiles")` method to a first-class field defaulting to
-    `config_dir.join("profiles")` (sibling of `configs/`, not nested); updates every consumer,
-    fixture, and in-repo doc that round 01–03 wrote with the nested assumption (including
-    `README.md`, `docs/upstream-codex.md`, and the doctor sweep that flags the obsolete nested
-    `configs/profiles/` layout). One commit in `/workspaces/codex-session`.
+   pre-launch gate that probes `codex --version`, parses it, and refuses to launch any child
+   older than 0.134.0, with the same check mirrored as a doctor finding so users can diagnose
+   the version skew without running a pass-through. Block B promotes `profiles_dir` from a
+   derived `configs_dir.join("profiles")` method to a first-class field defaulting to
+   `config_dir.join("profiles")` (sibling of `configs/`, not nested); updates every consumer,
+   fixture, and in-repo doc that round 01–03 wrote with the nested assumption (including
+   `README.md`, `docs/upstream-codex.md`, and the doctor sweep that flags the obsolete nested
+   `configs/profiles/` layout). One commit in `/workspaces/codex-session`.
 5. **Dotfiles propagation + cleanup + cross-repo docs sync** — migrate
-    `~/.dotfiles/codex-session/.config/codex-session/` to the sibling layout (`settings/` →
-    `configs/` with sibling `profiles/<name>.config.toml`), update the `default.yaml` manifest,
-    sweep `~/.dotfiles/codex-session` for obsolete leftovers to keep it lean, and finally sync
-    codex-session-relevant docs across `~/DocsNNotes` and `~/.dotfiles/{claude,claude-session}`.
-    Commit in each affected repo separately.
+   `~/.dotfiles/codex-session/.config/codex-session/` to the sibling layout (`settings/` →
+   `configs/` with sibling `profiles/<name>.config.toml`), update the `default.yaml` manifest,
+   sweep `~/.dotfiles/codex-session` for obsolete leftovers to keep it lean, and finally sync
+   codex-session-relevant docs across `~/DocsNNotes` and `~/.dotfiles/{claude,claude-session}`.
+   Commit in each affected repo separately.
 
 Why this order: principle first (round 01) so rounds 02–05 have a single source of truth to
 cite. Composer (round 02) before consumers (round 03) so the heartbeat probe can rely on the new
@@ -70,13 +70,13 @@ and validate the whole chain end-to-end on a real host.
 
 ## Execution Order
 
-| Round | File                                              | Topic                                                            | Status | Completed |
-| ----- | ------------------------------------------------- | ---------------------------------------------------------------- | ------ | --------- |
-| 01    | `01-docs-and-principle.md`                        | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
-| 02    | `02-composer-and-input-rename.md`                 | Rename settings→configs, split-emit, manifest field, validation  | done   | 2026-05-28 |
-| 03    | `03-heartbeat-cache-doctor.md`                    | Ping probe rewrite, cache file rename, doctor detection          | done   | 2026-05-28 |
-| 04    | `04-codex-compat-and-sibling-profiles.md`         | Codex v0.134+ fail-fast gate + sibling `profiles/` restructure   | done   | 2026-05-28 |
-| 05    | `05-dotfiles-propagation-and-cross-repo-sync.md`  | Dotfiles propagation + cleanup + cross-repo docs sync            | done   | 2026-05-28 |
+| Round | File                                             | Topic                                                            | Status | Completed  |
+| ----- | ------------------------------------------------ | ---------------------------------------------------------------- | ------ | ---------- |
+| 01    | `01-docs-and-principle.md`                       | Codify API-compat principle in README/CLAUDE/upstream/DocsNNotes | done   | 2026-05-28 |
+| 02    | `02-composer-and-input-rename.md`                | Rename settings→configs, split-emit, manifest field, validation  | done   | 2026-05-28 |
+| 03    | `03-heartbeat-cache-doctor.md`                   | Ping probe rewrite, cache file rename, doctor detection          | done   | 2026-05-28 |
+| 04    | `04-codex-compat-and-sibling-profiles.md`        | Codex v0.134+ fail-fast gate + sibling `profiles/` restructure   | done   | 2026-05-28 |
+| 05    | `05-dotfiles-propagation-and-cross-repo-sync.md` | Dotfiles propagation + cleanup + cross-repo docs sync            | done   | 2026-05-28 |
 
 ## Execution Commands
 
@@ -137,7 +137,7 @@ results before proceeding.
   at two points: a pre-launch gate on every code path that invokes codex (cached via
   `LazyChild`, so it's free after the first call), and a mirrored `doctor` check
   (`check_codex_version_minimum`). Pre-release suffixes of the required release
-  (e.g. `0.134.0-rc1`, `0.134.0-alpha.1`) are treated as `Ok`. Unparseable version output is
+  (e.g. `0.134.0-rc1`, `0.134.0-alpha.1`) are treated as `Ok`. Unparsable version output is
   `Warn`, not `Fail`. Rationale: prevents a confusing handoff where codex rejects our
   emitted file instead of the wrapper rejecting the version skew. Placed at pre-child-invocation
   (not in `main()`) so `codex-session doctor` / `--version` / `config-recipe …` still work
@@ -200,7 +200,7 @@ results before proceeding.
   `docs/upstream-codex.md` that names the nested path. Round 04 isolates this churn to one
   prex session so the diff is reviewable as a unit.
 - **Codex `--version` output drift.** The classifier in `src/codex_compat.rs` tolerates both
-  `codex` and `codex-cli` prefixes and pre-release suffixes; an unparseable string produces
+  `codex` and `codex-cli` prefixes and pre-release suffixes; an unparsable string produces
   a `Warn` (not `Fail`) so the wrapper continues to operate against odd-but-likely-fine
   builds. `doctor` surfaces the same finding so the user has a single place to see when the
   parser failed. If upstream codex changes its `--version` output shape (e.g. multi-line or

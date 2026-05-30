@@ -13,7 +13,7 @@ Upstream codex CLI v0.134.0 (released 2026-05-26) hardened its profile config co
 - Profile activation is `--profile <name>` on the CLI only. No in-file default selector.
 - No backward-compat flag.
 
-`codex-session` is a *composer* — it reads layered TOML inputs and writes the `$CODEX_HOME/`
+`codex-session` is a _composer_ — it reads layered TOML inputs and writes the `$CODEX_HOME/`
 tree codex consumes. When codex changes its input contract, the composer must follow. The repo's
 current docs describe the legacy model (`[profiles.<name>]`, `profile = "X"` selector) and do not
 state the rule that the composer's output MUST match codex's input dialect byte-for-byte.
@@ -25,6 +25,7 @@ contract down before any Rust code moves, so rounds 02–04 have a single citabl
 No Rust code, no test changes, no `.config/` migrations in this round.
 
 References:
+
 - <https://developers.openai.com/codex/config-advanced#profiles>
 - <https://developers.openai.com/codex/cli/reference> (`--profile` layers
   `$CODEX_HOME/<name>.config.toml` on top of base)

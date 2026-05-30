@@ -184,8 +184,8 @@ Update the plan's `README.md` (same directory as this round file):
 
 Because this is the final round, also:
 
-4. In the README.md header blockquote, change `Status: todo` to `Status: done`.
-5. Move the plan directory to done:
+1. In the README.md header blockquote, change `Status: todo` to `Status: done`.
+2. Move the plan directory to done:
 
 ```bash
 mkdir -p .plan/02-done && mv .plan/01-todo/00-account-auto-default-selection .plan/02-done/00-account-auto-default-selection

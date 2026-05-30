@@ -14,7 +14,7 @@ schema has changed between versions — **treat as unstable.**
 
 ## 1. Endpoint
 
-```
+```http
 GET https://chatgpt.com/backend-api/wham/usage
 ```
 
@@ -23,14 +23,14 @@ different base URL (used by tests and development).
 
 ## 2. Request headers
 
-| Header | Value | Notes |
-|---|---|---|
-| `Authorization` | `Bearer <access_token>` | From `auth.json` `tokens.access_token` |
-| `ChatGPT-Account-Id` | `<account_id>` | From `auth.json` `tokens.account_id` |
-| `Accept` | `application/json` | |
-| `Origin` | `https://chatgpt.com` | |
-| `Referer` | `https://chatgpt.com/` | |
-| `User-Agent` | `Mozilla/5.0` | |
+| Header               | Value                   | Notes                                  |
+| -------------------- | ----------------------- | -------------------------------------- |
+| `Authorization`      | `Bearer <access_token>` | From `auth.json` `tokens.access_token` |
+| `ChatGPT-Account-Id` | `<account_id>`          | From `auth.json` `tokens.account_id`   |
+| `Accept`             | `application/json`      |                                        |
+| `Origin`             | `https://chatgpt.com`   |                                        |
+| `Referer`            | `https://chatgpt.com/`  |                                        |
+| `User-Agent`         | `Mozilla/5.0`           |                                        |
 
 ## 3. Auth modes
 
@@ -62,6 +62,7 @@ different base URL (used by tests and development).
 ```
 
 Aliases observed in older versions:
+
 - `primary_window` (alias for `five_hour`)
 - `secondary_window` (alias for `weekly`)
 
@@ -101,28 +102,28 @@ The parser tries field names left-to-right; the first match wins.
 
 ### 5a. Root key
 
-| Try | Notes |
-|---|---|
-| `rate_limit` | Legacy singular |
-| `rate_limits` | Current plural |
+| Try           | Notes           |
+| ------------- | --------------- |
+| `rate_limit`  | Legacy singular |
+| `rate_limits` | Current plural  |
 
 ### 5b. Window names
 
-| Internal name | Try in order |
-|---|---|
-| `five_hour` | `five_hour` → `primary_window` → `primary` |
-| `weekly` | `weekly` → `secondary_window` → `secondary` |
+| Internal name | Try in order                                |
+| ------------- | ------------------------------------------- |
+| `five_hour`   | `five_hour` → `primary_window` → `primary`  |
+| `weekly`      | `weekly` → `secondary_window` → `secondary` |
 
 ### 5c. Percent field
 
-| Internal field | Try in order | Conversion |
-|---|---|---|
+| Internal field | Try in order                                    | Conversion                             |
+| -------------- | ----------------------------------------------- | -------------------------------------- |
 | `percent_left` | `percent_left` → `used_percent` → `usedPercent` | identity / `100 − used` / `100 − used` |
 
 ### 5d. Reset time field
 
-| Internal field | Try in order | Conversion |
-|---|---|---|
+| Internal field  | Try in order                              | Conversion                                |
+| --------------- | ----------------------------------------- | ----------------------------------------- |
 | `reset_at_unix` | `reset_time_ms` → `resetsAt` → `reset_at` | ms ÷ 1000 / seconds / integer-or-RFC-3339 |
 
 **Note on `reset_at`:** the current API sends `reset_at` as a unix-seconds
@@ -135,7 +136,7 @@ back to RFC-3339 string parsing for backward compatibility.
 - **Missing window**: `QuotaError::ParseMissingWindow("five_hour")` or `("weekly")`, exit 65.
 - **HTTP 5xx**: retry once after 1 s; on second failure, `QuotaError::HttpStatus`, exit 69.
 - **HTTP 401**: triggers an OAuth token refresh attempt (see below);
-  on success, retries the WHAM request once.  If the refresh also fails,
+  on success, retries the WHAM request once. If the refresh also fails,
   surfaces `QuotaError::HttpStatus(401)`, exit 69.
 - **HTTP 4xx (non-401)**: immediate `QuotaError::HttpStatus`, exit 69.
 - **Network error**: `QuotaError::Network`, exit 69.
@@ -184,7 +185,7 @@ Compare the output against §4 and §5 above. If the shape has changed:
 1. Update §4 with the new shape.
 2. Update §5 field-name mappings if new aliases appeared.
 3. Update `parse_quota_body()` / `parse_window()` /
-  `parse_reset_at_unix()` in `src/services/account/quota.rs`.
+   `parse_reset_at_unix()` in `src/services/account/quota.rs`.
 4. Add new wiremock fixtures in `tests/account_quota_basic.rs`.
 5. Bump the `Last verified` date at the top of this file.
 

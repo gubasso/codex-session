@@ -147,26 +147,26 @@ In `/workspaces/codex-session/src/ui/mod.rs`, add helper functions for the docto
 are private to the module (not public API):
 
 1. `write_doctor_header()` — Renders the account overview block (Account, Group ID, CODEX_HOME,
-    Recipe) with styled labels. Uses `BOLD` for labels, `DIM` for source annotations.
+   Recipe) with styled labels. Uses `BOLD` for labels, `DIM` for source annotations.
 
 2. `write_doctor_accounts_table()` — Renders the accounts list as a compact table with columns:
-    name, auth status (✓/✗), cooldown status, last used (human-readable time). Replaces the raw
-    `current=true has_auth=true last_used_at_unix=...` dump.
+   name, auth status (✓/✗), cooldown status, last used (human-readable time). Replaces the raw
+   `current=true has_auth=true last_used_at_unix=...` dump.
 
 3. `write_doctor_group()` — Renders a single `CheckGroup` as a section with:
-    - Section header line: `── <Group Name> ──────...` (BOLD, padded to terminal width or 60 chars)
-    - Per-check rows: `  <symbol> <check-name>  <detail>` with aligned columns
-    - Status symbol: ✓ (green OK), ⚠ (yellow WARN), ✗ (red FAIL)
+   - Section header line: `── <Group Name> ──────...` (BOLD, padded to terminal width or 60 chars)
+   - Per-check rows: `<symbol> <check-name>  <detail>` with aligned columns
+   - Status symbol: ✓ (green OK), ⚠ (yellow WARN), ✗ (red FAIL)
 
 4. `write_doctor_summary()` — Renders the summary banner:
-    - Horizontal rule (━━━)
-    - Summary counts with colored symbols
-    - Overall verdict color: green if 0 fail + 0 warn, yellow if warns but no fail, red if any fail
+   - Horizontal rule (━━━)
+   - Summary counts with colored symbols
+   - Overall verdict color: green if 0 fail + 0 warn, yellow if warns but no fail, red if any fail
 
 5. `write_doctor_next_steps()` — Renders next-steps with bullet points and styled check names.
 
 6. `write_doctor_env()` — Renders the env dump sections with styled config-recipe names and
-    key=value pairs (secrets show `***` with DIM styling).
+   key=value pairs (secrets show `***` with DIM styling).
 
 ### Step 2: Rewrite write_doctor text branch
 
@@ -205,6 +205,7 @@ progress during network checks. The spinner should:
 - Finish with ✓ or ✗ before rendering the check result
 
 This requires modifying `/workspaces/codex-session/src/commands/doctor.rs` `run()` function to:
+
 1. Build the non-online portion of the report first
 2. If `--online` and TTY and text format: start a spinner, run online checks, stop spinner
 3. Then render the complete report

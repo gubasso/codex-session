@@ -43,11 +43,11 @@ Three rounds, forward-only dependencies, each leaving the tree compiling with te
 
 ## Execution Order
 
-| Round | File                          | Topic                                   | Status | Completed |
-| ----- | ----------------------------- | --------------------------------------- | ------ | --------- |
-| 01    | `01-core-selection-engine.md` | Resolver split, run_auto, gate, errors  | done   | 2026-05-30 |
-| 02    | `02-cleanup-removals.md`      | Remove `account use` + config pinned    | todo   | --        |
-| 03    | `03-docs-api-sweep.md`        | Repo + DocsNNotes + dotfiles doc sweep  | todo   | --        |
+| Round | File                          | Topic                                  | Status | Completed  |
+| ----- | ----------------------------- | -------------------------------------- | ------ | ---------- |
+| 01    | `01-core-selection-engine.md` | Resolver split, run_auto, gate, errors | done   | 2026-05-30 |
+| 02    | `02-cleanup-removals.md`      | Remove `account use` + config pinned   | todo   | --         |
+| 03    | `03-docs-api-sweep.md`        | Repo + DocsNNotes + dotfiles doc sweep | todo   | --         |
 
 ## Execution Commands
 

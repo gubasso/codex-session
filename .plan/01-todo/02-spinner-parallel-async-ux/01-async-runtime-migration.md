@@ -142,19 +142,19 @@ This is the first round. No prior rounds.
 
 1. Add `tokio` to `[dependencies]` with `macros` + `rt-multi-thread` features
 2. Add `indicatif` to `[dependencies]` (needed by Round 02, added now to avoid a second Cargo.toml
-    change)
+   change)
 3. Switch `reqwest` features from `blocking` to default async (keep `rustls-tls`, `json`)
 4. Update `main.rs` to use `#[tokio::main]`
 5. Make `dispatch::run()` and all command handler functions async
 6. Migrate `services/account/quota.rs`: `reqwest::blocking::Client` → `reqwest::Client`, add
-    `.await` to `.send()`, `.bytes()`, etc. Replace `std::thread::sleep(1s)` retry delay with
-    `tokio::time::sleep(1s).await`
+   `.await` to `.send()`, `.bytes()`, etc. Replace `std::thread::sleep(1s)` retry delay with
+   `tokio::time::sleep(1s).await`
 7. Migrate `services/account/token_refresh.rs`: same blocking → async conversion
 8. Migrate `services/account/gate.rs` `heartbeat_probe()`: `std::process::Command` →
-    `tokio::process::Command`, replace poll loop with `tokio::time::timeout()` +
-    `child.wait_with_output().await`
+   `tokio::process::Command`, replace poll loop with `tokio::time::timeout()` +
+   `child.wait_with_output().await`
 9. Migrate `gate::run_login()`: similar process spawn migration (but this is interactive — stdin
-    must remain connected)
+   must remain connected)
 10. Update all call chains that invoke these async functions (add `.await`)
 11. All existing tests pass (`just test`)
 12. Lint passes (`just lint`)
@@ -176,6 +176,7 @@ Move `tokio` from `[dev-dependencies]` to `[dependencies]`. Add `indicatif`. Cha
 features.
 
 Before:
+
 ```toml
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = [
@@ -189,6 +190,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
 After:
+
 ```toml
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time"] }
@@ -234,6 +236,7 @@ The `dispatch()` function routes to individual account command handlers. Make it
 File: `/workspaces/codex-session/src/services/account/quota.rs`
 
 Key changes:
+
 - `pub(crate) fn refresh(...)` → `pub(crate) async fn refresh(...)`
 - `fn fetch(...)` → `async fn fetch(...)`
 - `fn fetch_inner(...)` → `async fn fetch_inner(...)`
@@ -262,6 +265,7 @@ The `heartbeat_probe()` function (line 439) spawns `codex --profile ping exec --
 polls it with a 15s timeout.
 
 Changes:
+
 - `fn heartbeat_probe(...)` → `async fn heartbeat_probe(...)`
 - `use std::process::{Command, Stdio}` → `use tokio::process::Command` + `use std::process::Stdio`
 - Remove the manual poll loop (`loop { child.try_wait()... sleep(200ms)... }`)
@@ -300,6 +304,7 @@ the dispatch match arms, or dispatch can `.await` only the async ones. Prefer co
 all command handler `run()` functions async.
 
 Each remaining command handler file gets `async fn run(...)` with no other changes:
+
 - `commands/version.rs`
 - `commands/completion.rs`
 - `commands/config_status.rs`
@@ -317,11 +322,13 @@ Each remaining command handler file gets `async fn run(...)` with no other chang
 ### Step 9: Update helper functions in health.rs and quota.rs
 
 In `health.rs`:
+
 - `fn fetch_quota(...)` → `async fn fetch_quota(...)` (calls `quota::refresh().await`)
 - `fn fetch_probe(...)` → `async fn fetch_probe(...)` (calls `gate::probe_token().await`)
 - `fn build_entry(...)` → `async fn build_entry(...)` (calls the above)
 
 In `quota.rs` (command):
+
 - `fn fetch_view(...)` → `async fn fetch_view(...)` (calls `quota::refresh().await`)
 
 ### Step 10: Verify and fix compilation
@@ -330,6 +337,7 @@ Run `just build` to catch any remaining synchronous calls to now-async functions
 flag every missing `.await` as an error. Fix all compilation errors.
 
 Pay special attention to:
+
 - Closures that call async functions (may need to become async closures or be refactored)
 - `map_or_else` / `map` chains that call async functions (need to be converted to match/if-let)
 - Any trait implementations that call async functions
@@ -351,6 +359,7 @@ just lint
 ```
 
 Fix any new clippy warnings introduced by the async migration. Common ones:
+
 - `clippy::unused_async` on functions that are async but don't actually await (the local-only
   command handlers). Suppress with `#[allow(clippy::unused_async)]` on those functions — they're
   async for dispatch consistency and will gain awaits in later rounds.

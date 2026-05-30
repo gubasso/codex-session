@@ -8,13 +8,13 @@ explain them to a new user — with rationale, resolution chains, validation
 rules, practical examples, and "what happens when" scenarios.
 
 The README stays as-is (terse reference). The guide is the place a new user
-reads *first* to understand the tool.
+reads _first_ to understand the tool.
 
 ## Audience
 
 Someone who has installed `codex-session` and run `codex-session --help` but
 doesn't yet understand what `--group`, `--account auto`, `--max-retries`,
-`--config-recipe`, `--dry-run`, etc. actually *do* under the hood.
+`--config-recipe`, `--dry-run`, etc. actually _do_ under the hood.
 
 ## Deliverables
 
@@ -28,42 +28,42 @@ navigable as it grows.
 
 One section per flag, each covering:
 
-| Flag | Key topics to document |
-|---|---|
-| `--group <ID>` | What a group-id is, why it exists, session-dir scoping, the 5-step resolution chain (flag → env → tty → ppid → pid) with source table, validation rules (1–32 chars, `[a-z0-9][a-z0-9_-]*`), pid-N fallback warning, practical consequences of shared vs. isolated groups, examples. Source: `src/services/session/group_id.rs`. |
-| `--account <NAME\|auto>` | What an account is, `auto` vs. named, the 7-step resolution chain (flag → env(auto/named) → lru → config-pinned → default → fallback), how `auto` triggers the quota-aware selector, `CODEX_SESSION_ACCOUNT` env override. Source: `src/services/account/resolver.rs`. |
-| `--max-retries <N>` | What is retried (the entire child invocation), requires `--account auto`, total attempts = N+1, 429 pattern detection (6 patterns from `failover.rs`), 300s cooldown write, exit code 75 on exhaustion, warning when used without `auto`. Source: `src/services/account/retry.rs`, `failover.rs`. |
-| `--config-recipe <NAME>` | What a config_recipe is, how settings-layers are composed, `CODEX_SESSION_CONFIG_RECIPE` env override. Source: `src/cli/config_recipe.rs`, config_recipe compose logic. |
-| `--dry-run` | Prints resolved invocation and exits, useful for debugging session-dir and env composition. |
-| `-v` / `--verbose` | Verbosity levels: `-v` info, `-vv` debug, `-vvv` trace. Goes to log file and optionally stderr. |
-| `--log-stderr` | Mirror wrapper logs to stderr. |
-| `-q` / `--quiet` | Suppress non-error stderr; log file unaffected. |
-| `--silent` | Suppress all stderr including errors; log file unaffected. Conflicts with `--quiet`. |
-| `--log-format <FMT>` | Controls stderr mirror format; file sink is always JSON. |
-| `-V` / `--version` | Print wrapper + child version. |
-| `--format <text\|json>` | Output format for `version`, `config status`, `config_recipe list/show`. |
-| `--config <PATH>` | Load wrapper config from explicit path instead of default XDG locations. |
+| Flag                     | Key topics to document                                                                                                                                                                                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--group <ID>`           | What a group-id is, why it exists, session-dir scoping, the 5-step resolution chain (flag → env → tty → ppid → pid) with source table, validation rules (1–32 chars, `[a-z0-9][a-z0-9_-]*`), pid-N fallback warning, practical consequences of shared vs. isolated groups, examples. Source: `src/services/session/group_id.rs`. |
+| `--account <NAME\|auto>` | What an account is, `auto` vs. named, the 7-step resolution chain (flag → env(auto/named) → lru → config-pinned → default → fallback), how `auto` triggers the quota-aware selector, `CODEX_SESSION_ACCOUNT` env override. Source: `src/services/account/resolver.rs`.                                                           |
+| `--max-retries <N>`      | What is retried (the entire child invocation), requires `--account auto`, total attempts = N+1, 429 pattern detection (6 patterns from `failover.rs`), 300s cooldown write, exit code 75 on exhaustion, warning when used without `auto`. Source: `src/services/account/retry.rs`, `failover.rs`.                                |
+| `--config-recipe <NAME>` | What a config_recipe is, how settings-layers are composed, `CODEX_SESSION_CONFIG_RECIPE` env override. Source: `src/cli/config_recipe.rs`, config_recipe compose logic.                                                                                                                                                          |
+| `--dry-run`              | Prints resolved invocation and exits, useful for debugging session-dir and env composition.                                                                                                                                                                                                                                      |
+| `-v` / `--verbose`       | Verbosity levels: `-v` info, `-vv` debug, `-vvv` trace. Goes to log file and optionally stderr.                                                                                                                                                                                                                                  |
+| `--log-stderr`           | Mirror wrapper logs to stderr.                                                                                                                                                                                                                                                                                                   |
+| `-q` / `--quiet`         | Suppress non-error stderr; log file unaffected.                                                                                                                                                                                                                                                                                  |
+| `--silent`               | Suppress all stderr including errors; log file unaffected. Conflicts with `--quiet`.                                                                                                                                                                                                                                             |
+| `--log-format <FMT>`     | Controls stderr mirror format; file sink is always JSON.                                                                                                                                                                                                                                                                         |
+| `-V` / `--version`       | Print wrapper + child version.                                                                                                                                                                                                                                                                                                   |
+| `--format <text\|json>`  | Output format for `version`, `config status`, `config_recipe list/show`.                                                                                                                                                                                                                                                         |
+| `--config <PATH>`        | Load wrapper config from explicit path instead of default XDG locations.                                                                                                                                                                                                                                                         |
 
 ### 3. `docs/guide/subcommands.md` — wrapper-owned subcommands
 
 One section per subcommand:
 
-| Subcommand | Key topics |
-|---|---|
-| `version` | `--format` option, what "wrapper + child" means. |
-| `completion <SHELL>` | Supported shells, how to install. |
-| `config status` | What it reports, `--format` option. |
-| `config_recipe list` | Lists available profiles, `--format` option. |
-| `config_recipe show [NAME]` | Shows manifest and resolved layers, `--format` option. |
-| `config_recipe compose [NAME]` | Composes into current session-dir. |
-| `doctor` | Health checks, `--all-config-recipes`, `--show-env` (redaction rules). |
-| `account add <NAME>` | Registers account, `--from-native` seeds from `~/.codex/auth.json`, name validation. |
-| `account list` | Lists registered accounts, `--format`. |
-| `account current` | Prints active account and its resolution source, `--format`. |
-| `account use <NAME>` | Pins active account via `state/last-account`. |
-| `account remove <NAME>` | Archives to `.trash/`. |
-| `account quota` | `--live`, `--all`, `--format`. Reads cached or live wham/usage endpoint. |
-| `account cooldown show\|clear` | Shows/clears failover cooldown state. `--all`, `--json`. |
+| Subcommand                     | Key topics                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `version`                      | `--format` option, what "wrapper + child" means.                                     |
+| `completion <SHELL>`           | Supported shells, how to install.                                                    |
+| `config status`                | What it reports, `--format` option.                                                  |
+| `config_recipe list`           | Lists available profiles, `--format` option.                                         |
+| `config_recipe show [NAME]`    | Shows manifest and resolved layers, `--format` option.                               |
+| `config_recipe compose [NAME]` | Composes into current session-dir.                                                   |
+| `doctor`                       | Health checks, `--all-config-recipes`, `--show-env` (redaction rules).               |
+| `account add <NAME>`           | Registers account, `--from-native` seeds from `~/.codex/auth.json`, name validation. |
+| `account list`                 | Lists registered accounts, `--format`.                                               |
+| `account current`              | Prints active account and its resolution source, `--format`.                         |
+| `account use <NAME>`           | Pins active account via `state/last-account`.                                        |
+| `account remove <NAME>`        | Archives to `.trash/`.                                                               |
+| `account quota`                | `--live`, `--all`, `--format`. Reads cached or live wham/usage endpoint.             |
+| `account cooldown show\|clear` | Shows/clears failover cooldown state. `--all`, `--json`.                             |
 
 ### 4. `docs/guide/session-model.md` — session directory model
 
@@ -108,26 +108,26 @@ the README. Cross-reference actual code to ensure accuracy.
 
 ### Key source files
 
-| File | What it documents |
-|---|---|
-| `src/cli/mod.rs` | All global flags (clap `GlobalArgs` struct) |
-| `src/cli/account.rs` | Account subcommand tree |
-| `src/cli/config_recipe.rs` | ConfigRecipe subcommand tree |
-| `src/cli/doctor.rs` | Doctor flags |
-| `src/cli/config.rs` | Config subcommand tree |
-| `src/cli/completion.rs` | Completion args |
-| `src/cli/version.rs` | Version args |
-| `src/services/session/group_id.rs` | Group-id resolution chain + validation |
-| `src/services/account/resolver.rs` | Account resolution chain |
-| `src/services/account/retry.rs` | Retry/failover loop |
-| `src/services/account/failover.rs` | 429 pattern detection |
-| `src/services/account/cooldown.rs` | Cooldown read/write |
-| `src/services/session/dir.rs` | Session directory creation |
-| `src/ui/help_extras.txt` | Built-in extended help text |
+| File                               | What it documents                           |
+| ---------------------------------- | ------------------------------------------- |
+| `src/cli/mod.rs`                   | All global flags (clap `GlobalArgs` struct) |
+| `src/cli/account.rs`               | Account subcommand tree                     |
+| `src/cli/config_recipe.rs`         | ConfigRecipe subcommand tree                |
+| `src/cli/doctor.rs`                | Doctor flags                                |
+| `src/cli/config.rs`                | Config subcommand tree                      |
+| `src/cli/completion.rs`            | Completion args                             |
+| `src/cli/version.rs`               | Version args                                |
+| `src/services/session/group_id.rs` | Group-id resolution chain + validation      |
+| `src/services/account/resolver.rs` | Account resolution chain                    |
+| `src/services/account/retry.rs`    | Retry/failover loop                         |
+| `src/services/account/failover.rs` | 429 pattern detection                       |
+| `src/services/account/cooldown.rs` | Cooldown read/write                         |
+| `src/services/session/dir.rs`      | Session directory creation                  |
+| `src/ui/help_extras.txt`           | Built-in extended help text                 |
 
 ### Style
 
-- Conversational but precise — explain *why* things work the way they do, not just *what* they do.
+- Conversational but precise — explain _why_ things work the way they do, not just _what_ they do.
 - Include resolution priority tables with numbered steps and source labels.
 - Include validation rule tables.
 - Use concrete examples (`codex-session --group stable exec "hi"`) throughout.
@@ -142,7 +142,7 @@ the README. Cross-reference actual code to ensure accuracy.
 
 ## File tree after implementation
 
-```
+```text
 docs/
   upstream-codex.md          (existing, untouched)
   guide/

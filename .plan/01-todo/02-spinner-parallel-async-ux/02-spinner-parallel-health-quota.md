@@ -37,6 +37,7 @@ for entry in accounts {
 ```
 
 The `build_entry()` function calls:
+
 - `fetch_quota()` → `quota::refresh().await` (10s HTTP timeout)
 - `fetch_probe()` → `gate::probe_token().await` (15s process timeout)
 
@@ -59,6 +60,7 @@ File: `/workspaces/codex-session/src/ui/mod.rs` — has `Ui` struct with `write_
 `color.rs` for ANSI detection, `anstyle`-based styling.
 
 File: `/workspaces/codex-session/src/ui/color.rs` — provides:
+
 ```rust
 pub(crate) fn should_color(stream: Stream) -> bool
 ```
@@ -75,6 +77,7 @@ creates a hermetic `assert_cmd::Command` with env isolation.
 ## Previous Rounds
 
 **Round 01** migrated the codebase from blocking to async:
+
 - Added tokio + indicatif to Cargo.toml
 - Switched reqwest from blocking to async
 - Made all command handlers and services async
@@ -145,6 +148,7 @@ impl SpinnerHandle {
 ```
 
 Design choices:
+
 - Use `ProgressStyle::with_template("{spinner:.cyan} {msg}")` for the default spinner style
 - Use `enable_steady_tick(Duration::from_millis(80))` for smooth animation
 - The visibility decision is made once at group creation based on `color::should_color()` and the
@@ -381,6 +385,7 @@ async fn health_multi_account_runs_in_parallel() {
 Note: `--fast` skips network calls and reads from cache, so the parallel timing test needs to use
 non-fast mode. However, non-fast health also runs a heartbeat probe which spawns `codex`. For a
 clean test, either:
+
 - Mock the codex binary with a stub that sleeps (using the existing fixture pattern)
 - Test only account quota parallelism (which doesn't need a codex binary)
 
@@ -508,7 +513,7 @@ Update the Round 02 row's Status column from `todo` to `done` and fill in the Co
 1. `src/ui/spinner.rs` exists with `SpinnerGroup`, `SpinnerHandle`, and visibility helpers
 2. `account health` (non-fast, multi-account) runs all accounts concurrently via `JoinSet`
 3. Within each account's health check, quota fetch and heartbeat probe run concurrently via
-    `tokio::join!`
+   `tokio::join!`
 4. `account quota` (multi-account) runs all accounts concurrently via `JoinSet`
 5. Spinners are visible when: text format + stderr is TTY + not --fast
 6. Spinners are hidden when: JSON format, or stderr is not TTY, or --fast

@@ -72,22 +72,22 @@ and `pre-push` stages, so commits and pushes are gated locally.
 
 ## Daily loop
 
-| Goal | Command |
-| --- | --- |
-| Build (debug) | `cargo build` |
-| Build (release) | `just build` |
-| Run with args | `just run -- <args>` (e.g. `just run -- self help`) |
-| Watch & re-test on change | `just watch` |
-| Format | `just fmt` |
-| Auto-fix fmt + clippy | `just fix` |
-| Local quality gates | `just lint` |
-| Tests (nextest) | `just test` |
-| Full pre-push check | `just check` |
-| Pre-commit hooks (manual) | `just precommit` |
-| Pre-commit + pre-push hooks | `just precommit-all` |
-| Install to `~/.cargo/bin` | `just install` |
-| Uninstall | `just uninstall` |
-| Supply-chain audit | `just audit` / `just machete` / `just deny` |
+| Goal                        | Command                                             |
+| --------------------------- | --------------------------------------------------- |
+| Build (debug)               | `cargo build`                                       |
+| Build (release)             | `just build`                                        |
+| Run with args               | `just run -- <args>` (e.g. `just run -- self help`) |
+| Watch & re-test on change   | `just watch`                                        |
+| Format                      | `just fmt`                                          |
+| Auto-fix fmt + clippy       | `just fix`                                          |
+| Local quality gates         | `just lint`                                         |
+| Tests (nextest)             | `just test`                                         |
+| Full pre-push check         | `just check`                                        |
+| Pre-commit hooks (manual)   | `just precommit`                                    |
+| Pre-commit + pre-push hooks | `just precommit-all`                                |
+| Install to `~/.cargo/bin`   | `just install`                                      |
+| Uninstall                   | `just uninstall`                                    |
+| Supply-chain audit          | `just audit` / `just machete` / `just deny`         |
 
 `just check` (= `lint` + `test`) is the contract every contributor and
 CI run is expected to meet before pushing.
@@ -142,10 +142,10 @@ CODEX_SESSION_CHILD_BIN=/path/to/codex \
 
 1. `cargo fmt --check` — formatting must be clean.
 2. `cargo clippy --all-targets --all-features -- -D warnings` — clippy
-    warnings are denied. The crate also enables the `pedantic` and
-    `nursery` groups (see `[lints.clippy]` in `Cargo.toml`).
+   warnings are denied. The crate also enables the `pedantic` and
+   `nursery` groups (see `[lints.clippy]` in `Cargo.toml`).
 3. `just lint-print` — enforces the **stdout/stderr ownership rule**
-    (see below).
+   (see below).
 
 Additional crate-level lints worth knowing:
 
@@ -202,7 +202,7 @@ The crate layers `thiserror` (typed, library-style errors) under
 
 Configuration follows a layered precedence:
 
-```
+```text
 CLI flags > environment variables > project config > user config > defaults
 ```
 
@@ -248,7 +248,7 @@ Test conventions:
 
 ## Repository layout
 
-```
+```text
 src/
   main.rs       # entry point
   cli/          # parse-shape: clap definitions, argv handling, exit codes

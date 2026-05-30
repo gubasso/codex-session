@@ -1,7 +1,7 @@
 # OpenAI OAuth Token Lifecycle
 
 Empirically verified behavior of OpenAI's OAuth token system as used by
-the Codex CLI (`codex-rs`).  This document records facts relevant to
+the Codex CLI (`codex-rs`). This document records facts relevant to
 `codex-session`'s multi-account architecture — consult it before making
 changes to auth flows.
 
@@ -14,12 +14,12 @@ changes to auth flows.
 
 ## 1. Token types
 
-| Token | Format | TTL | Storage |
-|---|---|---|---|
-| `access_token` | JWT (RS256) | ~10 days (`exp` claim) | `$CODEX_HOME/auth.json` → `tokens.access_token` |
+| Token           | Format          | TTL                    | Storage                                          |
+| --------------- | --------------- | ---------------------- | ------------------------------------------------ |
+| `access_token`  | JWT (RS256)     | ~10 days (`exp` claim) | `$CODEX_HOME/auth.json` → `tokens.access_token`  |
 | `refresh_token` | Opaque (`rt_…`) | Long-lived, single-use | `$CODEX_HOME/auth.json` → `tokens.refresh_token` |
-| `id_token` | JWT | Same as access | `$CODEX_HOME/auth.json` → `tokens.id_token` |
-| `account_id` | UUID | N/A | `$CODEX_HOME/auth.json` → `tokens.account_id` |
+| `id_token`      | JWT             | Same as access         | `$CODEX_HOME/auth.json` → `tokens.id_token`      |
+| `account_id`    | UUID            | N/A                    | `$CODEX_HOME/auth.json` → `tokens.account_id`    |
 
 The `access_token` JWT contains (among others): `sub` (user ID, e.g.
 `auth0|66bcc…`), `aud` (`["https://api.openai.com/v1"]`), `sid`
@@ -27,7 +27,7 @@ The `access_token` JWT contains (among others): `sub` (user ID, e.g.
 
 ## 2. Token refresh endpoint
 
-```
+```http
 POST https://auth.openai.com/oauth/token
 Content-Type: application/json
 
@@ -73,12 +73,12 @@ OpenAI implements RFC 6749-compliant refresh token rotation:
   token theft).
 
 **Implication:** after every successful refresh, the new `refresh_token`
-must be persisted **immediately**.  If the write fails, the old token is
+must be persisted **immediately**. If the write fails, the old token is
 dead and the session requires a full re-login.
 
 ## 4. Token revocation endpoint
 
-```
+```http
 POST https://auth.openai.com/oauth/revoke
 Content-Type: application/x-www-form-urlencoded
 
@@ -92,9 +92,9 @@ token=<refresh_token>&token_type_hint=refresh_token&client_id=app_EMoamEEZ73f0Ck
 ## 5. Server-side session validation
 
 Access tokens can be **rejected by the server before their JWT `exp`
-date**.  The WHAM usage API (`chatgpt.com/backend-api/wham/usage`)
+date**. The WHAM usage API (`chatgpt.com/backend-api/wham/usage`)
 checks tokens against a server-side session registry, not just JWT
-signature + expiry.  A revoked token returns HTTP 401 even though the
+signature + expiry. A revoked token returns HTTP 401 even though the
 JWT is structurally valid.
 
 ## 6. Upstream codex CLI revocation behavior
@@ -102,21 +102,21 @@ JWT is structurally valid.
 ### `codex logout` (PR #17825)
 
 Sends the stored `refresh_token` to the revocation endpoint before
-deleting local auth.  Fail-closed: if revocation fails, local auth is
+deleting local auth. Fail-closed: if revocation fails, local auth is
 preserved.
 
 ### `codex login` (PR #21747)
 
 When re-logging in, codex revokes any previously-stored managed token
-before saving the new one.  This prevents token accumulation on the
+before saving the new one. This prevents token accumulation on the
 server.
 
 ### Combined effect on multi-account
 
 If multiple `codex login` / `codex logout` cycles share the same
 `$CODEX_HOME` (i.e. `~/.codex/`), **each cycle revokes the previous
-account's token**.  Only the most recently authenticated account has a
-valid token.  This is the root cause of the multi-account invalidation
+account's token**. Only the most recently authenticated account has a
+valid token. This is the root cause of the multi-account invalidation
 bug that motivated `CODEX_HOME` isolation.
 
 ## 7. Empirical evidence (2026-05-26)
@@ -124,11 +124,11 @@ bug that motivated `CODEX_HOME` isolation.
 Three accounts (mari, cwnt, isma) — all in the same OpenAI organization
 (`account_id: 25aca47e-96e6-4d70-b1d5-86ea0c0322d3`):
 
-| Account | JWT expired? | Refresh token status | WHAM API |
-|---|:---:|---|---|
-| cwnt (last login) | No (10d TTL) | Valid | 200 OK |
-| mari (previous) | No (10d TTL) | `refresh_token_reused` | 401 |
-| isma (oldest) | No (10d TTL) | `refresh_token_reused` | 401 |
+| Account           | JWT expired? | Refresh token status   | WHAM API |
+| ----------------- | :----------: | ---------------------- | -------- |
+| cwnt (last login) | No (10d TTL) | Valid                  | 200 OK   |
+| mari (previous)   | No (10d TTL) | `refresh_token_reused` | 401      |
+| isma (oldest)     | No (10d TTL) | `refresh_token_reused` | 401      |
 
 The fix: run each `codex login` / `codex logout` inside an ephemeral
 `CODEX_HOME` (temp dir under `state_dir/auth-ops/`) so no auth
@@ -144,7 +144,7 @@ curl -s -X POST 'https://auth.openai.com/oauth/token' \
   | python3 -c "import json,sys; d=json.load(sys.stdin); print('OK' if 'access_token' in d else d)"
 ```
 
-**Caution:** this _consumes_ the refresh token (rotation).  Only use
+**Caution:** this _consumes_ the refresh token (rotation). Only use
 for diagnosis, and save the new token if it succeeds.
 
 ## Sources

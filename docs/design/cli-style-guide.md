@@ -37,16 +37,16 @@ Routing rules:
 Use only the 8 basic ANSI colors through `anstyle::AnsiColor`. Do not use RGB,
 256-color, bright ANSI variants, or background colors.
 
-| Constant | ANSI | Semantic meaning |
-|---|---|---|
-| `BOLD` | bold | Entity names, emphasis |
-| `DIM` | dimmed | Headers, metadata, secondary info, paths |
-| `BOLD_CYAN` | bold+cyan | Active/current item, selection indicator |
-| `GREEN` | green | Checkmarks (`✓`), positive indicators |
-| `BOLD_GREEN` | bold+green | OK status, eligible, positive values, success |
-| `BOLD_YELLOW` | bold+yellow | Warning, unknown, pending, countdown values |
-| `RED` | red | Error markers (`✗`), negative indicators |
-| `BOLD_RED` | bold+red | Fail status, cooldown active, critical errors |
+| Constant      | ANSI        | Semantic meaning                              |
+| ------------- | ----------- | --------------------------------------------- |
+| `BOLD`        | bold        | Entity names, emphasis                        |
+| `DIM`         | dimmed      | Headers, metadata, secondary info, paths      |
+| `BOLD_CYAN`   | bold+cyan   | Active/current item, selection indicator      |
+| `GREEN`       | green       | Checkmarks (`✓`), positive indicators         |
+| `BOLD_GREEN`  | bold+green  | OK status, eligible, positive values, success |
+| `BOLD_YELLOW` | bold+yellow | Warning, unknown, pending, countdown values   |
+| `RED`         | red         | Error markers (`✗`), negative indicators      |
+| `BOLD_RED`    | bold+red    | Fail status, cooldown active, critical errors |
 
 `GREEN` is for symbols and checkmarks only. `BOLD_GREEN` is for text labels and
 values.
@@ -57,7 +57,7 @@ All user-facing styling must use the color policy module (`color::should_color`)
 
 1. `NO_COLOR` non-empty disables color absolutely.
 2. `FORCE_COLOR` or `CLICOLOR_FORCE` truthy, meaning non-empty and non-zero,
-    enables color even for non-TTY output.
+   enables color even for non-TTY output.
 3. Non-TTY output disables color unless forced.
 4. `CLICOLOR=0` disables color on TTY output.
 5. TTY output enables color by default.
@@ -89,14 +89,14 @@ Do not use box drawing for tables.
 
 ## 7. Status Indicators
 
-| Value pattern | Style | Example context |
-|---|---|---|
-| `ok` / `valid` / `live` | `BOLD_GREEN` | token status, health status |
-| `warn` / `unknown` / `cache` | `BOLD_YELLOW` | token unknown, `cache_only` |
-| `fail` / `invalid` / `error` | `BOLD_RED` | token invalid, `cache_missing` |
-| `active` / `current` | `BOLD_CYAN` | active account, current marker |
-| `eligible` | `BOLD_GREEN` | cooldown eligible |
-| `cooled-down` | `BOLD_RED` | cooldown active |
+| Value pattern                | Style         | Example context                |
+| ---------------------------- | ------------- | ------------------------------ |
+| `ok` / `valid` / `live`      | `BOLD_GREEN`  | token status, health status    |
+| `warn` / `unknown` / `cache` | `BOLD_YELLOW` | token unknown, `cache_only`    |
+| `fail` / `invalid` / `error` | `BOLD_RED`    | token invalid, `cache_missing` |
+| `active` / `current`         | `BOLD_CYAN`   | active account, current marker |
+| `eligible`                   | `BOLD_GREEN`  | cooldown eligible              |
+| `cooled-down`                | `BOLD_RED`    | cooldown active                |
 
 Boolean styling is context-dependent:
 
@@ -158,7 +158,7 @@ the error chain.
 
 - Warnings use a `warning:` prefix in `BOLD_YELLOW`; the message body is plain.
 - Auth warnings may be multi-line.
-- Prompts such as `remove account 'X' permanently? [y/N]: ` are uncolored.
+- Prompts such as `remove account 'X' permanently? [y/N]:` are uncolored.
 - Runtime narration uses a dim `[codex-session]` prefix and a plain message
   body.
 - Target behavior: `--quiet` suppresses non-error stderr. `--silent`
@@ -192,24 +192,24 @@ differ until later implementation rounds.
 
 Supported output formats per command:
 
-| Command | `--format text` | `--format json` |
-|---|---|---|
-| `version` / `--version` | yes | yes |
-| `completion` | raw stdout passthrough | no |
-| `config status` | yes | yes |
-| `config-recipe list` | yes | yes |
-| `config-recipe show` | yes | yes |
-| `config-recipe compose` | yes (text only) | no |
-| `doctor` | yes | yes |
-| `account list` | yes | yes |
-| `account current` | yes | yes |
-| `account add/use/remove/refresh` | yes | yes |
-| `account quota` | yes | yes |
-| `account health` | yes | yes |
-| `account cooldown show` | yes | yes |
-| `account cooldown clear` | yes | yes |
-| `login` / `logout` | stderr narration | no |
-| `--dry-run` | yes (text only) | no |
+| Command                          | `--format text`        | `--format json` |
+| -------------------------------- | ---------------------- | --------------- |
+| `version` / `--version`          | yes                    | yes             |
+| `completion`                     | raw stdout passthrough | no              |
+| `config status`                  | yes                    | yes             |
+| `config-recipe list`             | yes                    | yes             |
+| `config-recipe show`             | yes                    | yes             |
+| `config-recipe compose`          | yes (text only)        | no              |
+| `doctor`                         | yes                    | yes             |
+| `account list`                   | yes                    | yes             |
+| `account current`                | yes                    | yes             |
+| `account add/use/remove/refresh` | yes                    | yes             |
+| `account quota`                  | yes                    | yes             |
+| `account health`                 | yes                    | yes             |
+| `account cooldown show`          | yes                    | yes             |
+| `account cooldown clear`         | yes                    | yes             |
+| `login` / `logout`               | stderr narration       | no              |
+| `--dry-run`                      | yes (text only)        | no              |
 
 ### `version` and Global `--version`
 
@@ -363,26 +363,26 @@ path uses `DIM`. The verb is `added`, `selected`, `removed`, or `refreshed`.
 OAuth quota output:
 
 ```text
-  #1 12.50 cwnt (active)
-  Five-hour   ███████████████░░░░░  75.0% left   resets in 1h 23m
-  Weekly      ██████████░░░░░░░░░░  50.0% left   resets in 2d 4h
-  2m ago, live
+#1 12.50 cwnt (active)
+Five-hour   ███████████████░░░░░  75.0% left   resets in 1h 23m
+Weekly      ██████████░░░░░░░░░░  50.0% left   resets in 2d 4h
+2m ago, live
 ```
 
 API-key quota output:
 
 ```text
-  cwnt (api-key)
-  Quota not available (API-key auth)
-  2m ago, live
+cwnt (api-key)
+Quota not available (API-key auth)
+2m ago, live
 ```
 
 Error quota output:
 
 ```text
-  cwnt
-  Error: failed to fetch quota
-  2m ago, live
+cwnt
+Error: failed to fetch quota
+2m ago, live
 ```
 
 Account names use `BOLD`. Rank and score metadata use `DIM`. Active markers use

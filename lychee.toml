@@ -1,0 +1,110 @@
+# Companion lychee.toml template for markdown KBs / docs repos.
+# Copy to the target repo root as `lychee.toml` alongside
+# `markdown.pre-commit-config.yaml`.
+#
+# Why this exists: a long-lived KB accumulates external links that lychee
+# can't fairly validate from a pre-push context:
+#   - Stack Overflow, Medium, etc. return 403 to non-browser UAs.
+#   - Several hosts rate-limit aggressively (429).
+#   - Vendor docs sites reorganize URLs without redirects.
+#   - file:// links across local sibling repos aren't meaningful in CI.
+# Narrow lychee to high-signal failures: real 404s, malformed URLs, and
+# unambiguously dead http(s) endpoints.
+
+# Only check http(s); file:// links to sibling repos aren't checkable.
+scheme = ["http", "https"]
+
+# Tolerate bot-blocking and rate-limit responses so they don't flood the
+# report. 200/203/206 are normal OK; 401/403 frequently mean "anti-bot
+# challenge" rather than "dead link"; 429/503 are transient; 5xx in the
+# 520-525 range are Cloudflare origin-side errors, not link errors.
+accept = ["200..=206", "401", "403", "429", "503", "520..=525"]
+
+# Network behavior.
+# Concurrency: lychee's own default is 14. The bottleneck is per-host
+# rate limits, not local CPU, so going higher lets requests to *different*
+# hosts overlap. Tune down if your network connection becomes the bottleneck.
+max_concurrency = 32
+max_retries = 1
+timeout = 20
+retry_wait_time = 2
+
+# Don't follow redirect storms (vendor loops like milvus.io).
+max_redirects = 5
+
+# Cache aggressively; pre-push re-invokes lychee on every push.
+cache = true
+max_cache_age = "1d"
+
+# Don't try to verify localhost / loopback URLs.
+exclude_loopback = true
+
+# Hosts that consistently reject lychee even when the page is fine,
+# or that aren't worth flapping CI over. Curate per-repo; this list is
+# a sensible starting set for a tech-notes KB.
+exclude = [
+    # --- Anti-bot challenge hosts (links valid in a browser) ---
+    "^https?://(www\\.)?stackoverflow\\.com",
+    "^https?://(www\\.)?superuser\\.com",
+    "^https?://(www\\.)?serverfault\\.com",
+    "^https?://(www\\.)?askubuntu\\.com",
+    "^https?://(www\\.)?unix\\.stackexchange\\.com",
+    "^https?://(www\\.)?leetcode\\.com",
+    "^https?://medium\\.com",
+    "^https?://(www\\.)?linode\\.com",
+    "^https?://(www\\.)?udemy\\.com",
+    "^https?://(www\\.)?npmjs\\.com",
+    "^https?://(www\\.)?wincent\\.com",
+    "^https?://(www\\.)?flaticon\\.com",
+    "^https?://(www\\.)?iconfinder\\.com",
+    "^https?://(www\\.)?eos-icons\\.com",
+    "^https?://en\\.opensuse\\.org",
+    "^https?://software\\.opensuse\\.org",
+    "^https?://(www\\.)?dnschecker\\.org",
+    "^https?://wasabi-support\\.zendesk\\.com",
+    "^https?://bluexp\\.netapp\\.com",
+    "^https?://(www\\.)?builder\\.ai",
+    "^https?://help\\.openai\\.com",
+    "^https?://vim\\.fandom\\.com",
+    "^https?://web\\.archive\\.org",
+    "^https?://dl\\.acm\\.org",
+    "^https?://linearb\\.io",
+    "^https?://(www\\.)?gnu\\.org",
+    "^https?://(www\\.)?mail-tester\\.com",
+
+    # --- Ephemeral / video hosts ---
+    # YouTube videos vanish constantly; not worth gating pushes on.
+    "^https?://(www\\.)?youtube\\.com/watch",
+    # Twitter card thumbnails: ephemeral by design.
+    "^https?://pbs\\.twimg\\.com",
+
+    # --- Hosts with chronic network/TLS issues (page-side, not link-side) ---
+    "^https?://(www\\.)?javatpoint\\.com",
+    "^https?://(www\\.)?canyouseeme\\.org",
+    "^https?://(www\\.)?lowendstock\\.com",
+    "^https?://(www\\.)?vpsfilter\\.com",
+    "^https?://(www\\.)?blobmaker\\.app",
+    "^https?://(www\\.)?smalldev\\.tools",
+    "^https?://(www\\.)?sirlagz\\.net",
+    "^https?://(www\\.)?thispointer\\.com",
+    "^https?://(www\\.)?openquest\\.xyz",
+    "^https?://(www\\.)?clockwork\\.xyz",
+    "^https?://(www\\.)?milvus\\.io",
+    "^https?://(www\\.)?nano-editor\\.org",
+
+    # --- Vendor docs that reorganized their URL structures wholesale ---
+    # Keep historical references in notes; don't gate pushes on dead old paths.
+    "^https?://(www\\.)?internetcomputer\\.org",
+    "^https?://(www\\.)?solana\\.com/docs",
+    "^https?://docs\\.aws\\.amazon\\.com/prescriptive-guidance",
+    "^https?://blog\\.cloudflare\\.com",
+    "^https?://www2?\\.eecs\\.berkeley\\.edu/Pubs/TechRpts",
+    "^https?://enterprisecraftsmanship\\.com",
+    "^https?://appdividend\\.com",
+    "^https?://docs\\.python-cerberus\\.org",
+    "^https?://calyptus\\.co",
+    "^https?://git-annex\\.branchable\\.com",
+
+    # --- Author-owned repos that have been reorganized ---
+    "^https?://github\\.com/gubasso/(dotfiles|docs-n-notes)/blob/master",
+]

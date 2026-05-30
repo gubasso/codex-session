@@ -139,7 +139,7 @@ multi-spinner (doctor checks are sequential and local, not parallel network call
 File: `/workspaces/codex-session/src/commands/account/refresh.rs`
 
 The refresh command calls `gate::run_login()` which spawns an interactive child process. The spinner
-should show *before* the login prompt (while setting up the environment) and *after* the login
+should show _before_ the login prompt (while setting up the environment) and _after_ the login
 completes (while copying auth files), but NOT during the interactive login itself.
 
 ```rust
@@ -422,23 +422,24 @@ Note: This test needs `cmd_raw()` which returns `std::process::Command` instead 
 
 Review all spinner messages across all commands for consistency, clarity, and tone:
 
-| Command | Phase | Spinner Message |
-|---------|-------|-----------------|
-| `account health` | Per-account check | `Checking account "name"...` |
-| `account health` | Account done (ok) | `✓ name` |
-| `account health` | Account done (err) | `✗ name — status` |
-| `account quota` | Per-account fetch | `Fetching quota for "name"...` |
-| `account quota` | Account done (ok) | `✓ name` |
-| `account quota` | Account done (err) | `✗ name — error` |
-| `doctor` | Running checks | `Running checks...` → `Checking codex binary...` → ... |
-| `doctor` | All passed | `✓ All checks passed` |
-| `doctor` | Failures | `✗ N checks failed` |
-| `account refresh` | Before login | `Preparing login for "name"...` |
-| `account refresh` | After login ok | `Saving credentials...` → `✓ Credentials refreshed` |
-| `account add` | Before login | `Setting up account "name"...` |
-| `account add` | After login ok | `Saving account...` → `✓ Account "name" added` |
+| Command           | Phase              | Spinner Message                                        |
+| ----------------- | ------------------ | ------------------------------------------------------ |
+| `account health`  | Per-account check  | `Checking account "name"...`                           |
+| `account health`  | Account done (ok)  | `✓ name`                                               |
+| `account health`  | Account done (err) | `✗ name — status`                                      |
+| `account quota`   | Per-account fetch  | `Fetching quota for "name"...`                         |
+| `account quota`   | Account done (ok)  | `✓ name`                                               |
+| `account quota`   | Account done (err) | `✗ name — error`                                       |
+| `doctor`          | Running checks     | `Running checks...` → `Checking codex binary...` → ... |
+| `doctor`          | All passed         | `✓ All checks passed`                                  |
+| `doctor`          | Failures           | `✗ N checks failed`                                    |
+| `account refresh` | Before login       | `Preparing login for "name"...`                        |
+| `account refresh` | After login ok     | `Saving credentials...` → `✓ Credentials refreshed`    |
+| `account add`     | Before login       | `Setting up account "name"...`                         |
+| `account add`     | After login ok     | `Saving account...` → `✓ Account "name" added`         |
 
 Ensure:
+
 - Consistent verb tense (present participle for in-progress, past for done)
 - Account names always quoted in messages
 - Success/failure symbols consistent (✓/✗ in color mode, [ok]/[err] in no-color)
@@ -484,11 +485,11 @@ mv .plan/01-todo/spinner-parallel-async-ux .plan/02-done/spinner-parallel-async-
 6. CTRL-C during spinner operations exits cleanly without leaving terminal artifacts
 7. All spinner messages follow the UX table in Step 10
 8. New live integration tests pass:
-    - Doctor piped output is clean
-    - Doctor JSON output is valid JSON
-    - Refresh piped mode has no spinner artifacts
-    - Health with failing account cleans up spinners
-    - Health killed during fetch exits cleanly
+   - Doctor piped output is clean
+   - Doctor JSON output is valid JSON
+   - Refresh piped mode has no spinner artifacts
+   - Health with failing account cleans up spinners
+   - Health killed during fetch exits cleanly
 9. All existing tests still pass (`just test`)
 10. `just lint` and `just check` pass
 11. Plan directory moved to `.plan/02-done/spinner-parallel-async-ux/`

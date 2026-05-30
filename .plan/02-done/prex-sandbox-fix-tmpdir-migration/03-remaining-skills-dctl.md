@@ -20,10 +20,12 @@ config.
 ## Previous Rounds
 
 Round 01 established the conventions:
+
 - `codex-conventions.md` now documents the XDG base path pattern under "Skill Run Directories"
 - Lock file convention: `${XDG_RUNTIME_DIR:-$HOME/.local/state/claude-session/skill-runs}`
 
 Round 02 applied the changes to the two prex skills:
+
 - `prex/SKILL.md` uses `$_SKILL_RUNS/prex-<timestamp>-<pid>` for run dirs
 - `prex-resume/SKILL.md` lock dir uses the XDG path
 - Both use `--dangerously-bypass-approvals-and-sandbox` uniformly
@@ -31,12 +33,14 @@ Round 02 applied the changes to the two prex skills:
 ## Scope of This Round
 
 **IN scope:**
+
 - 7 skill files: run-dir migration from `/tmp` to XDG base path
 - 2 skill files: cross-skill scanning path updates (merge-queue, spec-impl)
 - 1 dctl config file: remove `/tmp` bind mount
 - Lock file migration in skills that use `${XDG_RUNTIME_DIR:-/tmp}`
 
 **OUT of scope:**
+
 - prex/SKILL.md and prex-resume/SKILL.md (completed in round 02)
 - Documentation files (completed in round 01)
 - Rust source code changes
@@ -116,6 +120,7 @@ mkdir -p "$RUN_DIR"
 In `/home/gu/.claude/skills/plan-exec/SKILL.md`:
 
 Replace `RUN_DIR="$(mktemp -d /tmp/plan-exec-XXXXXX)"` with:
+
 ```bash
 _SKILL_RUNS="${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs"
 mkdir -p "$_SKILL_RUNS"
@@ -124,6 +129,7 @@ mkdir -p "$RUN_DIR"
 ```
 
 Replace `LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}"` with:
+
 ```bash
 LOCK_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs}"
 ```
@@ -136,6 +142,7 @@ Replace `RUN_DIR="$(mktemp -d /tmp/spec-impl-XXXXXX)"` with the standard pattern
 `spec-impl` as the skill name).
 
 Replace all `find /tmp -maxdepth 1 -type d -name 'prex-*'` with:
+
 ```bash
 _SKILL_RUNS="${XDG_STATE_HOME:-$HOME/.local/state}/claude-session/skill-runs"
 find "$_SKILL_RUNS" -maxdepth 1 -type d -name 'prex-*'
@@ -204,11 +211,11 @@ reference from `${XDG_RUNTIME_DIR:-/tmp}` to the new path.
 In `/home/gu/.dotfiles/dctl/.config/dctl/devcontainer/base/devcontainer.json`, remove lines 176-180:
 
 ```json
-    {
-      "source": "/tmp",
-      "target": "/tmp",
-      "type": "bind"
-    }
+{
+  "source": "/tmp",
+  "target": "/tmp",
+  "type": "bind"
+}
 ```
 
 Also remove the trailing comma from the preceding mount entry (the glab-cli mount ending at

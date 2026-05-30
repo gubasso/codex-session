@@ -294,9 +294,9 @@ In `src/ui/mod.rs`:
 - Line ~836 in `write_quota_entry_text`: change the format-string literal
   `"  Five-hour   {}  …"` to `"  5-hour      {}  …"`. Bump the trailing
   whitespace so the bar column stays aligned with `Weekly` (currently the
-  `Weekly` label is `Weekly      ` with 6 trailing spaces; `5-hour` is one
+  `Weekly` label is `Weekly` with 6 trailing spaces; `5-hour` is one
   character shorter than `Five-hour`, so its padding grows by one space
-  to `5-hour      `). Verify visually that the bar columns line up.
+  to `5-hour`). Verify visually that the bar columns line up.
 
 DO NOT change:
 
@@ -429,22 +429,22 @@ Add to `tests/account_quota_cli.rs` (predicate-style, matching the file's
 existing convention):
 
 1. **Multi-account text** (≥ 2 OAuth accounts): assert output contains
-    the literal `TOTAL (avg across`, a subsequent line matching `5-hour`
-    followed by a bar, and a `Weekly` line followed by a bar.
+   the literal `TOTAL (avg across`, a subsequent line matching `5-hour`
+   followed by a bar, and a `Weekly` line followed by a bar.
 2. **Multi-account JSON**: parse output as `serde_json::Value`, assert
-    `obj.entries` is an array, `obj.aggregate.accounts-counted` equals the
-    expected count, and `obj.aggregate.five-hour.percent-left` is
-    approximately the mean of the input `percent_left` values
-    (`(a - b).abs() < 0.01`).
+   `obj.entries` is an array, `obj.aggregate.accounts-counted` equals the
+   expected count, and `obj.aggregate.five-hour.percent-left` is
+   approximately the mean of the input `percent_left` values
+   (`(a - b).abs() < 0.01`).
 3. **Single-account JSON**: `obj.entries` has length 1 and
-    `obj.aggregate` is `null`.
+   `obj.aggregate` is `null`.
 4. **Single-account text**: TOTAL panel is absent.
 5. **All-api-key pool**: `obj.aggregate` is `null`; text mode shows no
-    TOTAL panel.
+   TOTAL panel.
 6. **Mixed window failure**: 3 OAuth accounts where account A's `weekly`
-    is `None` (e.g., partial fetch failure); assert
-    `obj.aggregate.five-hour.percent-left` averages all 3 and
-    `obj.aggregate.weekly.percent-left` averages 2.
+   is `None` (e.g., partial fetch failure); assert
+   `obj.aggregate.five-hour.percent-left` averages all 3 and
+   `obj.aggregate.weekly.percent-left` averages 2.
 
 Use the existing test harness fixtures in
 `/workspaces/codex-session/tests/support/` if quota fixtures live there;
@@ -456,7 +456,7 @@ otherwise follow the pattern in adjacent `tests/account_quota_*.rs` files.
 Edit §14 `account quota` (lines ~365–394):
 
 - Replace the `Five-hour` literal in the OAuth example (line 371) with
-  `5-hour      ` (note the trailing space adjustment to keep bar
+  `5-hour` (note the trailing space adjustment to keep bar
   alignment).
 - After the existing OAuth/api-key/error examples, add a "Pool totals"
   subsection showing the footer-summary layout with TOTAL panel:
@@ -504,7 +504,7 @@ just run -- account quota --format json | jq '.entries[0]'
 ```
 
 Confirm the bar column alignment between per-account rows and the TOTAL
-row (the leading two-space indent and `5-hour ` vs `Weekly ` padding
+row (the leading two-space indent and `5-hour` vs `Weekly` padding
 should produce flush bar starts).
 
 ### Final Step: Update plan index
@@ -518,9 +518,9 @@ to record completion:
 
 Because this is the final round, also:
 
-4. In the README.md header blockquote, change `Status: todo` to
-    `Status: done`.
-5. Move the plan directory to done:
+1. In the README.md header blockquote, change `Status: todo` to
+   `Status: done`.
+2. Move the plan directory to done:
 
 ```bash
 mkdir -p .plan/02-done && mv .plan/01-todo/account-quota-aggregate-totals .plan/02-done/account-quota-aggregate-totals

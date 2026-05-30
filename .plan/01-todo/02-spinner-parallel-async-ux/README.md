@@ -15,6 +15,7 @@ N accounts it runs N sequential quota fetches (10s timeout each) + N sequential 
 (15s timeout each), meaning 2 accounts can block for up to 50 seconds.
 
 This plan adds:
+
 1. **Tokio async runtime** — migrates from blocking reqwest to async, enabling parallel I/O
 2. **indicatif spinners** — beautiful terminal spinners during all wait-time operations
 3. **Parallel execution** — concurrent account checks with multi-spinner feedback
@@ -25,26 +26,26 @@ This plan adds:
 The work splits into three rounds following dependency order:
 
 1. **Round 01 — Async Runtime Migration**: Add tokio + indicatif dependencies, switch reqwest from
-    blocking to async, migrate main.rs/dispatch/commands/services to async. All existing tests must
-    still pass. No UX changes — this is pure infrastructure.
+   blocking to async, migrate main.rs/dispatch/commands/services to async. All existing tests must
+   still pass. No UX changes — this is pure infrastructure.
 
 2. **Round 02 — Spinner Module + Account Health & Quota Parallelism**: Create `src/ui/spinner.rs`
-    with reusable spinner helpers built on indicatif's `MultiProgress`. Redesign account health to
-    run all accounts in parallel (tokio::JoinSet) with per-account spinners, and within each account
-    run quota fetch + heartbeat probe concurrently. Same treatment for account quota. Add live tests
-    with wiremock to verify parallelism and output correctness.
+   with reusable spinner helpers built on indicatif's `MultiProgress`. Redesign account health to
+   run all accounts in parallel (tokio::JoinSet) with per-account spinners, and within each account
+   run quota fetch + heartbeat probe concurrently. Same treatment for account quota. Add live tests
+   with wiremock to verify parallelism and output correctness.
 
 3. **Round 03 — Doctor, Refresh, Add Spinners + Polish**: Add step-by-step progress to doctor,
-    spinners to account refresh/add login flows, and comprehensive edge-case handling. Integration
-    tests for TTY/non-TTY behavior, --format json suppression, and signal cleanup.
+   spinners to account refresh/add login flows, and comprehensive edge-case handling. Integration
+   tests for TTY/non-TTY behavior, --format json suppression, and signal cleanup.
 
 ## Execution Order
 
-| Round | File                                         | Topic                                   | Status | Completed |
-| ----- | -------------------------------------------- | --------------------------------------- | ------ | --------- |
-| 01    | `01-async-runtime-migration.md`              | Tokio + async reqwest migration         | todo   | --        |
-| 02    | `02-spinner-parallel-health-quota.md`        | Spinner module + health/quota parallel  | todo   | --        |
-| 03    | `03-doctor-refresh-add-polish.md`            | Doctor/refresh/add spinners + edge cases| todo   | --        |
+| Round | File                                  | Topic                                    | Status | Completed |
+| ----- | ------------------------------------- | ---------------------------------------- | ------ | --------- |
+| 01    | `01-async-runtime-migration.md`       | Tokio + async reqwest migration          | todo   | --        |
+| 02    | `02-spinner-parallel-health-quota.md` | Spinner module + health/quota parallel   | todo   | --        |
+| 03    | `03-doctor-refresh-add-polish.md`     | Doctor/refresh/add spinners + edge cases | todo   | --        |
 
 ## Execution Commands
 
@@ -61,36 +62,36 @@ The work splits into three rounds following dependency order:
 ## Decisions & Constraints
 
 1. **Tokio as the async runtime.** The project already uses tokio in dev-dependencies (for wiremock
-    tests). Moving it to production deps unifies the async story. Reqwest's default features enable
-    async; the `blocking` feature is removed.
+   tests). Moving it to production deps unifies the async story. Reqwest's default features enable
+   async; the `blocking` feature is removed.
 
 2. **indicatif for spinners.** 5.1K GitHub stars, 136M crates.io downloads, `MultiProgress` for
-    concurrent spinners, thread-safe (`Sync + Send`), steady-tick for automatic animation, and
-    first-class tokio compatibility. It's the de facto standard for Rust CLI progress indication.
+   concurrent spinners, thread-safe (`Sync + Send`), steady-tick for automatic animation, and
+   first-class tokio compatibility. It's the de facto standard for Rust CLI progress indication.
 
 3. **Spinner module lives in `src/ui/spinner.rs`.** Complements the existing `src/ui/mod.rs` output
-    module and the in-progress CLI design system plan. Spinners share the color detection
-    infrastructure from `src/ui/color.rs`.
+   module and the in-progress CLI design system plan. Spinners share the color detection
+   infrastructure from `src/ui/color.rs`.
 
 4. **Two levels of parallelism in account health.** Across accounts: `tokio::JoinSet` runs all
-    account checks concurrently. Within each account: `tokio::join!` runs quota fetch and heartbeat
-    probe concurrently. Maximum speedup for multi-account setups.
+   account checks concurrently. Within each account: `tokio::join!` runs quota fetch and heartbeat
+   probe concurrently. Maximum speedup for multi-account setups.
 
 5. **Spinners suppressed in non-TTY and --format json.** When stdout is piped or output format is
-    JSON, spinners are silently disabled (indicatif's `ProgressDrawTarget::hidden()`). Machine-
-    readable output must never contain spinner artifacts.
+   JSON, spinners are silently disabled (indicatif's `ProgressDrawTarget::hidden()`). Machine-
+   readable output must never contain spinner artifacts.
 
 6. **gate.rs heartbeat probe migrates to `tokio::process::Command`.** The probe spawns a child
-    process and polls `try_wait()` in a loop with `thread::sleep(200ms)`. This becomes
-    `tokio::process::Command` with `.wait_with_output()` + `tokio::time::timeout()`.
+   process and polls `try_wait()` in a loop with `thread::sleep(200ms)`. This becomes
+   `tokio::process::Command` with `.wait_with_output()` + `tokio::time::timeout()`.
 
 7. **All existing tests must pass after Round 01.** The async migration is a refactor — behavior is
-    identical. Integration tests use `assert_cmd` (subprocess-based) so they are unaffected by the
-    internal async change.
+   identical. Integration tests use `assert_cmd` (subprocess-based) so they are unaffected by the
+   internal async change.
 
 8. **Live tests use wiremock for HTTP mocking.** The project already has this pattern (see
-    `tests/account_quota_http.rs`). New tests verify parallel fetch timing, spinner suppression in
-    piped output, and multi-account correctness.
+   `tests/account_quota_http.rs`). New tests verify parallel fetch timing, spinner suppression in
+   piped output, and multi-account correctness.
 
 ## Rejected Alternatives
 

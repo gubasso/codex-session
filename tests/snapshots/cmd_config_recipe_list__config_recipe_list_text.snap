@@ -2,5 +2,6 @@
 source: tests/cmd_config_recipe_list.rs
 expression: "env.normalize_text(&String::from_utf8(output).unwrap())"
 ---
-default: <TMP>/config/codex-session/config-recipes/default.yaml layers=1 valid=true
-work: <TMP>/config/codex-session/config-recipes/work.yaml layers=2 valid=true
+CONFIG_RECIPE  LAYERS  VALID  MANIFEST
+default             1  ✓      <TMP>/config/codex-session/config-recipes/default.yaml
+work                2  ✓      <TMP>/config/codex-session/config-recipes/work.yaml

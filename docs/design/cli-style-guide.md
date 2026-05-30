@@ -148,10 +148,11 @@ codex-session: {what}
   caused by: {chain}
 ```
 
-The labels `codex-session:`, `where:`, `why:`, `hint:`, and `caused by:` use
-`BOLD`. Path and hint text remain plain. Usage errors may be delegated to clap,
-which renders its own ANSI. The `where:` and `hint:` lines are optional.
-`caused by:` repeats for the error chain.
+The labels use these styles: `codex-session:` `BOLD_RED`, `where:` `BOLD`,
+`why:` `BOLD`, `hint:` `BOLD_CYAN`, and `caused by:` `BOLD`. Path and hint
+text remain plain. Usage errors may be delegated to clap, which renders its
+own ANSI. The `where:` and `hint:` lines are optional. `caused by:` repeats for
+the error chain.
 
 ## 11. Warnings & Prompts
 

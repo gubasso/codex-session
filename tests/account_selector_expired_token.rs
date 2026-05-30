@@ -75,8 +75,8 @@ fn expired_token_account_skipped_by_selector() {
     let log_file = latest_log_file(&env.state_home.join("codex-session"));
     let logs = std::fs::read_to_string(log_file).unwrap();
     assert!(
-        logs.contains("token-expired"),
-        "expected 'token-expired' reason in debug logs"
+        logs.contains("token expired"),
+        "expected 'token expired' reason in debug logs"
     );
 }
 
@@ -107,7 +107,7 @@ fn valid_token_account_not_skipped() {
     let log_file = latest_log_file(&env.state_home.join("codex-session"));
     let logs = std::fs::read_to_string(log_file).unwrap();
     assert!(
-        !logs.contains("token-expired"),
+        !logs.contains("token expired"),
         "no account should be skipped for token expiry"
     );
 }

@@ -19,8 +19,7 @@ fn pinned_retry_warns_and_reuses_same_account() {
         .code(1);
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    assert!(stderr.contains("ignored"));
-    assert!(stderr.contains("--account auto"));
+    assert!(!stderr.contains("rotating to next account"));
     let homes: Vec<_> = stderr
         .lines()
         .filter_map(|line| line.strip_prefix("marker:codex-session-fake-429 home="))

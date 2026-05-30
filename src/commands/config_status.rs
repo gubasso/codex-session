@@ -65,6 +65,7 @@ pub(crate) fn run(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn build_view(
     ctx: &crate::context::AppContext,
 ) -> Result<ConfigStatusView, crate::error::AppError> {
@@ -73,12 +74,19 @@ pub(crate) fn build_view(
         &ctx.config.paths.state_dir,
     )?;
     let resolved_group = crate::services::session::group_id::current(ctx)?;
-    let resolved_account = match crate::services::account::resolver::resolve(ctx) {
-        Ok(resolved) => Some(resolved),
-        Err(crate::error::AppError::Account(
-            crate::services::account::AccountError::NoneResolved,
-        )) => None,
-        Err(err) => return Err(err),
+    let resolved_account = match crate::services::account::resolver::resolve_for_display(ctx)? {
+        crate::services::account::resolver::DisplayAccount::Pinned { id, source } => {
+            Some(crate::services::account::resolver::ResolvedAccount { id, source })
+        }
+        crate::services::account::resolver::DisplayAccount::Auto {
+            last_selected: Some(id),
+        } => Some(crate::services::account::resolver::ResolvedAccount {
+            id,
+            source: crate::services::account::resolver::AccountResolutionSource::Auto,
+        }),
+        crate::services::account::resolver::DisplayAccount::Auto {
+            last_selected: None,
+        } => None,
     };
     let inspected_dir = if let Some(ref ra) = resolved_account {
         crate::services::session::dir::inspect_session_dir(

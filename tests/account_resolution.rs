@@ -10,12 +10,12 @@ fn write_user_config(env: &TestEnv, body: &str) {
 }
 
 #[test]
-fn account_flag_overrides_env_and_lru() {
+fn account_flag_overrides_env_and_auto_display() {
     let env = TestEnv::new();
     env.seed_account("flag", "{\"token\":\"test\"}\n");
     env.seed_account("env", "{\"token\":\"test\"}\n");
-    env.seed_account("lru", "{\"token\":\"test\"}\n");
-    std::fs::write(env.last_account_path(), "lru").unwrap();
+    env.seed_account("last", "{\"token\":\"test\"}\n");
+    std::fs::write(env.last_account_path(), "last").unwrap();
     let output = env
         .cmd()
         .env("CODEX_SESSION_ACCOUNT", "env")
@@ -38,11 +38,11 @@ fn account_flag_overrides_env_and_lru() {
 }
 
 #[test]
-fn account_env_overrides_lru_and_config() {
+fn account_env_overrides_auto_display_and_config() {
     let env = TestEnv::new();
     env.seed_account("env", "{\"token\":\"test\"}\n");
-    env.seed_account("lru", "{\"token\":\"test\"}\n");
-    std::fs::write(env.last_account_path(), "lru").unwrap();
+    env.seed_account("last", "{\"token\":\"test\"}\n");
+    std::fs::write(env.last_account_path(), "last").unwrap();
     write_user_config(&env, "[account]\npinned = \"pinned\"\n");
     let output = env
         .cmd()
@@ -59,10 +59,10 @@ fn account_env_overrides_lru_and_config() {
 }
 
 #[test]
-fn account_lru_overrides_config_pinned() {
+fn account_current_defaults_to_auto_displaying_last_selected() {
     let env = TestEnv::new();
-    env.seed_account("lru", "{\"token\":\"test\"}\n");
-    std::fs::write(env.last_account_path(), "lru").unwrap();
+    env.seed_account("last", "{\"token\":\"test\"}\n");
+    std::fs::write(env.last_account_path(), "last").unwrap();
     write_user_config(&env, "[account]\npinned = \"pinned\"\n");
     let output = env
         .cmd()
@@ -73,8 +73,21 @@ fn account_lru_overrides_config_pinned() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["name"], "lru");
-    assert_eq!(value["source"], "lru");
+    assert_eq!(value["name"], "last");
+    assert_eq!(value["source"], "auto");
+}
+
+#[test]
+fn exec_without_account_flag_auto_selects_account() {
+    let env = TestEnv::new();
+    env.make_fake_codex();
+    env.cmd().args(["exec"]).assert().success();
+    let meta: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(env.session_dir().join("session-meta.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(meta["account"], "default");
+    assert_eq!(meta["account-source"], "auto");
 }
 
 #[test]

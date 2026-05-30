@@ -34,15 +34,26 @@ pub(crate) fn run(
 
 pub(crate) fn build_view(ctx: &crate::context::AppContext) -> VersionView {
     let child_path = ctx.resolved_child().ok().cloned();
-    let resolved = crate::services::account::resolver::resolve(ctx).ok();
+    let display = crate::services::account::resolver::resolve_for_display(ctx).ok();
+    let (account, account_source) = display.map_or((None, None), |display| match display {
+        crate::services::account::resolver::DisplayAccount::Pinned { id, source } => (
+            Some(id.to_string()),
+            Some(crate::services::account::resolver::source_label(source).to_owned()),
+        ),
+        crate::services::account::resolver::DisplayAccount::Auto {
+            last_selected: Some(id),
+        } => (Some(id.to_string()), Some("auto".to_owned())),
+        crate::services::account::resolver::DisplayAccount::Auto {
+            last_selected: None,
+        } => (None, Some("auto".to_owned())),
+    });
     VersionView {
         wrapper_version: crate::domain::version::current().to_owned(),
         child_version: child_path
             .as_deref()
             .and_then(|path| ctx.spawner.child_version_line(path)),
         child_path: child_path.map(|path| path.to_string()),
-        account: resolved.as_ref().map(|r| r.id.to_string()),
-        account_source: resolved
-            .map(|r| crate::services::account::resolver::source_label(r.source).to_owned()),
+        account,
+        account_source,
     }
 }

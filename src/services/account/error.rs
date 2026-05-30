@@ -2,6 +2,12 @@ use camino::Utf8PathBuf;
 
 use super::{cooldown::CooldownError, id::AccountId};
 
+#[derive(Debug)]
+pub(crate) struct AccountOutcomeLine {
+    pub(crate) id: AccountId,
+    pub(crate) outcome: String,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AccountError {
@@ -39,11 +45,8 @@ pub(crate) enum AccountError {
     #[error("no native auth found at ~/.codex/auth.json; run `codex login` first")]
     NativeAuthMissing,
 
-    #[error(
-        "no account could be resolved; \
-        run `codex-session account add <name>` or pass --account <name>"
-    )]
-    NoneResolved,
+    #[error("auto-selection exhausted; no account could complete the request")]
+    AutoExhausted { report: Vec<AccountOutcomeLine> },
 
     #[error(
         "account `{name}` has no valid authentication; run `codex-session account refresh {name}`"
@@ -55,7 +58,7 @@ pub(crate) enum AccountError {
 
     #[error(
         "accounts exist but none is selected; \
-        run `codex-session account use <name>` or pass --account <name>"
+        pass --account <name> to pin one, or run codex-session login"
     )]
     NoneSelected,
 
@@ -79,7 +82,7 @@ impl AccountError {
             Self::NonInteractive { .. } => "account-non-interactive",
             Self::LoginFailed { .. } => "account-login-failed",
             Self::NativeAuthMissing => "account-native-auth-missing",
-            Self::NoneResolved => "account-none-resolved",
+            Self::AutoExhausted { .. } => "account-auto-exhausted",
             Self::AuthMissing { .. } => "account-auth-missing",
             Self::NoAccounts => "account-no-accounts",
             Self::NoneSelected => "account-none-selected",
@@ -111,7 +114,7 @@ impl AccountError {
             | Self::NonInteractive { .. }
             | Self::LoginFailed { .. }
             | Self::NativeAuthMissing
-            | Self::NoneResolved
+            | Self::AutoExhausted { .. }
             | Self::AuthMissing { .. }
             | Self::NoAccounts
             | Self::NoneSelected

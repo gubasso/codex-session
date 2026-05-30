@@ -14,7 +14,7 @@ use std::io::IsTerminal as _;
 use super::{
     AccountError, AccountId,
     registry::{AccountEntry, Registry},
-    resolver::{AccountResolutionSource, ResolvedAccount, source_label},
+    resolver::{AccountIntent, AccountResolutionSource, ResolvedAccount, source_label},
 };
 
 use camino::Utf8PathBuf;
@@ -42,9 +42,20 @@ impl LoginOptions {
 
 #[derive(Debug)]
 pub(crate) enum AccountState {
-    Ready(ResolvedAccount),
-    AuthMissing { account: AccountId },
-    NoneSelected { accounts: Vec<AccountEntry> },
+    ReadyPinned(ResolvedAccount),
+    ReadyAuto {
+        candidates: usize,
+    },
+    AuthMissing {
+        account: AccountId,
+    },
+    PinnedNotFound {
+        account: AccountId,
+    },
+    #[allow(dead_code)]
+    NoneSelected {
+        accounts: Vec<AccountEntry>,
+    },
     NoAccounts,
 }
 
@@ -52,45 +63,51 @@ pub(crate) fn assess(ctx: &AppContext) -> Result<AccountState, AppError> {
     let registry = Registry::from_config(&ctx.config);
     let accounts = registry.list()?;
 
-    if accounts.is_empty() {
-        return Ok(AccountState::NoAccounts);
-    }
-
-    match super::resolver::resolve(ctx) {
-        Err(AppError::Account(AccountError::NoneResolved)) => {
-            Ok(AccountState::NoneSelected { accounts })
-        }
-        Err(err) => Err(err),
-        Ok(resolved) => match registry.expect_account_dir(&resolved.id) {
-            Err(AccountError::NotFound { name, .. }) => {
-                tracing::warn!(
-                    op = "gate.assess",
-                    outcome = "stale-pointer",
-                    account = %name,
-                    "resolved account directory missing; treating as none-selected"
-                );
-                Ok(AccountState::NoneSelected { accounts })
-            }
+    match super::resolver::intent(ctx)? {
+        AccountIntent::Pinned { id, source } => match registry.expect_account_dir(&id) {
+            Err(AccountError::NotFound { .. }) => Ok(AccountState::PinnedNotFound { account: id }),
             Err(err) => Err(err.into()),
             Ok(_) => {
-                let seed_path = registry.group_auth_seed_path(&resolved.id);
+                let seed_path = registry.group_auth_seed_path(&id);
                 if !seed_path.as_std_path().exists() {
-                    return Ok(AccountState::AuthMissing {
-                        account: resolved.id,
-                    });
+                    return Ok(AccountState::AuthMissing { account: id });
                 }
-                Ok(AccountState::Ready(resolved))
+                Ok(AccountState::ReadyPinned(ResolvedAccount { id, source }))
             }
         },
+        AccountIntent::Auto => {
+            if accounts.is_empty() {
+                return Ok(AccountState::NoAccounts);
+            }
+            let candidates = accounts
+                .iter()
+                .filter(|entry| super::selector::is_usable(ctx, &registry, entry))
+                .count();
+            Ok(AccountState::ReadyAuto { candidates })
+        }
     }
 }
 
-pub(crate) fn ensure(ctx: &AppContext) -> Result<ResolvedAccount, AppError> {
+pub(crate) enum GateOutcome {
+    Resolved(ResolvedAccount),
+    AutoDeferred,
+}
+
+impl GateOutcome {
+    pub(crate) const fn resolved_or_none(&self) -> Option<&ResolvedAccount> {
+        match self {
+            Self::Resolved(resolved) => Some(resolved),
+            Self::AutoDeferred => None,
+        }
+    }
+}
+
+pub(crate) fn ensure(ctx: &AppContext) -> Result<GateOutcome, AppError> {
     let state = assess(ctx)?;
     let interactive = std::io::stdin().is_terminal();
 
     match state {
-        AccountState::Ready(resolved) => {
+        AccountState::ReadyPinned(resolved) => {
             narrate(
                 ctx,
                 &format!(
@@ -99,7 +116,14 @@ pub(crate) fn ensure(ctx: &AppContext) -> Result<ResolvedAccount, AppError> {
                     source_label(resolved.source),
                 ),
             );
-            Ok(resolved)
+            Ok(GateOutcome::Resolved(resolved))
+        }
+        AccountState::ReadyAuto { candidates } => {
+            narrate(
+                ctx,
+                &format!("auto-selection enabled ({candidates} candidate(s))."),
+            );
+            Ok(GateOutcome::AutoDeferred)
         }
         AccountState::NoAccounts => {
             if !interactive {
@@ -109,7 +133,7 @@ pub(crate) fn ensure(ctx: &AppContext) -> Result<ResolvedAccount, AppError> {
                 ctx,
                 "no accounts registered. Let's set up your first account.",
             );
-            interactive_resolve_no_accounts(ctx)
+            interactive_resolve_no_accounts(ctx).map(GateOutcome::Resolved)
         }
         AccountState::NoneSelected { accounts } => {
             if !interactive {
@@ -122,15 +146,53 @@ pub(crate) fn ensure(ctx: &AppContext) -> Result<ResolvedAccount, AppError> {
                     accounts.len(),
                 ),
             );
-            interactive_resolve_none_selected(ctx, &accounts)
+            interactive_resolve_none_selected(ctx, &accounts).map(GateOutcome::Resolved)
         }
         AccountState::AuthMissing { account, .. } => {
             if !interactive {
                 return Err(AccountError::AuthMissing { name: account }.into());
             }
-            warn_and_confirm_auth_missing(ctx, &account)
+            warn_and_confirm_auth_missing(ctx, &account).map(GateOutcome::Resolved)
+        }
+        AccountState::PinnedNotFound { account } => Err(pinned_not_found_error(ctx, &account)),
+    }
+}
+
+fn pinned_not_found_error(ctx: &AppContext, account: &AccountId) -> AppError {
+    let registry = Registry::from_config(&ctx.config);
+    AccountError::NotFound {
+        name: account.clone(),
+        path: registry.account_dir(account),
+    }
+    .into()
+}
+
+fn auto_resolved_without_pick(ctx: &AppContext) -> Result<Option<ResolvedAccount>, AppError> {
+    let registry = Registry::from_config(&ctx.config);
+    let entries = registry.list()?;
+    // Side-effectful auth ops (login/logout) must act on the user-visible active
+    // account — the last committed selection shown by `account current` — not an
+    // arbitrary alphabetically-first usable entry. Prefer `current()` when it is
+    // still usable; only fall back to the first usable entry when no current is
+    // set. Never call `selector::pick` here (no quota fetch, no `set_current`).
+    if let Some(current) = registry.current()?
+        && let Some(entry) = entries.iter().find(|e| e.id == current)
+        && super::selector::is_usable(ctx, &registry, entry)
+    {
+        return Ok(Some(ResolvedAccount {
+            id: current,
+            source: AccountResolutionSource::Auto,
+        }));
+    }
+    for entry in entries {
+        if super::selector::is_usable(ctx, &registry, &entry) {
+            return Ok(Some(ResolvedAccount {
+                id: entry.id,
+                source: AccountResolutionSource::Auto,
+            }));
         }
     }
+    Ok(None)
 }
 
 fn warn_and_confirm_auth_missing(
@@ -609,7 +671,27 @@ pub(crate) fn run_login(ctx: &AppContext, opts: &LoginOptions) -> Result<i32, Ap
             narrate(ctx, &format!("account '{account}' is now authenticated."));
             Ok(0)
         }
-        AccountState::Ready(resolved) => login_handle_ready(ctx, opts, &resolved),
+        AccountState::ReadyPinned(resolved) => login_handle_ready(ctx, opts, &resolved),
+        AccountState::ReadyAuto { .. } => {
+            if let Some(resolved) = auto_resolved_without_pick(ctx)? {
+                login_handle_ready(ctx, opts, &resolved)
+            } else if interactive {
+                let registry = Registry::from_config(&ctx.config);
+                let accounts = registry.list()?;
+                narrate(
+                    ctx,
+                    &format!(
+                        "{} account(s) found but none is ready. Please choose one to log in.",
+                        accounts.len(),
+                    ),
+                );
+                login_resolve_none_selected(ctx, &accounts)?;
+                Ok(0)
+            } else {
+                Err(AccountError::NoneSelected.into())
+            }
+        }
+        AccountState::PinnedNotFound { account } => Err(pinned_not_found_error(ctx, &account)),
     }
 }
 
@@ -746,7 +828,7 @@ pub(crate) fn run_logout(ctx: &AppContext) -> Result<i32, AppError> {
             let _ = registry.delete_auth_seed(&account);
             Ok(0)
         }
-        AccountState::Ready(resolved) => {
+        AccountState::ReadyPinned(resolved) => {
             narrate(
                 ctx,
                 &format!(
@@ -762,6 +844,41 @@ pub(crate) fn run_logout(ctx: &AppContext) -> Result<i32, AppError> {
             );
             Ok(0)
         }
+        AccountState::ReadyAuto { .. } => {
+            if let Some(resolved) = auto_resolved_without_pick(ctx)? {
+                narrate(
+                    ctx,
+                    &format!(
+                        "logging out account '{}' (source: {})...",
+                        resolved.id,
+                        source_label(resolved.source),
+                    ),
+                );
+                do_logout(ctx, &resolved.id)?;
+                narrate(
+                    ctx,
+                    &format!("account '{}' is now logged out.", resolved.id),
+                );
+                Ok(0)
+            } else if interactive {
+                let registry = Registry::from_config(&ctx.config);
+                let accounts = registry.list()?;
+                narrate(
+                    ctx,
+                    &format!(
+                        "{} account(s) found but none is ready. Please choose one to log out.",
+                        accounts.len(),
+                    ),
+                );
+                let account_id = logout_resolve_none_selected(&accounts)?;
+                do_logout(ctx, &account_id)?;
+                narrate(ctx, &format!("account '{account_id}' is now logged out."));
+                Ok(0)
+            } else {
+                Err(AccountError::NoneSelected.into())
+            }
+        }
+        AccountState::PinnedNotFound { account } => Err(pinned_not_found_error(ctx, &account)),
     }
 }
 

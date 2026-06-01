@@ -5,17 +5,26 @@
 ## Context
 
 codex-session is a Rust CLI wrapper that manages multi-account credential pooling for the `codex`
-binary. After Rounds 01 and 02, the codebase uses tokio async, has a reusable spinner module
-(`src/ui/spinner.rs`), and runs `account health` and `account quota` in parallel with multi-spinner
-feedback. This final round extends spinner coverage to `doctor`, `account refresh`, and `account
-add`, then handles edge cases and adds comprehensive live tests.
+binary. After Rounds 01 and 02, the codebase uses tokio async **on the network surface only**
+(`account health`/`account quota` + quota service), has a reusable spinner module
+(`src/ui/spinner.rs`) implementing the §9b style-guide spec, and runs health/quota in parallel
+with multi-spinner feedback. This final round extends spinner coverage to `doctor`, `account
+refresh`, and `account add`, then handles edge cases and adds comprehensive live tests.
+
+> **Plan-review note carried into this round.** Per the BLOCKER 1 decision, `doctor`, `account
+> refresh`, `account add`, and `gate::run_login` are all **synchronous** and stay that way. Spinners
+> work fine in synchronous functions (indicatif's steady-tick runs on its own thread) — none of the
+> steps below require making these handlers async. The draft's `async fn run(...)` signatures for
+> doctor/refresh/add are therefore **not** correct; keep them sync.
 
 ## Current State
 
 After Rounds 01 and 02:
 
-- Tokio runtime active, all services and commands are async
-- `src/ui/spinner.rs` provides `SpinnerGroup` and `SpinnerHandle` with TTY/format-aware visibility
+- Tokio runtime active; only the network surface (health/quota + quota service) is async (doctor,
+  refresh, add, pass_through, run_login all remain synchronous — BLOCKER 1 scope)
+- `src/ui/spinner.rs` provides `SpinnerGroup` and `SpinnerHandle` implementing the §9b style-guide spec,
+  with TTY/format-aware visibility
 - `account health` runs accounts in parallel with per-account spinners, quota+probe concurrent
 - `account quota` runs accounts in parallel with spinners
 - Spinners suppressed in JSON mode and non-TTY contexts
@@ -97,8 +106,12 @@ The doctor command runs checks sequentially and builds a `DoctorReport`. Add a s
 which check is currently running:
 
 ```rust
-pub(crate) async fn run(ctx: &AppContext, args: DoctorArgs) -> Result<u8, AppError> {
-    let show_spinner = args.format == OutputFormat::Text && std::io::stderr().is_terminal();
+// NOTE: doctor stays SYNC (Round 01 decision). Spinner runs on indicatif's own tick thread.
+// Resolve format the same way the current doctor does: ctx.global.format.unwrap_or_default()
+// (doctor reads ctx.global.format, not an args.format field — verify against doctor.rs:88).
+pub(crate) fn run(ctx: &AppContext, args: DoctorArgs) -> Result<u8, AppError> {
+    let fmt = ctx.global.format.unwrap_or_default();
+    let show_spinner = spinner::should_show_spinner(fmt);
     let spinners = SpinnerGroup::new(show_spinner);
 
     let spinner = spinners.add("Running doctor checks...");
@@ -143,8 +156,9 @@ should show _before_ the login prompt (while setting up the environment) and _af
 completes (while copying auth files), but NOT during the interactive login itself.
 
 ```rust
-pub(crate) async fn run(ctx: &AppContext, args: RefreshArgs) -> Result<(), AppError> {
-    let show_spinner = std::io::stderr().is_terminal();
+// refresh stays SYNC; run_login stays SYNC (Round 01 decision) — no .await.
+pub(crate) fn run(ctx: &AppContext, args: &RefreshArgs) -> Result<(), AppError> {
+    let show_spinner = spinner::should_show_spinner_stderr(); // text-implied; reuse color::should_color
     let spinners = SpinnerGroup::new(show_spinner);
 
     let spinner = spinners.add(&format!("Preparing login for \"{}\"...", account));
@@ -154,8 +168,8 @@ pub(crate) async fn run(ctx: &AppContext, args: RefreshArgs) -> Result<(), AppEr
     // Clear spinner before interactive login (don't interfere with child's terminal)
     spinner.finish_and_clear();
 
-    // Interactive login (user sees codex login's own output)
-    let exit_code = gate::run_login(ctx, &opts).await?;
+    // Interactive login (user sees codex login's own output) — synchronous call
+    let exit_code = gate::run_login(ctx, &opts)?;
 
     if exit_code == 0 {
         let spinner = spinners.add("Saving credentials...");
@@ -177,8 +191,9 @@ File: `/workspaces/codex-session/src/commands/account/add.rs`
 Same pattern as refresh:
 
 ```rust
-pub(crate) async fn run(ctx: &AppContext, args: AddArgs) -> Result<(), AppError> {
-    let show_spinner = std::io::stderr().is_terminal();
+// add stays SYNC; run_login stays SYNC (Round 01 decision) — no .await.
+pub(crate) fn run(ctx: &AppContext, args: &AddArgs) -> Result<(), AppError> {
+    let show_spinner = spinner::should_show_spinner_stderr();
     let spinners = SpinnerGroup::new(show_spinner);
 
     let spinner = spinners.add(&format!("Setting up account \"{}\"...", name));
@@ -187,8 +202,8 @@ pub(crate) async fn run(ctx: &AppContext, args: AddArgs) -> Result<(), AppError>
 
     spinner.finish_and_clear();
 
-    // Interactive login
-    let exit_code = gate::run_login(ctx, &opts).await?;
+    // Interactive login — synchronous call
+    let exit_code = gate::run_login(ctx, &opts)?;
 
     if exit_code == 0 {
         let spinner = spinners.add("Saving account...");
@@ -223,16 +238,24 @@ terminal is restored to a normal state.
 
 ### Step 5: Signal handling for spinner cleanup
 
-The project uses `signal-hook` for signal handling. When the user presses CTRL-C during a spinner
-operation, the spinner should be cleaned up before the process exits.
+> **MINOR 10 — concrete expectation (replaces the draft's "test whether… else skip").** The existing
+> signal machinery (`src/adapters/spawner.rs:100` `install_signal_forwarding` + `SignalGuard`) exists
+> to **forward** SIGINT/SIGTERM/SIGHUP to the spawned `codex` _child_ during pass_through exec. It
+> deliberately does not unregister on drop. **The spinner commands (health/quota/doctor/refresh/add
+> pre-login) do not install that forwarder and have no child to forward to during the spinner phase.**
+> So the design is:
+>
+> 1. Spinner commands rely on indicatif's `Drop` (Step 4): on a normal SIGINT the default handler
+>    terminates the process; for the spinner the relevant restoration is terminal cleanup, which
+>    indicatif performs when the `ProgressBar`/`MultiProgress` is dropped during unwind.
+> 2. The pass_through exec path keeps its existing forwarding **untouched** — Round 03 does not modify
+>    `spawner.rs` or `retry.rs`.
+> 3. `account refresh`/`account add` clear the spinner _before_ spawning the interactive child
+>    (Steps 2–3), so the child's own terminal handling owns the screen during login.
 
-Check the existing signal handling in the project. If signals are already handled gracefully (the
-process exits cleanly on SIGINT), then the `Drop` implementation from Step 4 is sufficient — Rust
-drops all stack-allocated values during unwinding.
-
-If the process uses `std::process::exit()` on signals (which skips Drop), the spinner may leave
-the terminal in a bad state. In that case, ensure the signal handler calls
-`MultiProgress::clear()` before exiting.
+Verify empirically: run `account health` (non-fast) against a slow mock in a real TTY, press Ctrl-C,
+and confirm the terminal is left clean (cursor visible, no stuck spinner line). If — and only if —
+that test shows residue, add the global cleanup below; otherwise omit it.
 
 File: `/workspaces/codex-session/src/ui/spinner.rs`
 
@@ -316,8 +339,14 @@ fn refresh_piped_mode_no_spinner_artifacts() {
 }
 ```
 
-Note: This test requires a fake-codex fixture that simulates a successful login. If one doesn't
-already exist, create a minimal shell script fixture:
+Note: `TEST_AUTH` is currently file-local to `tests/account_health_cli.rs:11` — use the hoisted
+version from Round 02 Step 8a (or re-declare locally). `with_stub_child` exists at
+`tests/support/mod.rs:35`; confirm its exact signature before use.
+
+Note: This test requires a fake-codex fixture that simulates a successful login. There are existing
+login fixtures (`tests/fixtures/fake-codex-login.sh`, `fake-codex-resume.sh`) — **check whether one
+of those already covers a successful-login path before adding a new file.** If a new one is genuinely
+needed:
 
 File: `/workspaces/codex-session/tests/fixtures/fake-codex-login-success.sh`
 
@@ -397,10 +426,14 @@ async fn health_killed_during_fetch_exits_cleanly() {
         .mount(&server)
         .await;
 
-    // Start the command and kill it after 1 second
-    let mut child = env.cmd_raw()
+    // Start the command and kill it after 1 second.
+    // Use TestEnv::std_cmd() (returns std::process::Command) — there is NO cmd_raw().
+    let mut child = env.std_cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "health", "--fast", "--format", "text"])
+        // NOTE: do NOT use --fast here — fast skips the network entirely, so there is no
+        // in-flight fetch to interrupt. Use non-fast so the process is actually blocked on
+        // the 30s mock when the signal arrives.
+        .args(["account", "health", "--format", "text"])
         .spawn()
         .unwrap();
 
@@ -410,17 +443,27 @@ async fn health_killed_during_fetch_exits_cleanly() {
     unsafe { libc::kill(child.id() as i32, libc::SIGINT); }
 
     let status = child.wait().unwrap();
-    // Process should exit (not hang)
-    assert!(!status.success() || status.code() == Some(130)); // 130 = 128 + SIGINT
+    // Process should exit (not hang). Exact code is platform/handler dependent; assert it
+    // terminated rather than asserting a specific code.
+    assert!(!status.success());
 }
 ```
 
-Note: This test needs `cmd_raw()` which returns `std::process::Command` instead of
-`assert_cmd::Command`. Check if `TestEnv` has this method; if not, add a simple helper.
+Notes:
+
+- Use `TestEnv::std_cmd()` (`tests/support/mod.rs:154`) — `cmd_raw()` does not exist.
+- `libc` is already a production dependency; it is usable from tests.
+- **Semantics caveat (MINOR 10):** the spinner commands do not install the child-forwarding
+  `SignalGuard`, so SIGINT to the wrapper is handled by the default disposition (terminate). Don't
+  assert a specific exit code like `130`; assert non-success / that it didn't hang. This test is a
+  best-effort "doesn't deadlock and exits" check, not a terminal-cleanliness assertion (cleanliness
+  is verified manually per Step 5).
 
 ### Step 10: Review spinner messages for UX quality
 
-Review all spinner messages across all commands for consistency, clarity, and tone:
+These messages should match the conventions codified in the §9b style-guide spec (Round 02 Step 0) — that is
+the canonical source; this table is the concrete instantiation. Review all spinner messages across
+all commands for consistency, clarity, and tone:
 
 | Command           | Phase              | Spinner Message                                        |
 | ----------------- | ------------------ | ------------------------------------------------------ |
@@ -459,7 +502,7 @@ All tests must pass, no new warnings.
 
 Mark this round as `done` with today's date in the README.md execution order table.
 
-File: `/workspaces/codex-session/.plan/01-todo/spinner-parallel-async-ux/README.md`
+File: `/workspaces/codex-session/.plan/01-todo/02-spinner-parallel-async-ux/README.md`
 
 Update the Round 03 row's Status column from `todo` to `done` and fill in the Completed column.
 
@@ -468,11 +511,11 @@ Update the Round 03 row's Status column from `todo` to `done` and fill in the Co
 Since this is the final round:
 
 1. Update the README.md header status from `todo` to `done`
-2. Move the plan directory:
+2. Move the plan directory (note the `02-` prefix on both sides):
 
 ```bash
 mkdir -p .plan/02-done
-mv .plan/01-todo/spinner-parallel-async-ux .plan/02-done/spinner-parallel-async-ux
+mv .plan/01-todo/02-spinner-parallel-async-ux .plan/02-done/02-spinner-parallel-async-ux
 ```
 
 ## Acceptance Criteria
@@ -482,8 +525,9 @@ mv .plan/01-todo/spinner-parallel-async-ux .plan/02-done/spinner-parallel-async-
 3. `account refresh` shows spinner before and after login, not during interactive login
 4. `account add` shows spinner before and after login, not during interactive login
 5. `SpinnerHandle` cleans up on drop (terminal is restored even on early return / error)
-6. CTRL-C during spinner operations exits cleanly without leaving terminal artifacts
-7. All spinner messages follow the UX table in Step 10
+6. CTRL-C during a spinner operation exits without hanging (automated test) and leaves a clean
+   terminal (manual TTY check per Step 5); the pass_through exec forwarding path is left untouched
+7. All spinner messages follow the §9b style-guide spec (instantiated in the Step 10 table)
 8. New live integration tests pass:
    - Doctor piped output is clean
    - Doctor JSON output is valid JSON
@@ -492,7 +536,7 @@ mv .plan/01-todo/spinner-parallel-async-ux .plan/02-done/spinner-parallel-async-
    - Health killed during fetch exits cleanly
 9. All existing tests still pass (`just test`)
 10. `just lint` and `just check` pass
-11. Plan directory moved to `.plan/02-done/spinner-parallel-async-ux/`
+11. Plan directory moved to `.plan/02-done/02-spinner-parallel-async-ux/`
 
 ## Next Round
 

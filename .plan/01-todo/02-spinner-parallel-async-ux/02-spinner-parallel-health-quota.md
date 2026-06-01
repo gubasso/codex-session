@@ -1,6 +1,6 @@
-# Round 02 — Spinner Module + Parallel Account Health & Quota
+# Round 02 — Style-Guide Spinner Spec + Spinner Module + Parallel Account Health & Quota
 
-> Round 2 of 3 | Topic: indicatif spinner helpers + parallel account operations | Status: todo
+> Round 2 of 3 | Topic: style-guide spinner spec + indicatif spinner helpers + parallel account operations | Status: todo
 
 ## Context
 
@@ -9,17 +9,31 @@ binary. Commands like `account health` and `account quota` fetch data from remot
 per account with no progress feedback. After Round 01, the codebase uses tokio + async reqwest,
 making parallel I/O and spinner integration straightforward.
 
-This round creates a reusable spinner module built on `indicatif` and redesigns `account health` and
+This round first amends the CLI style guide with a spinner / progress-narration spec (governance:
+`CLAUDE.md` makes `docs/design/cli-style-guide.md` the source of truth for runtime narration, and it
+currently defines no spinner spec — §9 covers only quota progress bars), then creates a reusable
+spinner module built on `indicatif` that _implements_ that spec, and redesigns `account health` and
 `account quota` to run all account operations in parallel with per-account spinner feedback.
+
+> **Plan-review prerequisites for this round.** Step 0 below writes the style-guide spec; the spinner
+> module (Step 1) must _implement_ it (symbols, colors, suppression matrix), not invent it. Three
+> correctness items from review apply throughout: (a) `tracing` co-tenants stderr with spinners and
+> must be suspended (MAJOR 3); (b) `JoinSet` completion order is nondeterministic, so results must be
+> re-sorted before rendering (MINOR 7/8); (c) the new tests must use **real** helpers — the draft
+> references several that don't exist (MAJOR 4).
 
 ## Current State
 
 After Round 01, the following is true:
 
 - Tokio runtime is active (`#[tokio::main]` in main.rs)
-- All command handlers and services are `async fn`
-- `reqwest::Client` (async) replaces `reqwest::blocking::Client`
-- `tokio::process::Command` replaces `std::process::Command` in gate.rs
+- `dispatch::run` is async; **only `account health` and `account quota` handlers + the quota service
+  are `async fn`** — all other handlers stay sync (BLOCKER 1 scope)
+- `reqwest::Client` (async) replaces `reqwest::blocking::Client` **in the quota service only**;
+  `token_refresh.rs` keeps `reqwest::blocking` and is called via `spawn_blocking`
+- `tokio::process::Command` replaces `std::process::Command` for the gate.rs heartbeat probe;
+  `gate::run_login` stays synchronous
+- `retry.rs`, `pass_through.rs`, `run_child`, `adapters/spawner.rs` are unchanged (synchronous)
 - `indicatif = "0.17"` is in Cargo.toml but not yet used
 
 ### account health command (sequential, no spinners)
@@ -76,31 +90,62 @@ creates a hermetic `assert_cmd::Command` with env isolation.
 
 ## Previous Rounds
 
-**Round 01** migrated the codebase from blocking to async:
+**Round 01** migrated the **network surface** from blocking to async (BLOCKER 1 scope):
 
-- Added tokio + indicatif to Cargo.toml
-- Switched reqwest from blocking to async
-- Made all command handlers and services async
+- Added tokio + indicatif to Cargo.toml (kept reqwest `blocking` for token_refresh)
+- Switched the quota service's reqwest client to async
+- Made `dispatch::run` + `account health`/`account quota` handlers + quota service async; left all
+  other handlers, `retry.rs`, `pass_through`, and `gate::run_login` synchronous
 - All tests pass, behavior unchanged
 
 ## Scope of This Round
 
 ### In scope
 
-1. Create `src/ui/spinner.rs` module with reusable spinner helpers
-2. Redesign `account health` for parallel execution with multi-spinner
-3. Redesign `account quota` for parallel execution with multi-spinner
-4. Suppress spinners when `--format json` or non-TTY (piped output)
-5. Live integration tests for parallelism correctness and output integrity
+1. Amend `docs/design/cli-style-guide.md` with a spinner / progress-narration spec (§9b)
+2. Create `src/ui/spinner.rs` module with reusable spinner helpers implementing that spec
+3. Redesign `account health` for parallel execution with multi-spinner
+4. Redesign `account quota` for parallel execution with multi-spinner
+5. Suppress spinners when `--format json` or non-TTY (piped output)
+6. Live integration tests for parallelism correctness and output integrity
 
 ### Out of scope
 
 - Doctor progress indication (Round 03)
 - Account refresh/add spinners (Round 03)
-- Design system styling changes (separate plan)
 - Error path spinners (Round 03)
 
 ## Implementation Steps
+
+### Step 0: Amend the CLI style guide with a spinner spec (governance — do this first)
+
+File: `/workspaces/codex-session/docs/design/cli-style-guide.md`
+
+`CLAUDE.md` makes this guide the source of truth for runtime narration; it must define spinners
+before code introduces them. Today: §2 routes progress narration to **stderr** (reuse); §5 defines
+`✓`/`✗`/`▸`/`—` symbols; §7 defines status colors; §9 says "Progress bars are used only for quota
+percentage displays" and covers no spinners.
+
+Add a subsection **§9b "Spinners & live progress narration"** defining, at minimum:
+
+1. **When spinners appear** — `account health`, `account quota`, `doctor` (rolling single-line),
+   `account refresh` / `account add` (before/after the interactive login, never _during_ it).
+2. **Channel** — stderr only (consistent with §2). Command results stay on stdout.
+3. **Suppression matrix** — hidden when **any** of: stderr is not a TTY; `--format json`;
+   `--quiet` / `--silent` (§11); `account health --fast`.
+4. **Frame & color** — `{spinner:.cyan} {msg}`, `enable_steady_tick(80ms)`; glyph color reconciled
+   with §7; gated on `color::should_color(Stream::Stderr)`; `NO_COLOR`/non-TTY ⇒ plain.
+5. **Finish markers** — `✓ <msg>` (GREEN) / `✗ <msg>` (RED), with `[ok]` / `[err]` ASCII fallback
+   when color is off; transient spinners finish-and-clear (no residual line).
+6. **Coexistence with `tracing`** — while a spinner is live, other stderr writers (`write_warning`
+   and `tracing` events) must go through the spinner suspend mechanism so frames aren't corrupted.
+7. **Message conventions** — present participle for in-progress, account names quoted, finish
+   messages ≤ 60 chars. (This is the canonical source for the message table in Round 03 Step 10.)
+
+Also adjust the §9 "only for quota percentage displays" sentence so it scopes the _bar_ widget, not
+animated spinners. Update any section index/TOC.
+
+> No code in this step — just the guide. The spinner module (Step 1) implements §9b.
 
 ### Step 1: Create src/ui/spinner.rs module
 
@@ -198,12 +243,29 @@ pub(crate) async fn run(ctx: &crate::context::AppContext, args: AccountHealthArg
 
     let mut entries = Vec::new();
     while let Some(result) = set.join_next().await {
-        entries.push(result?);
+        entries.push(result?); // result? handles JoinError (task panic) only — see note
     }
 
     // ... existing sort, rank, render logic ...
 }
 ```
+
+> **MINOR 7 — `build_entry` is infallible.** In the current code (`health.rs:94`) `build_entry`
+> returns `AccountHealthEntryView` directly; failures are encoded as `status` strings
+> ("fetch failed", "cache missing"). So each spawned task returns a `View`, and `result?` in
+> `join_next` only unwraps a `JoinError` (panic), not a domain error. Keep it that way.
+>
+> **Must preserve from the current `run()`** (the pseudo-code above omits these): the `--account auto`
+> rejection (`health.rs:21-26`); the `validate_ping_config_recipe` + `ensure_child_version` guard for
+> non-fast mode (`28-31`); the single-named-account selection branch (`38-52`); and the
+> **post-collection sort + rank assignment** (`65-78`). Since `JoinSet::join_next` yields in
+> completion order, that existing sort is exactly what restores deterministic output ordering — do
+> not remove it.
+>
+> **Send/`'static`:** `AppContext` is not `Clone` today but its fields are `Send + Sync`
+> (`Arc<Config>`, ZST `Ui`/`StdSpawner`, `Utf8PathBuf`, `OnceLock`-based lazies). Wrap it once in
+> `Arc<AppContext>` before the loop and clone the `Arc` into each task. `AccountEntry` is
+> `#[derive(Clone)]`; `Registry` is cheaply rebuilt from `Arc<Config>` inside the task if needed.
 
 **Important**: `build_entry()` references `ctx` (which is `&AppContext`) and `registry` (which is
 `&Registry`). These are not `Send` if they contain non-Send fields. There are two approaches:
@@ -287,41 +349,57 @@ pub(crate) async fn run(ctx: &AppContext, args: AccountQuotaArgs) -> Result<(), 
                 Err(err) => return Err(err.into()),
             }
         }
+
+        // MINOR 8 — re-sort before rendering. JoinSet yields in completion order, but the
+        // current command emits in registry.list() order. Sort by a stable key (account id)
+        // so output is deterministic and existing snapshot/order tests don't flake:
+        entries.sort_by(|a, b| a.account.cmp(&b.account));
     }
 
-    // ... existing sort, rank, render logic ...
+    // ... existing render logic ...
 }
 ```
+
+> Preserve the current single-account-propagates vs multi-account-error-view policy exactly (see
+> service `quota.rs` multi-branch). Only the iteration becomes parallel; the error policy is
+> unchanged.
 
 ### Step 6: Add spinner suppression logic
 
-The spinner visibility decision must account for:
+The spinner visibility decision implements the §9b suppression matrix (Step 0):
 
 1. **Output format**: When `--format json`, spinners are hidden (JSON output must be clean)
 2. **TTY detection**: When stderr is not a terminal (piped), spinners are hidden
-3. **`--fast` flag** (health only): When fast mode, no network calls → no spinners
+3. **`--quiet` / `--silent`**: per style guide §11 these suppress non-error stderr → hide spinners
+4. **`--fast` flag** (health only): When fast mode, no network calls → no spinners
 
-Create a helper function in `spinner.rs`:
+Create a helper in `spinner.rs` (reuse `ui::color::should_color(Stream::Stderr)` so the `NO_COLOR` /
+`FORCE_COLOR` / TTY logic stays in one place rather than re-checking `is_terminal()` directly):
 
 ```rust
-pub(crate) fn should_show_spinner(format: crate::cli::OutputFormat) -> bool {
+pub(crate) fn should_show_spinner(format: crate::cli::OutputFormat /*, quiet/silent flags */) -> bool {
     matches!(format, crate::cli::OutputFormat::Text)
         && std::io::stderr().is_terminal()
+        // && !quiet && !silent
 }
 ```
 
-Command handlers call this to decide the `visible` parameter for `SpinnerGroup::new()`.
+Command handlers call this to decide the `visible` parameter for `SpinnerGroup::new()`. Confirm the
+exact `--quiet`/`--silent` flag names against `src/cli/` before wiring them.
 
-### Step 7: Handle indicatif + stderr interleaving
+### Step 7: Handle indicatif + stderr interleaving (warnings AND tracing)
 
-If the command needs to write warnings to stderr (via `ctx.ui.write_warning()`) while spinners are
-active, the output will interleave. Use `MultiProgress::suspend()` to temporarily pause spinner
-rendering:
+Two writers share stderr with the spinners:
+
+1. `ctx.ui.write_warning()` / `write_prompt()` — wrap these in `MultiProgress::suspend()`.
+2. **`tracing` (MAJOR 3).** `src/logging.rs:134,143` configures the `tracing_subscriber` fmt layer
+   with `.with_writer(std::io::stderr)`. The async network ops emit `tracing::info!`/`debug!` events
+   (e.g. `quota.fetch`, `quota.token_refresh`) **while spinners animate on the same stream**. Plain
+   `suspend()` around `write_warning` does NOT cover these — they fire from inside the spawned tasks.
 
 ```rust
 impl SpinnerGroup {
     /// Suspend spinner rendering, execute a closure, then resume.
-    /// Use this when writing to stderr outside of the spinner system.
     pub(crate) fn suspend<F, R>(&self, f: F) -> R
     where
         F: FnOnce() -> R,
@@ -331,17 +409,44 @@ impl SpinnerGroup {
 }
 ```
 
+Pick one approach for tracing and document it in the round:
+
+- **(a) Bridge the log writer through the active progress draw target** — e.g. the
+  `indicatif_log_bridge` crate, or a custom `MakeWriter` that calls `ProgressBar::suspend`. Cleanest;
+  works at any log level.
+- **(b) Gate spinners to the default quiet log level** — only construct a _visible_ `SpinnerGroup`
+  when the stderr filter is at its default (no `RUST_LOG`/`-v` raising it above warn). At higher
+  verbosity, fall back to hidden spinners so logs render cleanly.
+
+Whichever is chosen, the integration tests in Steps 8–11 assert no ANSI/frame artifacts in stderr,
+which catches regressions here.
+
+### Step 8a (prerequisite): Hoist shared test helpers (MAJOR 4)
+
+The draft test code below references helpers that **do not exist** or are **file-local**. Before
+writing new test files, fix the support layer:
+
+| Referenced                                                 | Reality                                                           | Action                                                                   |
+| ---------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `TestEnv::new_with_ping_profile()`                         | does not exist                                                    | add it, or reuse `TestEnv::new()`/`new_empty()` + ping config seed       |
+| `TestEnv::cmd_raw()`                                       | does not exist; it's `std_cmd()` (`tests/support/mod.rs:154`)     | use `std_cmd()`                                                          |
+| `oauth_auth()`, `payload()`, `wham_url()`, `add_account()` | file-local to `tests/account_quota_http.rs:15-34`                 | hoist into `tests/support/mod.rs` (or a shared `tests/support/quota.rs`) |
+| `TEST_AUTH`                                                | file-local to `tests/account_health_cli.rs:11`                    | hoist into `tests/support`                                               |
+| delayed-response mock                                      | `.set_delay(Duration)` is valid on wiremock 0.6 but unused so far | add a small `delayed_quota_mock(server, delay)` helper                   |
+
+Only after these exist should the new test files reference them.
+
 ### Step 8: Live integration test — parallel health with wiremock
 
 File: `/workspaces/codex-session/tests/account_health_parallel.rs` (new file)
 
 Test that multi-account health runs all accounts concurrently by using wiremock with deliberate
-delays:
+delays (using the hoisted helpers from Step 8a):
 
 ```rust
 #[tokio::test]
 async fn health_multi_account_runs_in_parallel() {
-    let env = TestEnv::new_with_ping_profile();
+    let env = TestEnv::new_empty(); // or new_with_ping_profile() once added in Step 8a
     env.seed_account("acct1", oauth_auth());
     env.seed_account("acct2", oauth_auth());
 
@@ -382,15 +487,17 @@ async fn health_multi_account_runs_in_parallel() {
 }
 ```
 
-Note: `--fast` skips network calls and reads from cache, so the parallel timing test needs to use
-non-fast mode. However, non-fast health also runs a heartbeat probe which spawns `codex`. For a
-clean test, either:
-
-- Mock the codex binary with a stub that sleeps (using the existing fixture pattern)
-- Test only account quota parallelism (which doesn't need a codex binary)
-
-Prefer testing with `account quota` for the parallelism timing assertion, and test `account health`
-for correctness (output format, all accounts present).
+> **MINOR 9 — this `--fast` test is internally contradictory and must be split.** `--fast` reads the
+> cache and does NOT hit the mock, so the timing comment ("2s × 2 accounts") is meaningless here.
+> Resolve it cleanly:
+>
+> - Use **`account health --fast`** only for _correctness / no-artifact_ assertions (all accounts
+>   present, valid JSON, clean stderr) — no timing claim, no mock delay.
+> - Do the **timing / parallelism** assertion with **`account quota`** (Step 9), which always hits
+>   the network and needs no `codex` stub binary.
+>
+> So this test should drop the `Instant`/`elapsed` machinery entirely and just assert
+> `arr.len() == 2`.
 
 ### Step 9: Live integration test — parallel quota with timing assertion
 
@@ -432,6 +539,18 @@ async fn quota_multi_account_parallel_faster_than_sequential() {
         "expected parallel execution under 3s, took {:?}", elapsed);
 }
 ```
+
+> **MAJOR 5 — make this robust, not flaky.** A tight `elapsed < 3s` bound on shared CI runners flakes
+> on cold-start, scheduler jitter, and `assert_cmd` subprocess spawn cost. Prefer asserting
+> parallelism via **request concurrency** rather than pure wall-clock:
+>
+> - Bump the per-response delay (e.g. 2s) and the account count (e.g. 4), so sequential would be
+>   ≥ 8s and assert a **generous** bound (`elapsed < 5s`). The gap between parallel and sequential
+>   should be large enough to survive jitter.
+> - Or (stronger) record received-request timestamps via a custom wiremock responder / a shared
+>   counter and assert that all N requests arrived within a short window of each other — this proves
+>   concurrency directly and is timing-jitter-resistant.
+>   Keep at most one wall-clock test as a smoke signal; don't gate CI on a tight bound.
 
 ### Step 10: Live integration test — spinner suppression in JSON mode
 
@@ -504,24 +623,35 @@ Verify all existing tests still pass and new tests pass.
 
 Mark this round as `done` with today's date in the README.md execution order table:
 
-File: `/workspaces/codex-session/.plan/01-todo/spinner-parallel-async-ux/README.md`
+File: `/workspaces/codex-session/.plan/01-todo/02-spinner-parallel-async-ux/README.md`
 
 Update the Round 02 row's Status column from `todo` to `done` and fill in the Completed column.
 
 ## Acceptance Criteria
 
-1. `src/ui/spinner.rs` exists with `SpinnerGroup`, `SpinnerHandle`, and visibility helpers
-2. `account health` (non-fast, multi-account) runs all accounts concurrently via `JoinSet`
-3. Within each account's health check, quota fetch and heartbeat probe run concurrently via
+1. `docs/design/cli-style-guide.md` has a §9b spinner/progress spec (channel, suppression matrix,
+   frame/color, finish markers, tracing coexistence, message conventions) and the §9 "only for quota"
+   line no longer contradicts it (Step 0, BLOCKER 2)
+2. `src/ui/spinner.rs` exists with `SpinnerGroup`, `SpinnerHandle`, and visibility helpers
+3. `account health` (non-fast, multi-account) runs all accounts concurrently via `JoinSet`
+4. Within each account's health check, quota fetch and heartbeat probe run concurrently via
    `tokio::join!`
-4. `account quota` (multi-account) runs all accounts concurrently via `JoinSet`
-5. Spinners are visible when: text format + stderr is TTY + not --fast
-6. Spinners are hidden when: JSON format, or stderr is not TTY, or --fast
-7. JSON output (`--format json`) is valid JSON with no spinner artifacts
-8. Piped (non-TTY) text output has no ANSI escape sequences from spinners
-9. New integration tests pass: parallel timing assertion, spinner suppression
-10. All existing tests still pass (`just test`)
-11. `just lint` passes
+5. `account quota` (multi-account) runs all accounts concurrently via `JoinSet`
+6. Spinners are visible when: text format + stderr is TTY + not --fast
+7. Spinners are hidden when: JSON format, or stderr is not TTY, or --fast
+8. JSON output (`--format json`) is valid JSON with no spinner artifacts
+9. Piped (non-TTY) text output has no ANSI escape sequences from spinners
+10. `tracing` events emitted during async fetches do not corrupt spinner frames (MAJOR 3 — bridged or
+    gated)
+11. Multi-account output is deterministically ordered after the parallel collect (re-sorted by
+    account id) — existing order/snapshot tests still pass (MINOR 8)
+12. The spinner module reuses `ui::color` and implements the §9b style-guide spec from Step 0 (symbols,
+    `[ok]`/`[err]` fallback, suppression matrix)
+13. New integration tests pass and use real/hoisted helpers (no `cmd_raw`/`new_with_ping_profile`
+    unless actually added); parallelism asserted via concurrency or a generous bound, not a tight
+    wall-clock (MAJOR 4/5, MINOR 9)
+14. All existing tests still pass (`just test`)
+15. `just lint` passes
 
 ## Next Round
 

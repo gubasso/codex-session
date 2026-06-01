@@ -57,11 +57,11 @@ pub(crate) async fn run(
         );
         match result.await {
             Ok(view) => {
-                spinner.finish_and_clear();
+                spinner.finish_ok(target.as_str());
                 entries.push(view);
             }
             Err(err) => {
-                spinner.finish_and_clear();
+                spinner.finish_err(&format!("{target} — {err}"));
                 return Err(err.into());
             }
         }
@@ -90,8 +90,8 @@ pub(crate) async fn run(
                     )
                     .await;
                     match &result {
-                        Ok(_) => spinner.finish_ok(&format!("Quota for \"{account}\" fetched")),
-                        Err(_) => spinner.finish_err(&format!("Quota for \"{account}\" failed")),
+                        Ok(_) => spinner.finish_ok(account.as_str()),
+                        Err(err) => spinner.finish_err(&format!("{account} — {err}")),
                     }
                     result
                 }

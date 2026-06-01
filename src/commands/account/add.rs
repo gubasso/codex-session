@@ -3,6 +3,8 @@
 
 use std::io::IsTerminal as _;
 
+use crate::ui::spinner::{SpinnerGroup, should_show_spinner};
+
 pub(crate) fn run(
     ctx: &crate::context::AppContext,
     args: &crate::cli::account::AccountAddArgs,
@@ -16,7 +18,10 @@ pub(crate) fn run(
         .into());
     }
 
+    let spinners = SpinnerGroup::new(should_show_spinner(ctx, args.format, false));
+    let spinner = spinners.add(&format!("Setting up account \"{}\"...", args.name));
     let entry = registry.add(&args.name)?;
+    spinner.finish_and_clear_for_child();
 
     let (_dir, auth_path) = match super::run_isolated_login(ctx) {
         Ok(result) => result,
@@ -33,8 +38,10 @@ pub(crate) fn run(
         }
     };
 
+    let spinner = spinners.add("Saving account...");
     super::persist_auth_to_seed(&auth_path, &registry, &args.name)?;
     registry.set_current(&args.name)?;
+    spinner.finish_ok(&format!("Account \"{}\" added", args.name));
 
     tracing::info!(op = "account.add", outcome = "ok", account = %args.name);
     ctx.ui.write_account_mutation(

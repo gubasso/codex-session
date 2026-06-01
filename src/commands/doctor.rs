@@ -15,6 +15,8 @@ use std::time::SystemTime;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::ui::spinner::{SpinnerGroup, SpinnerHandle, should_show_spinner};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum CheckStatus {
@@ -84,8 +86,14 @@ pub(crate) fn run(
     ctx: &crate::context::AppContext,
     args: crate::cli::doctor::DoctorArgs,
 ) -> Result<u8, crate::error::AppError> {
-    let report = build_report(ctx, args);
     let fmt = ctx.global.format.unwrap_or_default();
+    let spinners = SpinnerGroup::new(should_show_spinner(ctx, fmt, false));
+    let spinner = spinners.add("Running checks...");
+    let report = build_report(ctx, args, Some(&spinner));
+    match doctor_finish(&report.summary) {
+        DoctorFinish::Ok(message) => spinner.finish_ok(&message),
+        DoctorFinish::Err(message) => spinner.finish_err(&message),
+    }
     ctx.ui.write_doctor(&report, fmt)?;
     Ok(u8::from(report.summary.fail > 0))
 }
@@ -94,15 +102,18 @@ pub(crate) fn run(
 fn build_report(
     ctx: &crate::context::AppContext,
     args: crate::cli::doctor::DoctorArgs,
+    progress: Option<&SpinnerHandle>,
 ) -> DoctorReport {
     let mut checks: Vec<CheckResult> = Vec::new();
     let mut next_steps: Vec<String> = Vec::new();
     let mut env_dump: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    set_progress(progress, "Inspecting session root...");
     let root = crate::services::session::dir::inspect_session_root(
         ctx.config.paths.runtime_dir.as_deref(),
         &ctx.config.paths.state_dir,
     )
     .ok();
+    set_progress(progress, "Resolving account...");
     let display_account_result = crate::services::account::resolver::resolve_for_display(ctx);
     if let Err(err) = &display_account_result {
         checks.push(fail("session.account", err.to_string()));
@@ -140,6 +151,7 @@ fn build_report(
             ),
         },
     );
+    set_progress(progress, "Resolving session group...");
     let (group_id, group_id_source, codex_home) = match (
         crate::services::session::group_id::current(ctx),
         root.as_ref(),
@@ -173,6 +185,7 @@ fn build_report(
             )
         }
     };
+    set_progress(progress, "Inspecting accounts...");
     let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -221,10 +234,12 @@ fn build_report(
     checks.extend(check_account_health(&accounts, active_name));
 
     // 1. Active config-recipe resolution + source.
+    set_progress(progress, "Checking active config recipe...");
     let active = ctx.config.config_recipe.active.clone();
     checks.push(check_active_config_recipe(ctx, active.as_deref()));
 
     // 2-8. Per-config-recipe checks: manifest, layers, composition, env extraction.
+    set_progress(progress, "Checking config recipes...");
     if args.all_config_recipes {
         match discover_recipes(&ctx.config.config_recipe.recipes_dir) {
             DiscoveredRecipes::Found(recipes) if recipes.is_empty() => {
@@ -278,25 +293,34 @@ fn build_report(
     }
 
     // 9. Orphan config layers.
+    set_progress(progress, "Checking config layers...");
     checks.push(check_orphan_layers(ctx));
+    set_progress(progress, "Checking legacy profile forms...");
     checks.extend(check_legacy_profile_forms(ctx));
 
     // 11. XDG paths.
+    set_progress(progress, "Checking XDG paths...");
     checks.push(check_xdg_paths());
 
     // 12. Session root.
+    set_progress(progress, "Checking session root...");
     checks.push(check_session_root(ctx));
 
     // 13. Child binary.
+    set_progress(progress, "Checking codex binary...");
     checks.push(check_child_binary(ctx));
+    set_progress(progress, "Checking codex version...");
     checks.push(check_codex_version_minimum(ctx));
 
     // 14. Session sidecar inventory.
+    set_progress(progress, "Checking session inventory...");
     checks.push(check_session_inventory(ctx));
 
     // 15. Native auth bridge health.
+    set_progress(progress, "Checking native auth...");
     checks.push(check_auth_native(ctx));
 
+    set_progress(progress, "Summarizing checks...");
     populate_next_steps(&checks, &mut next_steps);
 
     let summary = summarize(&checks);
@@ -316,6 +340,26 @@ fn build_report(
         summary,
         next_steps,
         env: env_dump,
+    }
+}
+
+fn set_progress(progress: Option<&SpinnerHandle>, message: &'static str) {
+    if let Some(progress) = progress {
+        progress.set_message(message);
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum DoctorFinish {
+    Ok(String),
+    Err(String),
+}
+
+fn doctor_finish(summary: &CheckSummary) -> DoctorFinish {
+    match (summary.fail, summary.warn) {
+        (fail, _) if fail > 0 => DoctorFinish::Err(format!("{fail} checks failed")),
+        (_, warn) if warn > 0 => DoctorFinish::Ok(format!("All checks passed ({warn} warnings)")),
+        _ => DoctorFinish::Ok("All checks passed".to_owned()),
     }
 }
 
@@ -1291,5 +1335,49 @@ fn fail(name: impl Into<String>, detail: impl Into<String>) -> CheckResult {
         name: name.into(),
         status: CheckStatus::Fail,
         detail: detail.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doctor_finish_reports_failures_as_error() {
+        let summary = CheckSummary {
+            ok: 3,
+            warn: 2,
+            fail: 1,
+        };
+        assert_eq!(
+            doctor_finish(&summary),
+            DoctorFinish::Err("1 checks failed".to_owned())
+        );
+    }
+
+    #[test]
+    fn doctor_finish_reports_warning_count_as_success() {
+        let summary = CheckSummary {
+            ok: 3,
+            warn: 2,
+            fail: 0,
+        };
+        assert_eq!(
+            doctor_finish(&summary),
+            DoctorFinish::Ok("All checks passed (2 warnings)".to_owned())
+        );
+    }
+
+    #[test]
+    fn doctor_finish_reports_clean_success() {
+        let summary = CheckSummary {
+            ok: 3,
+            warn: 0,
+            fail: 0,
+        };
+        assert_eq!(
+            doctor_finish(&summary),
+            DoctorFinish::Ok("All checks passed".to_owned())
+        );
     }
 }

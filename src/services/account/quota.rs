@@ -97,18 +97,32 @@ pub(crate) fn get(
     }
 
     let _ = ttl;
-    refresh(ctx, account)
+    block_on_refresh(ctx, account)
 }
 
-pub(crate) fn refresh(
+// Sync bridge for `quota::get`, which is on the synchronous exec hot path
+// (selector -> quota::get). On that path this nests inside the `block_in_place`
+// that `dispatch` wraps `pass_through::run` in; nested `block_in_place` is valid
+// only under the multi-thread runtime. See `crate::runtime::block_on`.
+fn block_on_refresh(
     ctx: &crate::context::AppContext,
     account: &AccountId,
 ) -> Result<QuotaResult, QuotaError> {
-    fetch(ctx, account)
+    crate::runtime::block_on(refresh(ctx, account))
 }
 
-fn fetch(ctx: &crate::context::AppContext, account: &AccountId) -> Result<QuotaResult, QuotaError> {
-    match fetch_inner(ctx, account) {
+pub(crate) async fn refresh(
+    ctx: &crate::context::AppContext,
+    account: &AccountId,
+) -> Result<QuotaResult, QuotaError> {
+    fetch(ctx, account).await
+}
+
+async fn fetch(
+    ctx: &crate::context::AppContext,
+    account: &AccountId,
+) -> Result<QuotaResult, QuotaError> {
+    match fetch_inner(ctx, account).await {
         Err(QuotaError::HttpStatus(401)) => {
             tracing::info!(
                 op = "quota.fetch",
@@ -117,21 +131,35 @@ fn fetch(ctx: &crate::context::AppContext, account: &AccountId) -> Result<QuotaR
                 "attempting token refresh before retrying"
             );
             let auth_path = resolve_auth_path(ctx, account)?;
-            match super::token_refresh::refresh_token(&auth_path) {
-                Ok(_) => {
+            let auth_path_owned = auth_path.clone();
+            let refreshed = tokio::task::spawn_blocking(move || {
+                super::token_refresh::refresh_token(&auth_path_owned)
+            })
+            .await;
+            match refreshed {
+                Ok(Ok(_)) => {
                     tracing::info!(
                         op = "quota.token_refresh",
                         account = %account,
                         outcome = "ok"
                     );
-                    fetch_inner(ctx, account)
+                    fetch_inner(ctx, account).await
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     tracing::warn!(
                         op = "quota.token_refresh",
                         account = %account,
                         error = %err,
                         "token refresh failed; surfacing original 401"
+                    );
+                    Err(QuotaError::HttpStatus(401))
+                }
+                Err(join_err) => {
+                    tracing::warn!(
+                        op = "quota.token_refresh",
+                        account = %account,
+                        error = %join_err,
+                        "token refresh task panicked; surfacing original 401"
                     );
                     Err(QuotaError::HttpStatus(401))
                 }
@@ -141,7 +169,7 @@ fn fetch(ctx: &crate::context::AppContext, account: &AccountId) -> Result<QuotaR
     }
 }
 
-fn fetch_inner(
+async fn fetch_inner(
     ctx: &crate::context::AppContext,
     account: &AccountId,
 ) -> Result<QuotaResult, QuotaError> {
@@ -162,7 +190,7 @@ fn fetch_inner(
             account_id,
             ..
         } => {
-            let client = reqwest::blocking::Client::builder()
+            let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
                 .map_err(|err| {
@@ -184,6 +212,7 @@ fn fetch_inner(
                     .header(reqwest::header::REFERER, "https://chatgpt.com/")
                     .header(reqwest::header::USER_AGENT, "Mozilla/5.0")
                     .send()
+                    .await
                     .map_err(|err| {
                         tracing::info!(op = "quota.fetch", account = %account, outcome = "network");
                         QuotaError::Network(err.to_string())
@@ -192,7 +221,7 @@ fn fetch_inner(
                 let status = response.status();
                 if status.is_server_error() {
                     if attempt == 0 {
-                        std::thread::sleep(Duration::from_secs(1));
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                         continue;
                     }
                     tracing::info!(
@@ -213,7 +242,7 @@ fn fetch_inner(
                     return Err(QuotaError::HttpStatus(status.as_u16()));
                 }
 
-                let body = response.bytes().map_err(|err| {
+                let body = response.bytes().await.map_err(|err| {
                     tracing::info!(op = "quota.fetch", account = %account, outcome = "network");
                     QuotaError::Network(err.to_string())
                 })?;

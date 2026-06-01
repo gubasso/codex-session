@@ -10,7 +10,7 @@ use crate::{cli, commands, context, error};
 
 /// Route a parsed root `Cli` to its handler. Returns the process exit code
 /// on success (most commands return 0; `doctor` can return 0/1/3).
-pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error::AppError> {
+pub(crate) async fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error::AppError> {
     if cli.global.version {
         return commands::version::run(
             ctx,
@@ -26,13 +26,17 @@ pub(crate) fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error:
         Some(cli::Commands::Config(args)) => run_config(ctx, &args).map(|()| 0),
         Some(cli::Commands::ConfigRecipe(args)) => run_config_recipe(ctx, args).map(|()| 0),
         Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx, args),
-        Some(cli::Commands::Account(args)) => commands::account::dispatch(ctx, args).map(|()| 0),
+        Some(cli::Commands::Account(args)) => {
+            commands::account::dispatch(ctx, args).await.map(|()| 0)
+        }
         Some(cli::Commands::External(argv)) => {
-            commands::pass_through::run(ctx, &argv).map(child_exit_code)
+            tokio::task::block_in_place(|| commands::pass_through::run(ctx, &argv))
+                .map(child_exit_code)
         }
         // No subcommand: forward to `codex` with an empty child argv
         // (launches the Codex TUI when `codex` is resolvable).
-        None => commands::pass_through::run(ctx, &[]).map(child_exit_code),
+        None => tokio::task::block_in_place(|| commands::pass_through::run(ctx, &[]))
+            .map(child_exit_code),
     }
 }
 

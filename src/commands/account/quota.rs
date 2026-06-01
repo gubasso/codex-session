@@ -7,7 +7,7 @@ use camino::Utf8PathBuf;
 
 use crate::services::account::{AccountError, AccountId, quota, registry::Registry, selector};
 
-pub(crate) fn run(
+pub(crate) async fn run(
     ctx: &crate::context::AppContext,
     args: crate::cli::account::AccountQuotaArgs,
 ) -> Result<(), crate::error::AppError> {
@@ -38,31 +38,37 @@ pub(crate) fn run(
                 .and_then(|list| list.into_iter().find(|entry| entry.id == *target))
                 .and_then(|entry| entry.last_used_at)
         });
-        entries.push(fetch_view(
-            ctx,
-            target,
-            is_active,
-            false,
-            args.detail,
-            active.as_ref(),
-            last_used_at,
-            now,
-        )?);
+        entries.push(
+            fetch_view(
+                ctx,
+                target,
+                is_active,
+                false,
+                args.detail,
+                active.as_ref(),
+                last_used_at,
+                now,
+            )
+            .await?,
+        );
     } else {
         for entry in registry.list()? {
             let is_active = active
                 .as_ref()
                 .is_some_and(|current| current.as_str() == entry.id.as_str());
-            entries.push(fetch_view(
-                ctx,
-                &entry.id,
-                is_active,
-                true,
-                args.detail,
-                active.as_ref(),
-                entry.last_used_at,
-                now,
-            )?);
+            entries.push(
+                fetch_view(
+                    ctx,
+                    &entry.id,
+                    is_active,
+                    true,
+                    args.detail,
+                    active.as_ref(),
+                    entry.last_used_at,
+                    now,
+                )
+                .await?,
+            );
         }
     }
 
@@ -86,7 +92,7 @@ pub(crate) fn run(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fetch_view(
+async fn fetch_view(
     ctx: &crate::context::AppContext,
     account: &AccountId,
     active: bool,
@@ -97,7 +103,7 @@ fn fetch_view(
     now: SystemTime,
 ) -> Result<crate::commands::account::AccountQuotaEntryView, AccountError> {
     let plan_bonus = quota::plan_bonus(ctx, account);
-    let result = quota::refresh(ctx, account);
+    let result = quota::refresh(ctx, account).await;
 
     match result {
         Ok(result) => {

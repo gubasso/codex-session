@@ -332,7 +332,7 @@ fn map_fs_error(err: crate::adapters::fs::FsError) -> crate::error::AppError {
     }
 }
 
-pub(crate) fn dispatch(
+pub(crate) async fn dispatch(
     ctx: &crate::context::AppContext,
     args: crate::cli::account::AccountArgs,
 ) -> Result<(), crate::error::AppError> {
@@ -344,8 +344,8 @@ pub(crate) fn dispatch(
         AccountCommand::Current(args) => current::run(ctx, args),
         AccountCommand::Remove(args) => remove::run(ctx, &args),
         AccountCommand::Refresh(args) => refresh::run(ctx, &args),
-        AccountCommand::Quota(args) => quota::run(ctx, args),
-        AccountCommand::Health(args) => health::run(ctx, args),
+        AccountCommand::Quota(args) => quota::run(ctx, args).await,
+        AccountCommand::Health(args) => health::run(ctx, args).await,
         AccountCommand::Cooldown(args) => cooldown::run(ctx, args),
     }
 }

@@ -40,6 +40,13 @@ rustix = { version = "1", features = ["process", "fs"] }
 semver = "1"
 signal-hook = "0.3"
 time = { version = "0.3", features = ["formatting", "parsing"] }
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "process",
+    "time",
+    "io-util",
+] }
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "rustls-tls",
@@ -47,6 +54,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 regex = "1"
 inquire = "0.7"
+indicatif = "0.18"
 
 [dev-dependencies]
 assert_cmd = "2"
@@ -57,7 +65,6 @@ predicates = "3"
 tempfile = "3"
 filetime = "0.2"
 wiremock = "0.6"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
 lto = "thin"

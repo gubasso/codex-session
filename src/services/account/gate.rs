@@ -522,7 +522,8 @@ async fn heartbeat_probe(
     })?;
     let tmp_path = camino::Utf8PathBuf::try_from(tmp.path().to_path_buf())
         .map_err(|err| AppError::Other(anyhow::anyhow!("{err}")))?;
-    crate::adapters::fs::atomic_write(&tmp_path.join("auth.json"), &bytes)
+    let tmp_auth = tmp_path.join("auth.json");
+    crate::adapters::fs::atomic_write(&tmp_auth, &bytes)
         .map_err(crate::services::auth::AuthError::from)?;
     // Empty base config.toml — codex requires the file to exist; all overrides
     // come from the sibling profile file written below.
@@ -558,6 +559,7 @@ async fn heartbeat_probe(
             let _ = child.start_kill();
             let _ = child.wait().await;
             let output = drain_child_output(&mut child).await;
+            persist_probe_rotation_or_warn(auth_source, &bytes, &tmp_auth);
             return Ok((
                 None,
                 format!("heartbeat probe timed out after {PROBE_TIMEOUT:?}\n{output}"),
@@ -566,6 +568,7 @@ async fn heartbeat_probe(
     };
 
     let raw_output = drain_child_output(&mut child).await;
+    persist_probe_rotation_or_warn(auth_source, &bytes, &tmp_auth);
 
     if status.success() {
         return Ok((Some(true), strip_codex_stdin_noise(&raw_output)));
@@ -589,6 +592,69 @@ async fn heartbeat_probe(
         ));
     }
     Ok((None, raw_output))
+}
+
+fn persist_probe_rotation_or_warn(
+    auth_source: &camino::Utf8Path,
+    original: &[u8],
+    tmp_auth: &camino::Utf8Path,
+) {
+    if let Err(err) = persist_probe_rotation(auth_source, original, tmp_auth) {
+        tracing::warn!(
+            op = "probe.persist_rotation",
+            path = %auth_source,
+            error = %err,
+            "failed to persist probe auth rotation"
+        );
+    }
+}
+
+fn auth_bytes_access_token(bytes: &[u8]) -> Option<String> {
+    let auth: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    auth.get("tokens")
+        .and_then(|tokens| tokens.get("access_token"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|token| !token.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn persist_probe_rotation(
+    auth_source: &camino::Utf8Path,
+    original: &[u8],
+    tmp_auth: &camino::Utf8Path,
+) -> Result<(), AppError> {
+    let updated = match std::fs::read(tmp_auth.as_std_path()) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(crate::services::auth::AuthError::Io {
+                path: tmp_auth.to_path_buf(),
+                source,
+            }
+            .into());
+        }
+    };
+
+    if updated == original {
+        return Ok(());
+    }
+    if auth_bytes_access_token(&updated).is_none() {
+        tracing::warn!(
+            op = "probe.persist_rotation",
+            path = %auth_source,
+            "probe auth changed but has no non-empty access_token; not persisting"
+        );
+        return Ok(());
+    }
+
+    crate::adapters::fs::atomic_write(auth_source, &updated)
+        .map_err(crate::services::auth::AuthError::from)?;
+    tracing::info!(
+        op = "probe.persist_rotation",
+        path = %auth_source,
+        "persisted child-rotated auth back to source"
+    );
+    Ok(())
 }
 
 async fn drain_child_output(child: &mut tokio::process::Child) -> String {

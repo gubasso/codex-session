@@ -18,6 +18,9 @@ use crate::services::account::{
 };
 use crate::ui::spinner::{SpinnerGroup, should_show_spinner};
 
+/// Near-expiry skew: refresh if the token expires within this window.
+const TOKEN_REFRESH_SKEW_SECS: u64 = 60;
+
 pub(crate) async fn run(
     ctx: Arc<AppContext>,
     args: AccountHealthArgs,
@@ -72,14 +75,11 @@ pub(crate) async fn run(
                 })
                 .await;
                 if view.status == "live" && view.token == "ok" {
-                    spinner.finish_ok(&format!("Account \"{}\" healthy", view.account));
+                    spinner.finish_ok(&view.account);
                 } else if view.status == "live" {
-                    spinner.finish_err(&format!(
-                        "Account \"{}\" token {}",
-                        view.account, view.token
-                    ));
+                    spinner.finish_err(&format!("{} — token {}", view.account, view.token));
                 } else {
-                    spinner.finish_err(&format!("Account \"{}\" {}", view.account, view.status));
+                    spinner.finish_err(&format!("{} — {}", view.account, view.status));
                 }
                 view
             }
@@ -130,8 +130,20 @@ async fn build_entry(input: BuildEntryInput) -> AccountHealthEntryView {
     } = input;
     let registry = Registry::from_config(&ctx.config);
     let account = &entry.id;
-    let auth_path = registry.group_auth_seed_path(account);
-    let token_state = read_token_state(&auth_path);
+    let seed = registry.group_auth_seed_path(account);
+    let active_auth = if fast {
+        None
+    } else {
+        quota::resolve_auth_path(ctx.as_ref(), account).ok()
+    };
+
+    let mut token_state = read_token_state(&seed);
+    if !fast {
+        token_state =
+            refresh_health_seed_if_needed(account, &seed, active_auth.as_deref(), token_state)
+                .await;
+    }
+
     let plan_bonus = quota::plan_bonus(ctx.as_ref(), account);
     let plan = match plan_bonus {
         30 => "Enterprise",
@@ -150,11 +162,18 @@ async fn build_entry(input: BuildEntryInput) -> AccountHealthEntryView {
     // falsely reporting `invalid` on a healthy account. To let only quota own the
     // rotation, snapshot the active auth file's access token before the join; if
     // quota rotated it, re-probe against the freshly-rotated file afterwards.
-    let active_auth = if fast {
-        None
-    } else {
-        quota::resolve_auth_path(ctx.as_ref(), account).ok()
-    };
+    //
+    // The up-front `refresh_health_seed_if_needed` above closes the common race:
+    // when the token is expired at entry it is refreshed exactly once, so neither
+    // quota nor the probe rotates within the join. One narrow residual remains: if
+    // the token is *live at entry* but expires inside the join window, quota's 401
+    // rotation and the probe's `persist_probe_rotation` (gate.rs) can both write
+    // the same file concurrently in the no-group case (where
+    // `quota::resolve_auth_path` resolves to the seed). Each write is atomic and
+    // contains a valid token, so the seed is never corrupted, but last-writer-wins
+    // can keep a refresh token whose peer already consumed it server-side — a rare
+    // re-orphaning. Follow-up: serialize seed writes behind a per-account lock to
+    // close this fully.
     let pre_access_token = active_auth.as_deref().and_then(read_access_token);
 
     let (quota_tuple, probe) = tokio::join!(
@@ -163,19 +182,17 @@ async fn build_entry(input: BuildEntryInput) -> AccountHealthEntryView {
     );
     let (quota_result, fetched_at_unix, status) = quota_tuple;
 
-    let probe = match active_auth.as_deref() {
-        // Only "live" means quota actually refreshed; compare the access token to
-        // confirm a rotation happened (a non-401 fetch leaves the file untouched).
-        Some(path) if status == "live" => {
-            let post_access_token = read_access_token(path);
-            if post_access_token.is_some() && post_access_token != pre_access_token {
-                fetch_probe_with_auth(ctx.as_ref(), path, fast).await
-            } else {
-                probe
-            }
-        }
-        _ => probe,
-    };
+    let probe = reconcile_probe_after_quota_rotation(ProbeReconcileInput {
+        ctx: ctx.as_ref(),
+        account,
+        seed: &seed,
+        active_auth: active_auth.as_deref(),
+        status: &status,
+        pre_access_token: pre_access_token.as_deref(),
+        probe,
+        fast,
+    })
+    .await;
 
     let scoring_raw = quota_result.as_ref().map(|result| {
         selector::score_from_quota_result(
@@ -297,6 +314,56 @@ async fn fetch_probe_with_auth(
     }
 }
 
+struct ProbeReconcileInput<'a> {
+    ctx: &'a crate::context::AppContext,
+    account: &'a AccountId,
+    seed: &'a camino::Utf8Path,
+    active_auth: Option<&'a camino::Utf8Path>,
+    status: &'a str,
+    pre_access_token: Option<&'a str>,
+    probe: (Option<bool>, String),
+    fast: bool,
+}
+
+async fn reconcile_probe_after_quota_rotation(
+    input: ProbeReconcileInput<'_>,
+) -> (Option<bool>, String) {
+    let ProbeReconcileInput {
+        ctx,
+        account,
+        seed,
+        active_auth,
+        status,
+        pre_access_token,
+        probe,
+        fast,
+    } = input;
+    let Some(path) = active_auth else {
+        return probe;
+    };
+    if status != "live" {
+        return probe;
+    }
+
+    let post_access_token = read_access_token(path);
+    if !token_rotated(pre_access_token, post_access_token.as_deref()) {
+        return probe;
+    }
+
+    if path != seed
+        && let Err(err) = copy_auth_file(path, seed)
+    {
+        tracing::warn!(
+            op = "health.token_refresh",
+            account = %account,
+            path = %path,
+            error = %err,
+            "failed to sync quota-rotated auth back to seed"
+        );
+    }
+    fetch_probe_with_auth(ctx, path, fast).await
+}
+
 /// Read the OAuth `access_token` from an auth file, if present and non-empty.
 /// Used to detect whether `quota::refresh` rotated the token during the
 /// concurrent quota∥probe window.
@@ -317,6 +384,84 @@ fn read_token_state(path: &camino::Utf8Path) -> TokenExpiry {
     };
     let auth: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     token_expiry_from_auth(&auth)
+}
+
+async fn refresh_health_seed_if_needed(
+    account: &AccountId,
+    seed: &camino::Utf8Path,
+    active_auth: Option<&camino::Utf8Path>,
+    token_state: TokenExpiry,
+) -> TokenExpiry {
+    if !token_needs_refresh(&token_state, now_unix()) {
+        return token_state;
+    }
+
+    let seed_owned = seed.to_path_buf();
+    let refreshed = tokio::task::spawn_blocking(move || {
+        crate::services::account::token_refresh::refresh_token(&seed_owned)
+    })
+    .await;
+    match refreshed {
+        Ok(Ok(_)) => {
+            tracing::info!(
+                op = "health.token_refresh",
+                account = %account,
+                outcome = "ok"
+            );
+            if let Some(path) = active_auth
+                && path != seed
+                && let Err(err) = copy_auth_file(seed, path)
+            {
+                tracing::warn!(
+                    op = "health.token_refresh",
+                    account = %account,
+                    path = %path,
+                    error = %err,
+                    "failed to copy refreshed seed to quota auth path"
+                );
+            }
+        }
+        Ok(Err(err)) => {
+            tracing::warn!(
+                op = "health.token_refresh",
+                account = %account,
+                outcome = "failed",
+                error = %err,
+                "up-front token refresh failed; live health checks will report account state"
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                op = "health.token_refresh",
+                account = %account,
+                outcome = "join_failed",
+                error = %err,
+                "up-front token refresh task failed; live health checks will report account state"
+            );
+        }
+    }
+    read_token_state(seed)
+}
+
+const fn token_needs_refresh(state: &TokenExpiry, now_unix: u64) -> bool {
+    match state {
+        TokenExpiry::ExpiresAt(ts) => *ts <= now_unix.saturating_add(TOKEN_REFRESH_SKEW_SECS),
+        TokenExpiry::Missing | TokenExpiry::Malformed => false,
+    }
+}
+
+fn token_rotated(pre: Option<&str>, post: Option<&str>) -> bool {
+    post.is_some() && post != pre
+}
+
+fn copy_auth_file(
+    source: &camino::Utf8Path,
+    target: &camino::Utf8Path,
+) -> Result<(), crate::error::AppError> {
+    let bytes = crate::services::auth::secure_file_read(source)?;
+    crate::adapters::fs::atomic_write(target, &bytes)
+        .map_err(crate::services::auth::AuthError::from)?;
+    Ok(())
 }
 
 fn read_quota_from_cache(
@@ -393,5 +538,81 @@ fn scoring_view_from_breakdown(raw: &selector::ScoreBreakdown) -> AccountScoring
         eligible: raw.eligible,
         ineligible_reason: raw.ineligible_reason.clone(),
         tie_five_hour: raw.tie_five_hour,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use camino::Utf8PathBuf;
+
+    use super::*;
+
+    fn write_auth_file(contents: &str) -> Utf8PathBuf {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.keep().join("auth.json");
+        std::fs::write(&path, contents).unwrap();
+        Utf8PathBuf::from_path_buf(path).unwrap()
+    }
+
+    #[test]
+    fn token_rotated_detects_new_or_changed_post_token() {
+        assert!(token_rotated(None, Some("new")));
+        assert!(token_rotated(Some("old"), Some("new")));
+        assert!(!token_rotated(Some("same"), Some("same")));
+        assert!(!token_rotated(Some("old"), None));
+        assert!(!token_rotated(None, None));
+    }
+
+    #[test]
+    fn token_needs_refresh_for_expired_or_near_expiry_oauth_token() {
+        let now = 1_000;
+        assert!(token_needs_refresh(&TokenExpiry::ExpiresAt(now - 1), now));
+        assert!(token_needs_refresh(
+            &TokenExpiry::ExpiresAt(now + TOKEN_REFRESH_SKEW_SECS),
+            now,
+        ));
+        assert!(!token_needs_refresh(
+            &TokenExpiry::ExpiresAt(now + TOKEN_REFRESH_SKEW_SECS + 1),
+            now,
+        ));
+    }
+
+    #[test]
+    fn token_needs_refresh_ignores_missing_or_malformed_tokens() {
+        assert!(!token_needs_refresh(&TokenExpiry::Missing, 1_000));
+        assert!(!token_needs_refresh(&TokenExpiry::Malformed, 1_000));
+    }
+
+    #[test]
+    fn read_access_token_returns_non_empty_oauth_access_token() {
+        let path = write_auth_file(
+            r#"{"tokens":{"access_token":"access-token","refresh_token":"refresh-token"}}"#,
+        );
+        assert_eq!(read_access_token(&path).as_deref(), Some("access-token"));
+    }
+
+    #[test]
+    fn read_access_token_returns_none_for_missing_key() {
+        let path = write_auth_file(r#"{"tokens":{"refresh_token":"refresh-token"}}"#);
+        assert_eq!(read_access_token(&path), None);
+    }
+
+    #[test]
+    fn read_access_token_returns_none_for_empty_string() {
+        let path = write_auth_file(r#"{"tokens":{"access_token":""}}"#);
+        assert_eq!(read_access_token(&path), None);
+    }
+
+    #[test]
+    fn read_access_token_returns_none_for_malformed_json() {
+        let path = write_auth_file(r#"{"tokens":{"access_token":"unterminated""#);
+        assert_eq!(read_access_token(&path), None);
+    }
+
+    #[test]
+    fn read_access_token_returns_none_for_api_key_mode() {
+        let path = write_auth_file(r#"{"api_key":"sk-test"}"#);
+        assert_eq!(read_access_token(&path), None);
     }
 }

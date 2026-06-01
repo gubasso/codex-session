@@ -1,6 +1,6 @@
 # Spinner UX + Parallel Async Operations
 
-> Complexity: L | Rounds: 3 | Generated: 2026-05-27 | Repo: /workspaces/codex-session | Status: todo
+> Complexity: L | Rounds: 4 | Generated: 2026-05-27 | Repo: /workspaces/codex-session | Status: in-progress
 
 ## Problem Statement
 
@@ -23,12 +23,13 @@ This plan adds:
 
 ## Strategy
 
-The work splits into **three rounds** following dependency order. Sizing was measured with the
-plan-writer complexity heuristic for the `/prex` executor (Executor Factor 1.5), which favours fewer,
-larger, cohesive rounds because its in-round review-loop absorbs complexity. The style-guide spinner
-spec (a governance prerequisite per CLAUDE.md) is folded into Round 02 as its first step rather than
-being a standalone undersized round; the async migration (Round 01) changes no runtime narration, so
-it needs no spec.
+The original work split into **three rounds** following dependency order, with a fourth round
+appended afterward as a deferred follow-up. Sizing was measured with the plan-writer complexity
+heuristic for the `/prex` executor (Executor Factor 1.5), which favours fewer, larger, cohesive
+rounds because its in-round review-loop absorbs complexity. The style-guide spinner spec (a
+governance prerequisite per CLAUDE.md) is folded into Round 02 as its first step rather than being a
+standalone undersized round; the async migration (Round 01) changes no runtime narration, so it
+needs no spec.
 
 1. **Round 01 — Async Runtime Migration** (M): Add tokio + indicatif dependencies, switch reqwest
    from blocking to async, and make async **only the network surface** — `main`, `dispatch::run`, the
@@ -54,13 +55,21 @@ it needs no spec.
    `cli-design/08-testing-and-quality`. Finish with a robust, history-preserving move to
    `.plan/02-done/`.
 
+4. **Round 04 — Health Probe vs. Quota Auth-Source Authority** (deferred follow-up): Close the
+   stale-seed/live-group false-negative in `account health` — the probe reads the account **seed**
+   while quota resolves a newer per-group `auth.json`, so a healthy account with a stale seed can be
+   reported `token=invalid`. Surfaced by the Round 03 review-loop and explicitly scoped out of Round
+   03 (auth-authority redesign); tracked here so it stays with the plan that found it. Pre-existing,
+   not a Round 03 regression.
+
 ## Execution Order
 
-| Round | File                                  | Topic                                                         | Status | Completed  |
-| ----- | ------------------------------------- | ------------------------------------------------------------- | ------ | ---------- |
-| 01    | `01-async-runtime-migration.md`       | Tokio + async reqwest migration (network surface)             | done   | 2026-06-01 |
-| 02    | `02-spinner-parallel-health-quota.md` | §9b spec + spinner module + health/quota parallel             | done   | 2026-06-01 |
-| 03    | `03-doctor-refresh-add-polish.md`     | Doctor/refresh/add spinners + refresh-race fix + robust tests | todo   | --         |
+| Round | File                                       | Topic                                                             | Status | Completed  |
+| ----- | ------------------------------------------ | ----------------------------------------------------------------- | ------ | ---------- |
+| 01    | `01-async-runtime-migration.md`            | Tokio + async reqwest migration (network surface)                 | done   | 2026-06-01 |
+| 02    | `02-spinner-parallel-health-quota.md`      | §9b spec + spinner module + health/quota parallel                 | done   | 2026-06-01 |
+| 03    | `03-doctor-refresh-add-polish.md`          | Doctor/refresh/add spinners + refresh-race fix + robust tests     | done   | 2026-06-01 |
+| 04    | `04-health-probe-auth-source-authority.md` | Health probe vs. quota auth-source authority (deferred follow-up) | todo   | —          |
 
 ## Execution Commands
 
@@ -69,6 +78,7 @@ it needs no spec.
 /prex -ar .plan/01-todo/02-spinner-parallel-async-ux/01-async-runtime-migration.md
 /prex -ar .plan/01-todo/02-spinner-parallel-async-ux/02-spinner-parallel-health-quota.md
 /prex -ar .plan/01-todo/02-spinner-parallel-async-ux/03-doctor-refresh-add-polish.md
+/prex -ar .plan/01-todo/02-spinner-parallel-async-ux/04-health-probe-auth-source-authority.md
 
 # Execute with full directory context:
 /prex -ar @.plan/01-todo/02-spinner-parallel-async-ux/

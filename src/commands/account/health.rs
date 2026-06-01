@@ -121,13 +121,14 @@ struct BuildEntryInput {
 }
 
 async fn build_entry(input: BuildEntryInput) -> AccountHealthEntryView {
-    let BuildEntryInput {
-        ctx,
-        entry,
-        active,
-        fast,
-        now,
-    } = input;
+    // Field-by-field moves (not a struct destructure): rustfmt expands the
+    // destructure pattern to 7 lines, which pushes `build_entry` over
+    // clippy::too_many_lines; these five lines keep it under the limit.
+    let ctx = input.ctx;
+    let entry = input.entry;
+    let active = input.active;
+    let fast = input.fast;
+    let now = input.now;
     let registry = Registry::from_config(&ctx.config);
     let account = &entry.id;
     let seed = registry.group_auth_seed_path(account);
@@ -175,10 +176,10 @@ async fn build_entry(input: BuildEntryInput) -> AccountHealthEntryView {
     // re-orphaning. Follow-up: serialize seed writes behind a per-account lock to
     // close this fully.
     let pre_access_token = active_auth.as_deref().and_then(read_access_token);
-
+    let probe_auth = quota_resolved_probe_auth(&seed, active_auth.as_deref());
     let (quota_tuple, probe) = tokio::join!(
         fetch_quota(ctx.as_ref(), account, fast),
-        fetch_probe(ctx.as_ref(), account, fast),
+        fetch_probe(ctx.as_ref(), account, probe_auth, fast),
     );
     let (quota_result, fetched_at_unix, status) = quota_tuple;
 
@@ -270,13 +271,30 @@ async fn fetch_quota(
     }
 }
 
+/// Choose which auth file the health probe should read.
+///
+/// Defaults to the account seed (probe `auth_source = None`). When quota
+/// resolved a *distinct* group `auth.json`, probe that file instead so the
+/// health verdict reflects the token quota will actually use, closing the
+/// stale-seed / live-group false negative.
+fn quota_resolved_probe_auth<'a>(
+    seed: &'a camino::Utf8Path,
+    active_auth: Option<&'a camino::Utf8Path>,
+) -> Option<&'a camino::Utf8Path> {
+    active_auth.filter(|path| *path != seed)
+}
+
 async fn fetch_probe(
     ctx: &crate::context::AppContext,
     account: &AccountId,
+    auth_source: Option<&camino::Utf8Path>,
     fast: bool,
 ) -> (Option<bool>, String) {
     if fast {
         return (None, "skipped".to_owned());
+    }
+    if let Some(path) = auth_source {
+        return fetch_probe_with_auth(ctx, path, fast).await;
     }
     match gate::probe_token(ctx, account).await {
         Ok((value, detail)) => (

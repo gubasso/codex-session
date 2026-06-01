@@ -83,8 +83,8 @@ impl TestEnv {
         // bodies that call `cat`, `chmod`, etc.), so symlink the minimum
         // set into `fake_bin`.
         for tool in [
-            "bash", "cat", "chmod", "ln", "ls", "mkdir", "mv", "cp", "printf", "rm", "sleep",
-            "touch", "test", "head", "tail",
+            "bash", "cat", "chmod", "ln", "ls", "mkdir", "mv", "cp", "grep", "printf", "rm",
+            "sleep", "touch", "test", "head", "tail",
         ] {
             if let Ok(src) = which::which(tool) {
                 std::os::unix::fs::symlink(src, fake_bin.join(tool)).unwrap();
@@ -121,8 +121,8 @@ impl TestEnv {
         std::fs::create_dir_all(&runtime).unwrap();
         std::fs::create_dir_all(&fake_bin).unwrap();
         for tool in [
-            "bash", "cat", "chmod", "ln", "ls", "mkdir", "mv", "cp", "printf", "rm", "sleep",
-            "touch", "test", "head", "tail",
+            "bash", "cat", "chmod", "ln", "ls", "mkdir", "mv", "cp", "grep", "printf", "rm",
+            "sleep", "touch", "test", "head", "tail",
         ] {
             if let Ok(src) = which::which(tool) {
                 std::os::unix::fs::symlink(src, fake_bin.join(tool)).unwrap();

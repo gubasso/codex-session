@@ -54,8 +54,9 @@ independent seeds.
 The **account seed** (`accounts/<name>/auth.json`) is the per-account
 snapshot captured at registration (`account add`) or renewal (`account
 refresh`). It is the canonical record of whether a specific account has ever
-been authenticated. The gate checks this file's existence and, for OAuth
-tokens, validates the token against the server (see §2.3).
+been authenticated. The pass-through gate checks this file's existence only;
+managed login uses a separate heartbeat probe when deciding whether to skip
+re-authentication (see §2.3a).
 
 The **session group copies** (`groups/<gid>/auth.json`) are runtime
 artifacts. They are materialized from the seed before each child invocation
@@ -89,9 +90,11 @@ launch. This was removed because:
    the invalid token at startup and surfaces an auth error — the user
    can then run `codex-session login` to re-authenticate.
 
-**Current behavior:** The gate checks seed-file existence only. If the
-seed exists, the account is `Ready`. If not, `AuthMissing`. No HTTP
-request is made during `assess()`.
+**Current behavior:** For a pinned account, the gate checks seed-file
+existence only. If the seed exists, the account is `ReadyPinned`; if not,
+`AuthMissing`. For the auto path, the gate counts usable candidates and
+returns `ReadyAuto`; the retry loop performs the final pick. No HTTP request
+is made during `assess()`.
 
 ### 2.3a Why `run_login` uses a heartbeat probe (not `codex login status`)
 
@@ -114,9 +117,13 @@ the only reliable way to confirm the token actually works. It runs with:
 
 ### 2.4 What the gate does NOT check
 
-- **Token validity.** The gate does not validate the token against any
-  server or parse expiry claims. It trusts seed-file existence. If the
-  token is invalid, the codex runtime detects the error at startup.
+- **Token validity for pinned accounts.** When a named account is pinned
+  (`--account <name>` or `CODEX_SESSION_ACCOUNT=<name>`), the gate does not
+  validate the token or parse expiry claims; it trusts seed-file existence.
+  If the token is invalid, the codex runtime detects the error at startup.
+  **On the auto path,** the selector calls `is_usable()`, which parses token
+  expiry claims via `token_expired()` to filter ineligible accounts before
+  scoring.
 
 - **Group-level auth copies.** Stale session group dirs may contain old
   `auth.json` files from previous runs. These are not authoritative
@@ -133,20 +140,23 @@ the only reliable way to confirm the token actually works. It runs with:
    `$CODEX_HOME/auth.json` inside the temp dir.
 2. `persist_auth_to_seed()` — reads the temp `auth.json`, copies to
    `accounts/<name>/auth.json` with hardened file checks.
-3. `registry.set_current()` — sets the LRU pointer.
+3. `registry.set_current()` — updates the best-effort current-account
+   bookkeeping.
 
-After step 2, the account seed exists and the gate will consider this
-account `Ready`.
+After step 2, the account seed exists and the gate will consider this pinned
+account `ReadyPinned`.
 
 **Login (`codex-session login`):**
 
-If the resolved account is already `Ready` (seed exists), the command
-runs a heartbeat probe (`codex --profile ping exec --json "say ok"`)
-to verify the token is still valid server-side:
+If the resolved account is already `ReadyPinned` (seed exists), or if the auto
+path maps to a current usable account, the command runs a heartbeat probe
+(`codex --profile ping exec --json "say ok"`) to verify the token is still
+valid server-side:
 
 - Probe succeeds → "already authenticated", exit 0.
 - Probe fails with 401 → automatically re-authenticates.
-- Probe errors (network, binary missing) → re-authenticates to be safe.
+- Probe errors (timeout, network, binary missing) → reports "already
+  authenticated" and suggests `login --force`.
 
 Pass `--force` (or `-f`) to skip the probe and force re-authentication
 unconditionally.
@@ -208,80 +218,74 @@ rotation and revocation behavior that makes this necessary.
 
 ### 3.1 State machine
 
-`gate::assess()` evaluates the current state and returns one of four
-variants:
+`gate::assess()` evaluates the current account intent and returns one of the
+current gate states:
 
 <!-- editorconfig-checker-disable -->
 
 ```text
-        ┌──────────────┐
-        │ registry.list│
-        └──────┬───────┘
-               │
-          empty?
-         ╱        ╲
-       yes         no
-       │            │
-┌──────┴──────┐    resolver.resolve()
-│  NoAccounts │         │
-└─────────────┘    ┌────┴─────┐
-                   │          │
-              NoneResolved   Ok(resolved)
-                   │          │
-            ┌──────┴──────┐   expect_account_dir()
-            │ NoneSelected│      │
-            └─────────────┘ ┌────┴────┐
-                            │         │
-                       NotFound    Ok(dir)
-                          │          │
-                   ┌──────┴──────┐  seed exists?
-                   │ NoneSelected│  ╱       ╲
-                   │(stale ptr)  │ yes       no
-                   └─────────────┘ │         │
-                              ┌────┴───┐ ┌───┴────────┐
-                              │ Ready  │ │ AuthMissing│
-                              └────────┘ └────────────┘
+registry.list()
+├─ empty -> NoAccounts
+└─ non-empty -> resolver.intent()
+   ├─ Auto (no --account, --account auto, or CODEX_SESSION_ACCOUNT=auto)
+   │  └─ ReadyAuto(candidates = usable account count)
+   │     ├─ ensure() -> AutoDeferred -> retry::run_auto()
+   │     └─ login/logout with no ready current -> NoneSelected
+   └─ Pinned (--account <name> or CODEX_SESSION_ACCOUNT=<name>)
+      └─ expect_account_dir()
+         ├─ NotFound -> PinnedNotFound
+         └─ Ok(dir)
+            └─ seed exists?
+               ├─ yes -> ReadyPinned
+               └─ no -> AuthMissing
 ```
 
 <!-- editorconfig-checker-enable -->
 
-| State          | Condition                                                                                                                 | Meaning                                                                 |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `NoAccounts`   | `registry.list()` is empty                                                                                                | Fresh install, no accounts ever registered                              |
-| `NoneSelected` | Accounts exist but resolver returns `NoneResolved`, or resolved account's directory is missing (stale LRU/config pointer) | User has accounts but none could be resolved                            |
-| `AuthMissing`  | Account resolved and directory exists, but seed is absent                                                                 | Account never authenticated, or seed deleted via `codex-session logout` |
-| `Ready`        | Account resolved, directory exists, seed present                                                                          | Good to launch                                                          |
+| State            | Condition                                                                                         | Meaning                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `NoAccounts`     | `registry.list()` is empty                                                                        | Fresh install, no accounts ever registered                                  |
+| `ReadyAuto`      | Account intent is auto and at least one account exists                                            | Good to launch; final account selection is deferred to the retry loop       |
+| `ReadyPinned`    | Named account resolved from flag/env, account directory exists, and seed is present               | Good to launch with the pinned account                                      |
+| `PinnedNotFound` | Named account resolved from flag/env, but the account directory is absent                         | The requested account cannot be used                                        |
+| `AuthMissing`    | Named account resolved from flag/env and directory exists, but seed is absent                     | Account never authenticated, or seed deleted via `codex-session logout`     |
+| `NoneSelected`   | Accounts exist but a managed auth command has no ready current account and needs a user selection | User has accounts, but `login`/`logout` cannot choose one non-interactively |
 
 ### 3.2 Resolution priority
 
-The resolver (`resolver::resolve()`) tries sources in this order:
+The resolver first turns CLI/env input into an account intent:
 
-1. **Flag** — `--account <name>` or `--account auto`
-2. **Env** — `CODEX_SESSION_ACCOUNT=<name>` or `=auto`
-3. **LRU** — `state/last-account` pointer
-4. **Config pinned** — `config.account.pinned`
+1. **Flag name** — `--account <name>` pins that account for this invocation.
+2. **Flag auto** — `--account auto` selects the auto intent.
+3. **Env name** — `CODEX_SESSION_ACCOUNT=<name>` pins that account for this
+   invocation when no flag is present.
+4. **Env auto** — `CODEX_SESSION_ACCOUNT=auto` selects the auto intent when no
+   flag is present.
+5. **No flag/env** — defaults to the auto intent.
 
-If none matches, the resolver returns `Err(NoneResolved)`.
+The `state/last-account` pointer is best-effort bookkeeping written by the
+retry loop and used for display/managed auth convenience; it is not a
+resolution source. The removed config-pinned setting is likewise not a
+resolution source.
 
-When the value `auto` is provided via Flag or Env, the resolver invokes
-`selector::pick()` (quota-weighted scoring) instead of using a literal
-account name. Accounts without auth seeds are excluded from the eligible
-pool. `auto` is not a separate resolution step — it is a special value
-recognized by the Flag and Env sources.
-
-There are no implicit defaults or fallbacks — every resolved account traces
-back to an explicit source.
+For pass-through execution, a pinned intent resolves directly to the named
+account. An auto intent defers the final pick to the retry loop, where
+`selector::pick()` uses quota-weighted scoring and excludes unusable accounts.
+If every account is filtered out, the selector returns `NoEligible`; if the
+auto retry loop exhausts its attempts, it returns `AutoExhausted`.
 
 ## 4. Gate behavior by mode
 
 ### 4.1 Interactive mode (terminal attached)
 
-| State          | Behavior                                                                        |
-| -------------- | ------------------------------------------------------------------------------- |
-| `Ready`        | Narrate account + source to stderr, proceed to launch.                          |
-| `NoAccounts`   | Narrate → prompt for account name → run `codex login` → save seed → launch.     |
-| `NoneSelected` | Narrate → `Select` menu: pick existing account or add new → launch.             |
-| `AuthMissing`  | Warning to stderr → `Select` menu: re-authenticate / switch / add new → launch. |
+| State            | Behavior                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `ReadyPinned`    | Narrate account + source to stderr, proceed to launch.                                         |
+| `ReadyAuto`      | Narrate auto-selection status to stderr, defer final picking to the retry loop, proceed.       |
+| `NoAccounts`     | Narrate → prompt for account name → run `codex login` → save seed → launch.                    |
+| `NoneSelected`   | Narrate → `Select` menu: pick existing account or add new → launch.                            |
+| `AuthMissing`    | Warning to stderr → `Select` menu: re-authenticate / switch / add new → launch.                |
+| `PinnedNotFound` | Hard error for the requested account; the user explicitly pinned a name that does not resolve. |
 
 Every step is narrated to stderr with a `[codex-session]` prefix so the user
 always knows what is happening and why. Messages are suppressed under
@@ -308,23 +312,32 @@ The token may be missing or expired. You need to re-authenticate before launchin
 
 ### 4.2 Non-interactive mode (no terminal)
 
-| State          | Behavior                                                                                                |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| `Ready`        | Proceed (narrate to stderr if not `--silent`).                                                          |
-| `NoAccounts`   | Hard error: `"no accounts registered; run codex-session account add <name>"` (exit 64).                 |
-| `NoneSelected` | Hard error: `"accounts exist but none is selected; run codex-session account use <name>"` (exit 64).    |
-| `AuthMissing`  | Hard error: `"account 'X' has no valid authentication; run codex-session account refresh X"` (exit 75). |
+| State            | Behavior                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `ReadyPinned`    | Proceed (narrate to stderr if not `--silent`).                                                                               |
+| `ReadyAuto`      | Proceed into the auto retry loop; final selection errors are `NoEligible` or `AutoExhausted` (exit 75).                      |
+| `NoAccounts`     | Hard error: `"no accounts registered; run \`codex-session account add <name>\`"` (exit 64).                                  |
+| `NoneSelected`   | Hard error: `"accounts exist but none is selected; pass --account <name> to pin one, or run codex-session login"` (exit 64). |
+| `AuthMissing`    | Hard error: `"account \`X\` has no valid authentication; run \`codex-session account refresh X\`"` (exit 75).                |
+| `PinnedNotFound` | Hard error: `"account \`X\` not found at <path>"` (exit 78).                                                                 |
 
-Every non-interactive error message includes the exact command to run to fix
-the problem.
+Non-interactive account errors include an actionable command or requested
+account/path so the caller can recover without prompts.
 
-### 4.3 Explicit account flag
+### 4.3 Explicit account pin
 
-When the account source is **Flag** (`--account <name>`) or **Env**
-(`CODEX_SESSION_ACCOUNT=<name>`), the gate trusts the explicit choice. It
-still checks the seed and will error on `AuthMissing`, but it does not
-prompt for confirmation even in interactive mode — the user already told us
-what they want.
+When the account source is a named **Flag** (`--account <name>`) or named
+**Env** (`CODEX_SESSION_ACCOUNT=<name>`), the gate trusts the explicit
+choice. It still checks that the account's auth seed exists and will error on
+`AuthMissing` if the seed is not found. In interactive mode, if the pinned
+account's auth is missing, the gate prompts the user to re-authenticate,
+switch to a different account, or add a new one. In non-interactive mode
+(e.g., from a CI script or automated agent), pinned `AuthMissing` errors as a
+hard failure — the user already told us which account to use, and no
+interactivity is available. If the seed exists but the token is invalid
+or expired, the codex runtime detects the error during execution (see §5.1
+for the login heartbeat path). The values `--account auto` and
+`CODEX_SESSION_ACCOUNT=auto` are not pins; they select the auto path.
 
 ## 5. Managed login and logout
 
@@ -337,15 +350,18 @@ managed by the gate module and fully account-aware.
 
 Calls `assess()` then dispatches:
 
-| State          | Interactive                                   | Non-interactive             |
-| -------------- | --------------------------------------------- | --------------------------- |
-| `NoAccounts`   | Prompt for name, create account, authenticate | Error: `NoAccounts`         |
-| `NoneSelected` | Prompt to select, then authenticate           | Error: `NoneSelected`       |
-| `AuthMissing`  | `do_refresh_auth()`                           | `do_refresh_auth()`         |
-| `Ready`        | Heartbeat probe (see below)                   | Heartbeat probe (see below) |
+| State            | Interactive                                                  | Non-interactive                                   |
+| ---------------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| `NoAccounts`     | Prompt for name, create account, authenticate                | Error: `NoAccounts`                               |
+| `NoneSelected`   | Prompt to select, then authenticate                          | Error: `NoneSelected`                             |
+| `AuthMissing`    | `do_refresh_auth()`                                          | `do_refresh_auth()`                               |
+| `ReadyPinned`    | Heartbeat probe (see below)                                  | Heartbeat probe (see below)                       |
+| `ReadyAuto`      | Use the current usable account, or prompt when none is ready | Use the current usable account, or `NoneSelected` |
+| `PinnedNotFound` | Error for the requested account                              | Error for the requested account                   |
 
-When `Ready`, `run_login()` runs a heartbeat probe to check whether the
-existing token is still valid server-side:
+When `ReadyPinned`, or when `ReadyAuto` maps to a current usable account,
+`run_login()` runs a heartbeat probe to check whether the existing token is
+still valid server-side:
 
 - **Probe succeeds (valid token):** Reports "already authenticated", exit 0.
 - **Probe returns 401 (invalid token):** Automatically re-authenticates
@@ -358,12 +374,14 @@ existing token is still valid server-side:
 
 ### 5.2 `codex-session logout` (`gate::run_logout`)
 
-| State          | Interactive                          | Non-interactive       |
-| -------------- | ------------------------------------ | --------------------- |
-| `NoAccounts`   | Narrate "nothing to log out", exit 0 | Same                  |
-| `NoneSelected` | Prompt to select which to log out    | Error: `NoneSelected` |
-| `AuthMissing`  | Narrate "already logged out", exit 0 | Same                  |
-| `Ready`        | `do_logout()`                        | `do_logout()`         |
+| State            | Interactive                                                  | Non-interactive                                   |
+| ---------------- | ------------------------------------------------------------ | ------------------------------------------------- |
+| `NoAccounts`     | Narrate "nothing to log out", exit 0                         | Same                                              |
+| `NoneSelected`   | Prompt to select which to log out                            | Error: `NoneSelected`                             |
+| `AuthMissing`    | Narrate "already logged out", exit 0                         | Same                                              |
+| `ReadyPinned`    | `do_logout()`                                                | `do_logout()`                                     |
+| `ReadyAuto`      | Use the current usable account, or prompt when none is ready | Use the current usable account, or `NoneSelected` |
+| `PinnedNotFound` | Error for the requested account                              | Error for the requested account                   |
 
 `do_logout()` runs native `codex logout` (non-fatal), deletes the
 account seed via `registry.delete_auth_seed()`, and clears group auths.
@@ -376,8 +394,8 @@ would authenticate against the global `~/.codex/auth.json` with no
 indication of which codex-session account is affected, and the account
 seed would not be updated. Similarly, a raw `codex logout` would revoke
 the token server-side but leave the account seed intact — the gate
-would still consider the account `Ready` (seed exists), only for the
-codex runtime to fail on an invalid token at startup.
+would still consider the account `ReadyPinned` or `ReadyAuto` (seed exists),
+only for the codex runtime to fail on an invalid token at startup.
 
 By managing login/logout through the gate, every auth operation narrates
 which account is being handled and keeps the seed in sync.
@@ -413,14 +431,20 @@ block the exit path.
 
 ## 7. Interaction with the retry loop
 
-The gate runs once at the top of `pass_through::run()`. After the gate
-returns `Ready`, the retry loop (`retry::run_with_retry()`) takes over:
+The gate runs once at the top of `pass_through::run()`. After the gate returns
+`ReadyPinned`, pinned accounts run through a single attempt. After the gate
+returns `ReadyAuto`, the retry loop (`retry::run_auto()`) takes over:
 
-1. The retry loop calls `resolver::resolve()` independently on each attempt.
-2. On 429 detection, it writes cooldown state and rotates to the next
-   account (when `--account auto`).
-3. The gate has already validated the initial account. If the retry loop
-   exhausts all accounts, it returns `NoEligible`.
+1. The retry loop calls `resolver::resolve_for_exec()` independently on each
+   attempt.
+2. On rate-limit or auth-refresh failure, it writes cooldown state and rotates
+   to the next account on the auto path — the default path when no `--account`
+   is provided, and the explicit path for `--account auto`.
+3. `--max-retries` caps total attempts. With the default cap value of `0`, auto
+   tries each eligible account at most once.
+4. If every account is filtered out before an attempt, the selector reports
+   `NoEligible`. If the retry loop exhausts the usable pool or attempt cap, it
+   returns `AutoExhausted`.
 
 The gate does **not** re-run between retry attempts. It is a one-time
 pre-launch check. The auth sync runs after **each** child exit
@@ -428,13 +452,15 @@ pre-launch check. The auth sync runs after **each** child exit
 
 ## 8. Error variants
 
-| Variant                     | Exit code | When                                      |
-| --------------------------- | --------- | ----------------------------------------- |
-| `NoneResolved`              | 64        | Resolver found no account from any source |
-| `NoAccounts`                | 64        | Registry is empty                         |
-| `NoneSelected`              | 64        | Accounts exist but none is selected       |
-| `AuthMissing { name }`      | 75        | Account resolved but seed missing         |
-| `NonInteractive { action }` | 64        | Interactive prompt needed but no terminal |
+| Variant                     | Exit code | When                                                                |
+| --------------------------- | --------- | ------------------------------------------------------------------- |
+| `NoAccounts`                | 64        | Registry is empty                                                   |
+| `NoneSelected`              | 64        | Accounts exist but a managed auth command cannot select one         |
+| `AuthMissing { name }`      | 75        | Account resolved but seed missing                                   |
+| `NonInteractive { action }` | 64        | Interactive prompt needed but no terminal                           |
+| `NotFound { name, path }`   | 78        | A pinned account name does not exist in the registry                |
+| `NoEligible`                | 75        | Auto-selection found no usable account                              |
+| `AutoExhausted { report }`  | 75        | Auto retry/failover tried the usable pool or hit the configured cap |
 
 ## 9. Filesystem layout
 
@@ -447,12 +473,12 @@ tree. Auth-relevant paths:
 | `<state>/accounts/<name>/auth.json`              | Account seed — **the gate checks this**                  |
 | `<state>/accounts/<name>/groups/<gid>/auth.json` | Session group copy (synced back on exit)                 |
 | `<state>/accounts/<name>/cooldown.json`          | Failover cooldown state                                  |
-| `<state>/state/last-account`                     | LRU pointer (plain text: account name)                   |
+| `<state>/state/last-account`                     | Best-effort last-selection bookkeeping, not a pin        |
 
 ## 10. Security properties
 
-- **No implicit defaults.** There is no fallback to a hardcoded `"default"`
-  account. Every account must be explicitly registered and authenticated.
+- **No hardcoded default account.** Omitting `--account` selects the auto path
+  over registered accounts; it never fabricates a `"default"` account.
 - **No hidden auth import.** The deleted `import_if_missing()` function
   previously copied `~/.codex/auth.json` silently into session dirs. Auth
   now flows exclusively through the account seed.

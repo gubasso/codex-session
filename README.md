@@ -26,7 +26,8 @@ codex-session exec "hello"                           # passthrough verb
 codex-session --dry-run exec "hello"                 # show what would run
 codex-session account add work                       # register an account
 codex-session account list --format json             # inspect accounts
-codex-session --account auto --max-retries 2 exec hi # quota-aware rotation
+codex-session exec hi                                # auto-selects an account, fails over on rate-limit/auth errors
+codex-session --account work exec hi                 # pin a specific account (no rotation)
 codex-session login                                  # verify / re-authenticate
 codex-session doctor                                 # full setup validation
 ```
@@ -112,11 +113,15 @@ unconditionally, put it under `configs/<layer>.toml`.
 
 ## Multi-account management
 
-When multiple accounts are registered, `--account auto` picks the best one
-using quota-weighted scoring (see [`docs/account-auto-selector.md`](./docs/account-auto-selector.md)).
-Combined with `--max-retries`, the wrapper automatically fails over to the
-next account on 429 detection. See [`docs/auth-gate-spec.md`](./docs/auth-gate-spec.md)
-for the full authentication model.
+When multiple accounts are registered, running with no `--account` (or with
+`--account auto`) picks the best one using quota-weighted scoring and
+automatically fails over across accounts on rate-limit or auth failures (see
+[`docs/account-auto-selector.md`](./docs/account-auto-selector.md)). Passing
+`--account <name>` pins that account for the invocation with no rotation.
+`--max-retries` caps failover attempts; it does not enable failover, because
+failover is on by default for auto. See
+[`docs/auth-gate-spec.md`](./docs/auth-gate-spec.md) for the full
+authentication model.
 
 ### Observability
 

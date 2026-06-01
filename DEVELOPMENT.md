@@ -113,8 +113,8 @@ cargo run -- --dry-run some passthrough args
 cargo run -- --dry-run -- --flag-starting-with-dash
 cargo run -- account add work
 cargo run -- account list --format json
-cargo run -- account use work
-cargo run -- --account auto --max-retries 2 --group stable
+cargo run -- --group stable exec hi   # no --account => quota-aware auto-select
+cargo run -- --max-retries 2 exec hi  # cap auto failover attempts
 
 # Real interactive codex session via the wrapper (release build is snappier)
 cargo run --release -- <codex args>

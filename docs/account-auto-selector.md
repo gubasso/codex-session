@@ -1,7 +1,8 @@
 # Account auto-selector algorithm
 
-When `--account auto` is used, codex-session automatically picks the best
-account from all registered accounts. The algorithm lives in
+When no account is specified (the default), or when `--account auto` is used,
+codex-session automatically picks the best account from all registered
+accounts. The algorithm lives in
 `src/services/account/selector.rs` and is adapted from
 [caam](https://github.com/Dicklesworthstone/coding_agent_account_manager) ADR
 D7.
@@ -16,8 +17,8 @@ automatically.
 
 ## Inspecting scores
 
-The scoring algorithm is used internally by `--account auto`, but you can
-inspect the scores directly:
+The scoring algorithm is used internally by the default auto path and its
+explicit `--account auto` alias, but you can inspect the scores directly:
 
 ```bash
 codex-session account quota          # shows rank + total score per account
@@ -231,16 +232,18 @@ time.
 
 ## Cooldown and retry failover
 
-When `--max-retries > 0` and `--account auto` are both set:
+On the auto path (the default, or explicit `--account auto`), failover is
+enabled by default and `--max-retries` optionally caps the number of attempts.
+Failover is triggered by rate-limit (429) and auth-failure (401) errors:
 
-1. The child process runs and hits a 429 error
-2. A cooldown file is written with a 5-minute expiry
+1. The child process runs and hits a 429 or 401 error
+2. A cooldown file is written with a 5-minute expiry and the error reason
 3. On the next retry, `pick()` skips the cooled-down account
 4. The selector picks the next-best eligible account
-5. The cooldown auto-expires after 5 minutes
+5. The cooldown auto-expires after 5 minutes (or is manually cleared with `codex-session account cooldown clear`)
 
-This makes multi-account setups resilient: a 429 on account A transparently
-fails over to account B without user intervention.
+This makes multi-account setups resilient: a 429 rate limit or 401 auth failure
+on account A transparently fails over to account B without user intervention.
 
 ## Configuration
 

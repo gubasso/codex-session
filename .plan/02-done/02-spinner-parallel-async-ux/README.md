@@ -1,6 +1,6 @@
 # Spinner UX + Parallel Async Operations
 
-> Complexity: L | Rounds: 4 | Generated: 2026-05-27 | Repo: /workspaces/codex-session | Status: in-progress
+> Complexity: L | Rounds: 4 | Generated: 2026-05-27 | Repo: /workspaces/codex-session | Status: done
 
 ## Problem Statement
 
@@ -69,7 +69,7 @@ needs no spec.
 | 01    | `01-async-runtime-migration.md`            | Tokio + async reqwest migration (network surface)                 | done   | 2026-06-01 |
 | 02    | `02-spinner-parallel-health-quota.md`      | §9b spec + spinner module + health/quota parallel                 | done   | 2026-06-01 |
 | 03    | `03-doctor-refresh-add-polish.md`          | Doctor/refresh/add spinners + refresh-race fix + robust tests     | done   | 2026-06-01 |
-| 04    | `04-health-probe-auth-source-authority.md` | Health probe vs. quota auth-source authority (deferred follow-up) | todo   | —          |
+| 04    | `04-health-probe-auth-source-authority.md` | Health probe vs. quota auth-source authority (deferred follow-up) | done   | 2026-06-01 |
 
 ## Execution Commands
 

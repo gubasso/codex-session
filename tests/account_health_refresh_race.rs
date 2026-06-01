@@ -4,13 +4,15 @@
 mod support;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use support::TestEnv;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const EXPIRED_JWT: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDAwMDB9.";
 const FUTURE_JWT: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOjQxMDI0NDQ4MDB9.";
+const STALE_FUTURE_JWT: &str = "eyJhbGciOiJub25lIn0.eyJleHAiOjQxMDI0NDQ4MDF9.";
 
 fn token_url(server: &MockServer) -> String {
     format!("{}/oauth/token", server.uri())
@@ -36,6 +38,31 @@ fn refresh_success(access_token: &str, refresh_token: &str) -> String {
         "expires_in": 864_000,
     })
     .to_string()
+}
+
+struct CountingResponder {
+    responses: Vec<ResponseTemplate>,
+    counter: AtomicU32,
+}
+
+impl CountingResponder {
+    const fn new(responses: Vec<ResponseTemplate>) -> Self {
+        Self {
+            responses,
+            counter: AtomicU32::new(0),
+        }
+    }
+}
+
+impl Respond for CountingResponder {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        let n = self.counter.fetch_add(1, Ordering::SeqCst) as usize;
+        if n < self.responses.len() {
+            self.responses[n].clone()
+        } else {
+            self.responses.last().unwrap().clone()
+        }
+    }
 }
 
 fn install_default_recipe_with_ping(env: &TestEnv) {
@@ -81,10 +108,34 @@ if [ "${{1:-}}" = "--version" ]; then
     exit 0
 fi
 cat > "$CODEX_HOME/auth.json" << 'EOF'
-{{"tokens":{{"access_token":"{FUTURE_JWT}","refresh_token":"rt","account_id":"a1"}}}}
+{{"tokens":{{"access_token":"{FUTURE_JWT}","refresh_token":"probe-rt","account_id":"a1"}}}}
 EOF
 chmod 600 "$CODEX_HOME/auth.json"
 exit 0
+"#,
+        ),
+    );
+    dir.join("codex")
+}
+
+fn install_token_sensitive_probe_child(
+    env: &TestEnv,
+    dir_name: &str,
+    valid_token: &str,
+) -> PathBuf {
+    let dir = env.make_fake_codex_in_dir(
+        dir_name,
+        &format!(
+            r#"#!/usr/bin/env bash
+if [ "${{1:-}}" = "--version" ]; then
+    printf '%s\n' 'codex 0.134.0'
+    exit 0
+fi
+if grep -q '{valid_token}' "$CODEX_HOME/auth.json"; then
+    exit 0
+fi
+printf '%s\n' '401 Unauthorized'
+exit 1
 "#,
         ),
     );
@@ -233,6 +284,104 @@ async fn live_token_does_not_refresh() {
 
     let seed = std::fs::read_to_string(env.named_account_auth_seed("work")).unwrap();
     assert_eq!(seed, original);
+}
+
+#[tokio::test]
+async fn stale_seed_live_group_reports_token_ok_without_rotation() {
+    let env = TestEnv::new_empty();
+    let seed_auth = oauth_auth(STALE_FUTURE_JWT, "seed-rt");
+    let group_auth = oauth_auth(FUTURE_JWT, "group-rt");
+    env.seed_account("work", &seed_auth);
+    env.write_group_auth("work", "healthgroup", &group_auth);
+    install_default_recipe_with_ping(&env);
+    let child = install_token_sensitive_probe_child(&env, "probe-sensitive-live", FUTURE_JWT);
+
+    let server = MockServer::start().await;
+    mount_wham(&server).await;
+    mount_token_refresh(&server, "unused-rt").await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_CHILD_BIN", child)
+        .env("CODEX_SESSION_GROUP", "healthgroup")
+        .env(
+            "CODEX_SESSION_WHAM_USAGE_URL",
+            support::quota::wham_url(&server),
+        )
+        .env("CODEX_SESSION_TOKEN_ENDPOINT", token_url(&server))
+        .args(["account", "health", "--account", "work", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_health_token_ok(&value);
+    assert_eq!(token_request_count(&server).await, 0);
+
+    let seed = std::fs::read_to_string(env.named_account_auth_seed("work")).unwrap();
+    assert_eq!(seed, seed_auth);
+    let group =
+        std::fs::read_to_string(env.named_group_dir("work", "healthgroup").join("auth.json"))
+            .unwrap();
+    assert_eq!(group, group_auth);
+}
+
+#[tokio::test]
+async fn stale_seed_group_rotation_reprobes_rotated_group_and_syncs_seed() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", &oauth_auth(STALE_FUTURE_JWT, "seed-rt"));
+    env.write_group_auth(
+        "work",
+        "healthgroup",
+        &oauth_auth(EXPIRED_JWT, "old-group-rt"),
+    );
+    install_default_recipe_with_ping(&env);
+    let child = install_token_sensitive_probe_child(&env, "probe-sensitive-rotation", FUTURE_JWT);
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(CountingResponder::new(vec![
+            ResponseTemplate::new(401),
+            ResponseTemplate::new(200)
+                .set_body_raw(support::quota::default_payload(), "application/json"),
+        ]))
+        .mount(&server)
+        .await;
+    mount_token_refresh(&server, "new-group-rt").await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_CHILD_BIN", child)
+        .env("CODEX_SESSION_GROUP", "healthgroup")
+        .env(
+            "CODEX_SESSION_WHAM_USAGE_URL",
+            support::quota::wham_url(&server),
+        )
+        .env("CODEX_SESSION_TOKEN_ENDPOINT", token_url(&server))
+        .args(["account", "health", "--account", "work", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_health_token_ok(&value);
+    assert_eq!(token_request_count(&server).await, 1);
+
+    let group_auth =
+        std::fs::read_to_string(env.named_group_dir("work", "healthgroup").join("auth.json"))
+            .unwrap();
+    assert!(
+        group_auth.contains("new-group-rt"),
+        "group auth should receive rotated bytes, got: {group_auth}"
+    );
+    let seed = std::fs::read_to_string(env.named_account_auth_seed("work")).unwrap();
+    assert!(
+        seed.contains("new-group-rt"),
+        "seed should be synced from rotated group auth, got: {seed}"
+    );
 }
 
 #[tokio::test]

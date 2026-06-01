@@ -35,7 +35,7 @@ external `~/.dotfiles` / `~/DocsNNotes` orientation files.
 ## Previous Rounds
 
 This is the first round — no prior rounds. (Note: a separate plan,
-`.plan/01-todo/02-spinner-parallel-async-ux/`, migrates the wrapper to a tokio
+`.plan/02-done/02-spinner-parallel-async-ux/`, migrates the wrapper to a tokio
 async runtime; this round assumes that async runtime is present, e.g.
 `account quota`/`health`/`exec` resolve through async paths and `src/runtime.rs`
 exists. Adapt to whatever the codebase actually shows — the changes here are

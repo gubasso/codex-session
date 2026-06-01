@@ -35,10 +35,6 @@ fn payload(five_hour: f64, weekly: f64) -> String {
 async fn account_quota_text_and_json_modes_work() {
     let env = TestEnv::new();
     add_account(&env, "work", "acct-work");
-    env.cmd()
-        .args(["account", "use", "work"])
-        .assert()
-        .success();
 
     let server = MockServer::start().await;
     Mock::given(method("GET"))

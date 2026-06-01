@@ -15,10 +15,6 @@ fn doctor_reports_accounts_section() {
     );
     env.make_fake_codex_printing_stdout("ignored");
     env.seed_account("work", r#"{"tokens":{"access_token":"test-token"}}"#);
-    env.cmd()
-        .args(["account", "use", "work"])
-        .assert()
-        .success();
 
     let output = env
         .cmd()

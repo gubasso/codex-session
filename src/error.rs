@@ -451,14 +451,6 @@ fn config_error_detail(err: &crate::config::ConfigError) -> ErrorDetail {
             what: format!("config: invalid config-recipe env key `{key}`"),
             why_line: reason.clone(),
         },
-        ConfigError::AccountConfigParse {
-            field,
-            value,
-            reason,
-        } => ErrorDetail {
-            what: format!("config: invalid `{field}` value `{value}`"),
-            why_line: reason.clone(),
-        },
     }
 }
 
@@ -612,8 +604,7 @@ fn error_path(err: &AppError) -> Option<String> {
             | ConfigError::MergeFailed { .. }
             | ConfigError::LegacyProfileSyntax { .. }
             | ConfigError::SessionDirUnresolvable { .. }
-            | ConfigError::EnvKeyInvalid { .. }
-            | ConfigError::AccountConfigParse { .. },
+            | ConfigError::EnvKeyInvalid { .. },
         ) => None,
     }
 }
@@ -732,8 +723,7 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
             | ConfigError::MergeFailed { .. }
             | ConfigError::LegacyProfileSyntax { .. }
             | ConfigError::SessionDirUnresolvable { .. }
-            | ConfigError::EnvKeyInvalid { .. }
-            | ConfigError::AccountConfigParse { .. },
+            | ConfigError::EnvKeyInvalid { .. },
         )
         | AppError::Auth(AuthError::Io { .. })
         | AppError::Account(

@@ -69,7 +69,6 @@ pub(crate) struct ConfigRecipeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct AccountConfig {
-    pub(crate) pinned: Option<crate::services::account::AccountId>,
     pub(crate) registry_dir: Option<Utf8PathBuf>,
     pub(crate) quota_ttl_secs: u64,
     pub(crate) weekly_floor: f64,
@@ -172,9 +171,8 @@ struct FileConfigRecipeConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields, default)]
+#[serde(default)]
 struct FileAccountConfig {
-    pinned: Option<String>,
     registry_dir: Option<Utf8PathBuf>,
     quota_ttl_secs: Option<u64>,
     weekly_floor: Option<f64>,
@@ -243,7 +241,6 @@ impl Default for ConfigRecipeConfig {
 impl Default for AccountConfig {
     fn default() -> Self {
         Self {
-            pinned: None,
             registry_dir: None,
             quota_ttl_secs: 30,
             weekly_floor: 10.0,
@@ -348,10 +345,11 @@ fn apply_file_layer(config: &mut Config, path: &Utf8PathBuf) -> Result<(), Confi
     let parsed = Figment::from(figment::providers::Toml::file_exact(path.as_std_path()))
         .extract::<FileConfig>()
         .map_err(|source| map_figment_file_error(path, source))?;
-    apply_file_config(config, parsed)
+    apply_file_config(config, parsed);
+    Ok(())
 }
 
-fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), ConfigError> {
+fn apply_file_config(config: &mut Config, layer: FileConfig) {
     if let Some(log) = layer.log {
         if let Some(verbose) = log.verbose {
             config.log.verbose = verbose;
@@ -420,9 +418,6 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
     }
 
     if let Some(account) = layer.account {
-        if let Some(value) = account.pinned {
-            config.account.pinned = Some(parse_account_id_field("account.pinned", value)?);
-        }
         if let Some(dir) = account.registry_dir {
             config.account.registry_dir = Some(dir);
         }
@@ -439,8 +434,6 @@ fn apply_file_config(config: &mut Config, layer: FileConfig) -> Result<(), Confi
             config.account.five_hour_weight = value;
         }
     }
-
-    Ok(())
 }
 
 fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
@@ -500,9 +493,6 @@ fn apply_env_layer(config: &mut Config) -> Result<(), ConfigError> {
             }
             "CONFIG_RECIPE" => {
                 config.config_recipe.active = Some(value.to_owned());
-            }
-            "ACCOUNT_PINNED" => {
-                config.account.pinned = Some(parse_account_id_env(key, value)?);
             }
             "ACCOUNT_REGISTRY_DIR" => {
                 config.account.registry_dir = Some(Utf8PathBuf::from(value));
@@ -602,32 +592,6 @@ fn parse_log_format(key: &str, value: &str) -> Result<LogFormat, ConfigError> {
     }
 }
 
-fn parse_account_id_field(
-    field: &'static str,
-    value: String,
-) -> Result<crate::services::account::AccountId, ConfigError> {
-    value
-        .parse::<crate::services::account::AccountId>()
-        .map_err(|reason| ConfigError::AccountConfigParse {
-            field,
-            value,
-            reason,
-        })
-}
-
-fn parse_account_id_env(
-    key: &str,
-    value: &str,
-) -> Result<crate::services::account::AccountId, ConfigError> {
-    value
-        .parse::<crate::services::account::AccountId>()
-        .map_err(|_| ConfigError::EnvParse {
-            key: key.to_owned(),
-            value: value.to_owned(),
-            expected: "account name matching [a-z0-9][a-z0-9_-]{0,31}",
-        })
-}
-
 fn parse_env_value<T>(key: &str, value: &str) -> Result<T, crate::config::error::EnvParseError>
 where
     T: std::str::FromStr,
@@ -665,36 +629,7 @@ fn resolve_active_config_recipe(config: &Config, cli: &CliValueOverrides) -> Opt
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use super::{Config, ConfigError};
-
-    #[test]
-    fn invalid_account_pinned_in_file_layer_errors() {
-        let mut config = Config::defaults().unwrap();
-        let layer = super::FileConfig {
-            account: Some(super::FileAccountConfig {
-                pinned: Some("BAD!".to_owned()),
-                ..super::FileAccountConfig::default()
-            }),
-            ..super::FileConfig::default()
-        };
-        let err = super::apply_file_config(&mut config, layer).unwrap_err();
-        assert!(matches!(
-            err,
-            ConfigError::AccountConfigParse {
-                field: "account.pinned",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn invalid_account_pinned_in_env_layer_errors() {
-        let err = super::parse_account_id_env("CODEX_SESSION_ACCOUNT_PINNED", "BAD!").unwrap_err();
-        assert!(matches!(
-            err,
-            ConfigError::EnvParse { key, .. } if key == "CODEX_SESSION_ACCOUNT_PINNED"
-        ));
-    }
+    use super::Config;
 
     #[test]
     fn account_config_round_trips() {
@@ -743,7 +678,7 @@ profiles_dir = "/tmp/alt-profiles"
             }),
             ..super::FileConfig::default()
         };
-        super::apply_file_config(&mut config, layer).unwrap();
+        super::apply_file_config(&mut config, layer);
         assert_eq!(
             config.config_recipe.profiles_dir.as_str(),
             "/tmp/alt-profiles"

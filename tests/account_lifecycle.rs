@@ -83,10 +83,7 @@ fn account_list_excludes_trash() {
 fn account_remove_warns_on_active_account() {
     let env = TestEnv::new();
     env.seed_account("throwaway", "{\"token\":\"abc\"}\n");
-    env.cmd()
-        .args(["account", "use", "throwaway"])
-        .assert()
-        .success();
+    std::fs::write(env.last_account_path(), "throwaway").unwrap();
     env.cmd()
         .args(["account", "remove", "throwaway", "--yes"])
         .assert()
@@ -110,35 +107,24 @@ fn account_remove_warns_on_recent_sessions() {
 }
 
 #[test]
-fn account_use_sets_last_selected_shown_as_auto() {
+fn account_use_subcommand_is_rejected() {
     let env = TestEnv::new();
     env.seed_account("personal", "{\"token\":\"abc\"}\n");
     env.cmd()
-        .args(["account", "use", "personal", "--format", "json"])
+        .args(["account", "use", "personal"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"verb\": \"selected\""))
-        .stdout(predicate::str::contains("\"name\": \"personal\""));
-    assert_eq!(
-        std::fs::read_to_string(env.last_account_path()).unwrap(),
-        "personal"
-    );
-    env.cmd()
-        .args(["account", "current", "--format", "json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"name\": \"personal\""))
-        .stdout(predicate::str::contains("\"source\": \"auto\""));
+        .failure()
+        .code(64);
 }
 
 #[test]
-fn account_use_text_splits_marker_color() {
+fn account_remove_text_splits_marker_color() {
     let env = TestEnv::new();
     env.seed_account("personal", "{\"token\":\"abc\"}\n");
     let output = env
         .cmd()
         .env("FORCE_COLOR", "1")
-        .args(["account", "use", "personal"])
+        .args(["account", "remove", "personal", "--yes"])
         .assert()
         .success()
         .get_output()
@@ -146,7 +132,7 @@ fn account_use_text_splits_marker_color() {
         .clone();
     let text = String::from_utf8(output).unwrap();
     assert!(text.contains("\u{1b}[32m✓\u{1b}[0m "));
-    assert!(text.contains("\u{1b}[1m\u{1b}[32maccount selected:\u{1b}[0m"));
+    assert!(text.contains("\u{1b}[1m\u{1b}[32maccount removed:\u{1b}[0m"));
     assert!(text.contains("\u{1b}[1mpersonal\u{1b}[0m"));
     assert!(text.contains("\u{1b}[2m  path: "));
     assert!(!text.contains("\u{1b}[1m\u{1b}[32m✓"));
@@ -156,10 +142,7 @@ fn account_use_text_splits_marker_color() {
 fn account_list_no_color_and_json_work() {
     let env = TestEnv::new();
     env.seed_account("work", "{\"token\":\"abc\"}\n");
-    env.cmd()
-        .args(["account", "use", "default"])
-        .assert()
-        .success();
+    std::fs::write(env.last_account_path(), "default").unwrap();
 
     let stdout = env
         .cmd()

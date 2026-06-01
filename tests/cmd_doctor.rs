@@ -163,10 +163,6 @@ fn doctor_fails_when_active_account_missing_auth() {
     let env = TestEnv::new();
     install_minimal_recipe(&env);
     env.seed_account("work", "{\"token\":\"test\"}\n");
-    env.cmd()
-        .args(["account", "use", "work"])
-        .assert()
-        .success();
     std::fs::remove_file(env.named_account_auth_seed("work")).unwrap();
 
     let stdout = String::from_utf8(

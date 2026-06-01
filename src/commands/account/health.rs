@@ -14,7 +14,7 @@ use crate::services::account::{
     token_expiry::{TokenExpiry, token_expiry_from_auth},
 };
 
-pub(crate) fn run(
+pub(crate) async fn run(
     ctx: &crate::context::AppContext,
     args: AccountHealthArgs,
 ) -> Result<(), crate::error::AppError> {
@@ -52,14 +52,17 @@ pub(crate) fn run(
         };
 
     for entry in accounts {
-        entries.push(build_entry(&BuildEntryInput {
-            ctx,
-            registry: &registry,
-            entry: &entry,
-            active: active.as_ref(),
-            fast: args.fast,
-            now,
-        }));
+        entries.push(
+            build_entry(&BuildEntryInput {
+                ctx,
+                registry: &registry,
+                entry: &entry,
+                active: active.as_ref(),
+                fast: args.fast,
+                now,
+            })
+            .await,
+        );
     }
 
     entries.sort_by(|left, right| match (left.score, right.score) {
@@ -91,7 +94,7 @@ struct BuildEntryInput<'a> {
     now: SystemTime,
 }
 
-fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
+async fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
     let BuildEntryInput {
         ctx,
         registry,
@@ -114,8 +117,8 @@ fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
         .unwrap_or(None)
         .is_some_and(|state| cooldown::is_active(&state, now_unix()));
 
-    let (quota_result, fetched_at_unix, status) = fetch_quota(ctx, account, *fast);
-    let probe = fetch_probe(ctx, account, *fast);
+    let (quota_result, fetched_at_unix, status) = fetch_quota(ctx, account, *fast).await;
+    let probe = fetch_probe(ctx, account, *fast).await;
 
     let scoring_raw = quota_result.as_ref().map(|result| {
         selector::score_from_quota_result(
@@ -171,7 +174,7 @@ fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
     }
 }
 
-fn fetch_quota(
+async fn fetch_quota(
     ctx: &crate::context::AppContext,
     account: &AccountId,
     fast: bool,
@@ -183,7 +186,7 @@ fn fetch_quota(
         }
     } else {
         let pre_fetched = read_cache_fetched_at(ctx, account).unwrap_or(0);
-        quota::refresh(ctx, account).map_or_else(
+        quota::refresh(ctx, account).await.map_or_else(
             |_| (None, pre_fetched, "fetch failed".to_owned()),
             |result| {
                 let post_fetched = read_cache_fetched_at(ctx, account).unwrap_or(pre_fetched);
@@ -193,7 +196,7 @@ fn fetch_quota(
     }
 }
 
-fn fetch_probe(
+async fn fetch_probe(
     ctx: &crate::context::AppContext,
     account: &AccountId,
     fast: bool,
@@ -201,7 +204,7 @@ fn fetch_probe(
     if fast {
         return (None, "skipped".to_owned());
     }
-    match gate::probe_token(ctx, account) {
+    match gate::probe_token(ctx, account).await {
         Ok((value, detail)) => (
             value,
             if detail.is_empty() {

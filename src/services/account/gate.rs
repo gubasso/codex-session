@@ -490,12 +490,13 @@ pub(crate) fn validate_ping_config_recipe(ctx: &AppContext) -> Result<(), AppErr
 /// Returns `(valid, detail)`: `valid` is `Some(true)` when the token works,
 /// `Some(false)` on a 401, and `None` on non-auth failures. `detail`
 /// contains the combined stdout+stderr for the caller to display.
-fn heartbeat_probe(
+async fn heartbeat_probe(
     ctx: &AppContext,
     account: &AccountId,
 ) -> Result<(Option<bool>, String), AppError> {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use std::process::Stdio;
+    use std::time::Duration;
+    use tokio::process::Command;
 
     const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -548,27 +549,25 @@ fn heartbeat_probe(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .map_err(AppError::ChildExec)?;
 
-    let start = Instant::now();
-    let status = loop {
-        match child.try_wait().map_err(AppError::ChildExec)? {
-            Some(status) => break status,
-            None if start.elapsed() >= PROBE_TIMEOUT => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let output = drain_child_output(&mut child);
-                return Ok((
-                    None,
-                    format!("heartbeat probe timed out after {PROBE_TIMEOUT:?}\n{output}"),
-                ));
-            }
-            None => std::thread::sleep(Duration::from_millis(200)),
+    let status = match tokio::time::timeout(PROBE_TIMEOUT, child.wait()).await {
+        Ok(Ok(status)) => status,
+        Ok(Err(err)) => return Err(AppError::ChildExec(err)),
+        Err(_elapsed) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            let output = drain_child_output(&mut child).await;
+            return Ok((
+                None,
+                format!("heartbeat probe timed out after {PROBE_TIMEOUT:?}\n{output}"),
+            ));
         }
     };
 
-    let raw_output = drain_child_output(&mut child);
+    let raw_output = drain_child_output(&mut child).await;
 
     if status.success() {
         return Ok((Some(true), strip_codex_stdin_noise(&raw_output)));
@@ -594,14 +593,15 @@ fn heartbeat_probe(
     Ok((None, raw_output))
 }
 
-fn drain_child_output(child: &mut std::process::Child) -> String {
-    use std::io::Read as _;
+async fn drain_child_output(child: &mut tokio::process::Child) -> String {
+    use tokio::io::AsyncReadExt as _;
+
     let mut combined = Vec::new();
     if let Some(mut pipe) = child.stdout.take() {
-        let _ = pipe.read_to_end(&mut combined);
+        let _ = pipe.read_to_end(&mut combined).await;
     }
     if let Some(mut pipe) = child.stderr.take() {
-        let _ = pipe.read_to_end(&mut combined);
+        let _ = pipe.read_to_end(&mut combined).await;
     }
     String::from_utf8_lossy(&combined).trim().to_owned()
 }
@@ -619,11 +619,11 @@ fn strip_codex_stdin_noise(output: &str) -> String {
         .to_owned()
 }
 
-pub(crate) fn probe_token(
+pub(crate) async fn probe_token(
     ctx: &AppContext,
     account: &AccountId,
 ) -> Result<(Option<bool>, String), AppError> {
-    heartbeat_probe(ctx, account)
+    heartbeat_probe(ctx, account).await
 }
 
 pub(crate) fn run_login(ctx: &AppContext, opts: &LoginOptions) -> Result<i32, AppError> {
@@ -731,7 +731,7 @@ fn login_handle_ready(
         }
     };
 
-    match heartbeat_probe(ctx, &resolved.id) {
+    match crate::runtime::block_on(heartbeat_probe(ctx, &resolved.id)) {
         Ok((Some(true), stderr)) => {
             emit_stderr(&stderr);
             narrate(

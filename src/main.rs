@@ -16,6 +16,7 @@ pub(crate) mod context;
 pub(crate) mod domain;
 pub(crate) mod error;
 pub(crate) mod logging;
+pub(crate) mod runtime;
 pub(crate) mod services;
 pub(crate) mod ui;
 
@@ -26,7 +27,8 @@ use std::sync::Arc;
 #[cfg(not(unix))]
 compile_error!("codex-session is Unix-only");
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let argv = cli::argv::normalize_argv(std::env::args_os().skip(1).collect());
     if cli::argv::legacy_self_invocation(&argv) {
         let err = clap::Error::raw(
@@ -80,7 +82,7 @@ fn main() -> ExitCode {
         &accounts_root,
         std::time::Duration::from_secs(7 * 24 * 3600),
     );
-    match commands::dispatch::run(&ctx, cli) {
+    match commands::dispatch::run(&ctx, cli).await {
         Ok(code) => ExitCode::from(code),
         Err(err) => error::print_and_exit(&err, &ctx.global),
     }

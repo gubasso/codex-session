@@ -72,7 +72,11 @@ async fn main() -> ExitCode {
             );
         }
     };
-    let ctx = context::AppContext::new(Arc::clone(&config), cli.global.clone(), home_dir);
+    let ctx = Arc::new(context::AppContext::new(
+        Arc::clone(&config),
+        cli.global.clone(),
+        home_dir,
+    ));
     let state_root = &ctx.config.paths.state_dir;
     let runtime_root = ctx.config.paths.runtime_dir.as_deref();
     crate::services::session::cleanup::prune_legacy_pid_dirs(state_root, runtime_root);
@@ -82,7 +86,7 @@ async fn main() -> ExitCode {
         &accounts_root,
         std::time::Duration::from_secs(7 * 24 * 3600),
     );
-    match commands::dispatch::run(&ctx, cli).await {
+    match commands::dispatch::run(Arc::clone(&ctx), cli).await {
         Ok(code) => ExitCode::from(code),
         Err(err) => error::print_and_exit(&err, &ctx.global),
     }

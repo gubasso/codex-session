@@ -12,6 +12,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub mod color;
+pub mod quota;
+
+pub const TEST_AUTH: &str = r#"{"tokens":{
+    "access_token":"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDAwMDB9.",
+    "account_id":"acct-123","plan":"pro"}}"#;
 
 pub fn fixture_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

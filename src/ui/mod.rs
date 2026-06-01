@@ -12,6 +12,7 @@ use std::io::Write as _;
 
 pub(crate) mod color;
 pub(crate) mod raw_passthrough;
+pub(crate) mod spinner;
 
 /// UI renderer.
 pub(crate) struct Ui;

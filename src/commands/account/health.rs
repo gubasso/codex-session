@@ -1,21 +1,25 @@
 //! `account health` command.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use serde_json::Value;
+use tokio::task::JoinSet;
 
 use crate::cli::account::{AccountHealthArgs, AccountSelector};
 use crate::commands::account::{AccountHealthEntryView, AccountHealthView, AccountScoringView};
+use crate::context::AppContext;
 use crate::services::account::{
     AccountError, AccountId, cooldown, gate, quota,
     registry::{AccountEntry, Registry},
     selector,
     token_expiry::{TokenExpiry, token_expiry_from_auth},
 };
+use crate::ui::spinner::{SpinnerGroup, should_show_spinner};
 
 pub(crate) async fn run(
-    ctx: &crate::context::AppContext,
+    ctx: Arc<AppContext>,
     args: AccountHealthArgs,
 ) -> Result<(), crate::error::AppError> {
     if matches!(ctx.global.account, Some(AccountSelector::Auto)) {
@@ -26,7 +30,7 @@ pub(crate) async fn run(
     }
 
     if !args.fast {
-        gate::validate_ping_config_recipe(ctx)?;
+        gate::validate_ping_config_recipe(ctx.as_ref())?;
         ctx.ensure_child_version()?;
     }
 
@@ -51,18 +55,41 @@ pub(crate) async fn run(
             registry.list()?
         };
 
+    let spinners = SpinnerGroup::new(should_show_spinner(ctx.as_ref(), args.format, args.fast));
+    let mut set = JoinSet::new();
     for entry in accounts {
-        entries.push(
-            build_entry(&BuildEntryInput {
-                ctx,
-                registry: &registry,
-                entry: &entry,
-                active: active.as_ref(),
-                fast: args.fast,
-                now,
-            })
-            .await,
-        );
+        let spinner = spinners.add(&format!("Checking account \"{}\"...", entry.id));
+        set.spawn({
+            let ctx = Arc::clone(&ctx);
+            let active = active.clone();
+            async move {
+                let view = build_entry(BuildEntryInput {
+                    ctx,
+                    entry,
+                    active,
+                    fast: args.fast,
+                    now,
+                })
+                .await;
+                if view.status == "live" && view.token == "ok" {
+                    spinner.finish_ok(&format!("Account \"{}\" healthy", view.account));
+                } else if view.status == "live" {
+                    spinner.finish_err(&format!(
+                        "Account \"{}\" token {}",
+                        view.account, view.token
+                    ));
+                } else {
+                    spinner.finish_err(&format!("Account \"{}\" {}", view.account, view.status));
+                }
+                view
+            }
+        });
+    }
+
+    while let Some(result) = set.join_next().await {
+        entries.push(result.map_err(|err| {
+            crate::error::AppError::Other(anyhow::anyhow!("health task join failed: {err}"))
+        })?);
     }
 
     entries.sort_by(|left, right| match (left.score, right.score) {
@@ -85,28 +112,27 @@ pub(crate) async fn run(
     Ok(())
 }
 
-struct BuildEntryInput<'a> {
-    ctx: &'a crate::context::AppContext,
-    registry: &'a Registry,
-    entry: &'a AccountEntry,
-    active: Option<&'a AccountId>,
+struct BuildEntryInput {
+    ctx: Arc<AppContext>,
+    entry: AccountEntry,
+    active: Option<AccountId>,
     fast: bool,
     now: SystemTime,
 }
 
-async fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
+async fn build_entry(input: BuildEntryInput) -> AccountHealthEntryView {
     let BuildEntryInput {
         ctx,
-        registry,
         entry,
         active,
         fast,
         now,
     } = input;
+    let registry = Registry::from_config(&ctx.config);
     let account = &entry.id;
     let auth_path = registry.group_auth_seed_path(account);
     let token_state = read_token_state(&auth_path);
-    let plan_bonus = quota::plan_bonus(ctx, account);
+    let plan_bonus = quota::plan_bonus(ctx.as_ref(), account);
     let plan = match plan_bonus {
         30 => "Enterprise",
         20 => "Pro or Team",
@@ -117,8 +143,39 @@ async fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
         .unwrap_or(None)
         .is_some_and(|state| cooldown::is_active(&state, now_unix()));
 
-    let (quota_result, fetched_at_unix, status) = fetch_quota(ctx, account, *fast).await;
-    let probe = fetch_probe(ctx, account, *fast).await;
+    // `OpenAI` uses single-use refresh tokens: a refresh invalidates the old one
+    // (see token_refresh.rs). `quota::refresh` may perform a 401 refresh that
+    // rotates the active auth file mid-flight; the probe (run concurrently below)
+    // reads the same credentials and would race quota on that single-use token,
+    // falsely reporting `invalid` on a healthy account. To let only quota own the
+    // rotation, snapshot the active auth file's access token before the join; if
+    // quota rotated it, re-probe against the freshly-rotated file afterwards.
+    let active_auth = if fast {
+        None
+    } else {
+        quota::resolve_auth_path(ctx.as_ref(), account).ok()
+    };
+    let pre_access_token = active_auth.as_deref().and_then(read_access_token);
+
+    let (quota_tuple, probe) = tokio::join!(
+        fetch_quota(ctx.as_ref(), account, fast),
+        fetch_probe(ctx.as_ref(), account, fast),
+    );
+    let (quota_result, fetched_at_unix, status) = quota_tuple;
+
+    let probe = match active_auth.as_deref() {
+        // Only "live" means quota actually refreshed; compare the access token to
+        // confirm a rotation happened (a non-401 fetch leaves the file untouched).
+        Some(path) if status == "live" => {
+            let post_access_token = read_access_token(path);
+            if post_access_token.is_some() && post_access_token != pre_access_token {
+                fetch_probe_with_auth(ctx.as_ref(), path, fast).await
+            } else {
+                probe
+            }
+        }
+        _ => probe,
+    };
 
     let scoring_raw = quota_result.as_ref().map(|result| {
         selector::score_from_quota_result(
@@ -126,8 +183,8 @@ async fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
             &selector::ScoringParams {
                 plan_bonus,
                 last_used_at: entry.last_used_at,
-                is_lru: active.is_some_and(|value| value == account),
-                now: *now,
+                is_lru: active.as_ref().is_some_and(|value| value == account),
+                now,
                 five_hour_threshold: ctx.config.account.five_hour_threshold,
                 weekly_floor: ctx.config.account.weekly_floor,
                 five_hour_weight: ctx.config.account.five_hour_weight,
@@ -162,7 +219,7 @@ async fn build_entry(input: &BuildEntryInput<'_>) -> AccountHealthEntryView {
         score,
         rank: None,
         status,
-        active: active.is_some_and(|value| value == account),
+        active: active.as_ref().is_some_and(|value| value == account),
         cooldown,
         last_used: entry
             .last_used_at
@@ -215,6 +272,42 @@ async fn fetch_probe(
         ),
         Err(err) => (None, err.to_string()),
     }
+}
+
+/// Re-probe against a specific auth file (the one `quota::refresh` just rotated)
+/// instead of the account seed, so the probe reflects the post-rotation token.
+async fn fetch_probe_with_auth(
+    ctx: &crate::context::AppContext,
+    auth_source: &camino::Utf8Path,
+    fast: bool,
+) -> (Option<bool>, String) {
+    if fast {
+        return (None, "skipped".to_owned());
+    }
+    match gate::probe_token_with_auth(ctx, auth_source).await {
+        Ok((value, detail)) => (
+            value,
+            if detail.is_empty() {
+                "ok".to_owned()
+            } else {
+                detail
+            },
+        ),
+        Err(err) => (None, err.to_string()),
+    }
+}
+
+/// Read the OAuth `access_token` from an auth file, if present and non-empty.
+/// Used to detect whether `quota::refresh` rotated the token during the
+/// concurrent quota∥probe window.
+fn read_access_token(path: &camino::Utf8Path) -> Option<String> {
+    let bytes = std::fs::read(path.as_std_path()).ok()?;
+    let auth: Value = serde_json::from_slice(&bytes).ok()?;
+    auth.get("tokens")
+        .and_then(|tokens| tokens.get("access_token"))
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn read_token_state(path: &camino::Utf8Path) -> TokenExpiry {

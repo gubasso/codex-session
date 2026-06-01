@@ -11,27 +11,7 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 use support::TestEnv;
-
-fn wham_url(server: &MockServer) -> String {
-    format!("{}/backend-api/wham/usage", server.uri())
-}
-
-const fn oauth_auth() -> &'static str {
-    r#"{"tokens":{"access_token":"test-token","account_id":"acct-123"}}"#
-}
-
-const fn payload() -> &'static str {
-    r#"{
-    "rate_limit": {
-    "five_hour": { "percent_left": 73.4, "reset_time_ms": 1716393600000 },
-    "weekly": { "percent_left": 87.1, "reset_time_ms": 1716998400000 }
-    }
-}"#
-}
-
-fn add_account(env: &TestEnv, name: &str) {
-    env.seed_account(name, oauth_auth());
-}
+use support::quota::{add_oauth_account as add_account, default_payload as payload, wham_url};
 
 struct FirstFails {
     first_response: ResponseTemplate,

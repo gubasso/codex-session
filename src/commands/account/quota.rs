@@ -1,14 +1,19 @@
 //! `account quota` command.
 #![allow(clippy::missing_errors_doc, clippy::result_large_err)]
 
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use camino::Utf8PathBuf;
+use tokio::task::JoinSet;
 
+use crate::context::AppContext;
 use crate::services::account::{AccountError, AccountId, quota, registry::Registry, selector};
+use crate::ui::spinner::{SpinnerGroup, should_show_spinner};
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn run(
-    ctx: &crate::context::AppContext,
+    ctx: Arc<AppContext>,
     args: crate::cli::account::AccountQuotaArgs,
 ) -> Result<(), crate::error::AppError> {
     let registry = Registry::from_config(&ctx.config);
@@ -26,8 +31,10 @@ pub(crate) async fn run(
     let active = registry.current()?;
     let now = SystemTime::now();
     let mut entries = Vec::new();
+    let spinners = SpinnerGroup::new(should_show_spinner(ctx.as_ref(), args.format, false));
 
     if let Some(ref target) = single_account {
+        let spinner = spinners.add(&format!("Fetching quota for \"{target}\"..."));
         let is_active = active
             .as_ref()
             .is_some_and(|current| current.as_str() == target.as_str());
@@ -38,36 +45,68 @@ pub(crate) async fn run(
                 .and_then(|list| list.into_iter().find(|entry| entry.id == *target))
                 .and_then(|entry| entry.last_used_at)
         });
-        entries.push(
-            fetch_view(
-                ctx,
-                target,
-                is_active,
-                false,
-                args.detail,
-                active.as_ref(),
-                last_used_at,
-                now,
-            )
-            .await?,
+        let result = fetch_view(
+            ctx.as_ref(),
+            target,
+            is_active,
+            false,
+            args.detail,
+            active.as_ref(),
+            last_used_at,
+            now,
         );
+        match result.await {
+            Ok(view) => {
+                spinner.finish_and_clear();
+                entries.push(view);
+            }
+            Err(err) => {
+                spinner.finish_and_clear();
+                return Err(err.into());
+            }
+        }
     } else {
+        let mut set = JoinSet::new();
         for entry in registry.list()? {
             let is_active = active
                 .as_ref()
                 .is_some_and(|current| current.as_str() == entry.id.as_str());
+            let account = entry.id;
+            let last_used_at = entry.last_used_at;
+            let spinner = spinners.add(&format!("Fetching quota for \"{account}\"..."));
+            set.spawn({
+                let ctx = Arc::clone(&ctx);
+                let active = active.clone();
+                async move {
+                    let result = fetch_view(
+                        ctx.as_ref(),
+                        &account,
+                        is_active,
+                        true,
+                        args.detail,
+                        active.as_ref(),
+                        last_used_at,
+                        now,
+                    )
+                    .await;
+                    match &result {
+                        Ok(_) => spinner.finish_ok(&format!("Quota for \"{account}\" fetched")),
+                        Err(_) => spinner.finish_err(&format!("Quota for \"{account}\" failed")),
+                    }
+                    result
+                }
+            });
+        }
+
+        while let Some(result) = set.join_next().await {
             entries.push(
-                fetch_view(
-                    ctx,
-                    &entry.id,
-                    is_active,
-                    true,
-                    args.detail,
-                    active.as_ref(),
-                    entry.last_used_at,
-                    now,
-                )
-                .await?,
+                result
+                    .map_err(|err| {
+                        crate::error::AppError::Other(anyhow::anyhow!(
+                            "quota task join failed: {err}"
+                        ))
+                    })?
+                    .map_err(crate::error::AppError::from)?,
             );
         }
     }

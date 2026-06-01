@@ -158,6 +158,8 @@ the error chain.
 
 - Warnings use a `warning:` prefix in `BOLD_YELLOW`; the message body is plain.
 - Auth warnings may be multi-line.
+- Account rotation/switch warnings are stderr warnings. They are shown by
+  default and suppressed by `--quiet` or `--silent`.
 - Prompts such as `remove account 'X' permanently? [y/N]:` are uncolored.
 - Runtime narration uses a dim `[codex-session]` prefix and a plain message
   body.
@@ -192,24 +194,24 @@ differ until later implementation rounds.
 
 Supported output formats per command:
 
-| Command                          | `--format text`        | `--format json` |
-| -------------------------------- | ---------------------- | --------------- |
-| `version` / `--version`          | yes                    | yes             |
-| `completion`                     | raw stdout passthrough | no              |
-| `config status`                  | yes                    | yes             |
-| `config-recipe list`             | yes                    | yes             |
-| `config-recipe show`             | yes                    | yes             |
-| `config-recipe compose`          | yes (text only)        | no              |
-| `doctor`                         | yes                    | yes             |
-| `account list`                   | yes                    | yes             |
-| `account current`                | yes                    | yes             |
-| `account add/use/remove/refresh` | yes                    | yes             |
-| `account quota`                  | yes                    | yes             |
-| `account health`                 | yes                    | yes             |
-| `account cooldown show`          | yes                    | yes             |
-| `account cooldown clear`         | yes                    | yes             |
-| `login` / `logout`               | stderr narration       | no              |
-| `--dry-run`                      | yes (text only)        | no              |
+| Command                      | `--format text`        | `--format json` |
+| ---------------------------- | ---------------------- | --------------- |
+| `version` / `--version`      | yes                    | yes             |
+| `completion`                 | raw stdout passthrough | no              |
+| `config status`              | yes                    | yes             |
+| `config-recipe list`         | yes                    | yes             |
+| `config-recipe show`         | yes                    | yes             |
+| `config-recipe compose`      | yes (text only)        | no              |
+| `doctor`                     | yes                    | yes             |
+| `account list`               | yes                    | yes             |
+| `account current`            | yes                    | yes             |
+| `account add/remove/refresh` | yes                    | yes             |
+| `account quota`              | yes                    | yes             |
+| `account health`             | yes                    | yes             |
+| `account cooldown show`      | yes                    | yes             |
+| `account cooldown clear`     | yes                    | yes             |
+| `login` / `logout`           | stderr narration       | no              |
+| `--dry-run`                  | yes (text only)        | no              |
 
 ### `version` and Global `--version`
 

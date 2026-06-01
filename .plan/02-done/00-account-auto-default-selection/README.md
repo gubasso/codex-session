@@ -1,7 +1,7 @@
 # Account auto-selection by default, per-invocation pinning
 
 > Complexity: L | Rounds: 3 | Generated: 2026-05-29 | Repo: /workspaces/codex-session | Status:
-> todo
+> done
 
 ## Problem Statement
 
@@ -47,7 +47,7 @@ Three rounds, forward-only dependencies, each leaving the tree compiling with te
 | ----- | ----------------------------- | -------------------------------------- | ------ | ---------- |
 | 01    | `01-core-selection-engine.md` | Resolver split, run_auto, gate, errors | done   | 2026-05-30 |
 | 02    | `02-cleanup-removals.md`      | Remove `account use` + config pinned   | done   | 2026-06-01 |
-| 03    | `03-docs-api-sweep.md`        | Repo + DocsNNotes + dotfiles doc sweep | todo   | --         |
+| 03    | `03-docs-api-sweep.md`        | Repo + DocsNNotes + dotfiles doc sweep | done   | 2026-06-01 |
 
 ## Execution Commands
 

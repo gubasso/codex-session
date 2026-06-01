@@ -157,7 +157,8 @@ for upstream to ship `--auth-profile`.
 
 - Daemon/proxy model (codex-lb): too heavy for a CLI wrapper.
 - Database backend: overkill for 3-5 accounts.
-- Round-robin rotation: we already have quota-aware `--account auto`.
+- Round-robin rotation: we already have quota-aware auto-selection by default
+  (with `--account auto` kept as the explicit alias).
 - Proactive background refresh: adds complexity; on-demand 401-retry is
   simpler and sufficient.
 

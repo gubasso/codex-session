@@ -43,7 +43,7 @@ fn account_env_overrides_auto_display_and_config() {
     env.seed_account("env", "{\"token\":\"test\"}\n");
     env.seed_account("last", "{\"token\":\"test\"}\n");
     std::fs::write(env.last_account_path(), "last").unwrap();
-    write_user_config(&env, "[account]\npinned = \"pinned\"\n");
+    write_user_config(&env, "[account]\npinned = \"BAD!\"\n");
     let output = env
         .cmd()
         .env("CODEX_SESSION_ACCOUNT", "env")
@@ -63,7 +63,7 @@ fn account_current_defaults_to_auto_displaying_last_selected() {
     let env = TestEnv::new();
     env.seed_account("last", "{\"token\":\"test\"}\n");
     std::fs::write(env.last_account_path(), "last").unwrap();
-    write_user_config(&env, "[account]\npinned = \"pinned\"\n");
+    write_user_config(&env, "[account]\npinned = \"BAD!\"\n");
     let output = env
         .cmd()
         .args(["account", "current", "--format", "json"])

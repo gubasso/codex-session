@@ -8,7 +8,6 @@ pub(crate) mod list;
 pub(crate) mod quota;
 pub(crate) mod refresh;
 pub(crate) mod remove;
-pub(crate) mod use_;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -343,7 +342,6 @@ pub(crate) fn dispatch(
         AccountCommand::Add(args) => add::run(ctx, &args),
         AccountCommand::List(args) => list::run(ctx, args),
         AccountCommand::Current(args) => current::run(ctx, args),
-        AccountCommand::Use(args) => use_::run(ctx, &args),
         AccountCommand::Remove(args) => remove::run(ctx, &args),
         AccountCommand::Refresh(args) => refresh::run(ctx, &args),
         AccountCommand::Quota(args) => quota::run(ctx, args),

@@ -84,7 +84,8 @@ pub(crate) struct GlobalArgs {
     #[arg(long, value_name = "ID", global = true)]
     pub(crate) group: Option<crate::services::session::group_id::GroupId>,
 
-    /// Select the account whose `CODEX_HOME` the child uses. Use `auto` for R3+ selector.
+    /// Account to use. Omit (or `auto`) for quota-aware auto-selection with
+    /// failover; pass a name to pin a specific account for this invocation.
     #[arg(long, value_name = "NAME", global = true)]
     pub(crate) account: Option<crate::cli::account::AccountSelector>,
 

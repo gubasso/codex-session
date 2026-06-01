@@ -10,7 +10,6 @@ Commands:
   add       Register a new account
   list      List registered accounts
   current   Print the currently active account and its source
-  use       Pin the active account (writes state/last-account)
   remove    Remove an account permanently
   refresh   Refresh an account's root auth.json from the native codex login
   quota     Read per-account quota from the live wham/usage endpoint
@@ -57,7 +56,8 @@ Options:
           Override the auto-derived group-id used for session-dir scoping
 
       --account <NAME>
-          Select the account whose `CODEX_HOME` the child uses. Use `auto` for R3+ selector
+          Account to use. Omit (or `auto`) for quota-aware auto-selection with failover; pass a name
+          to pin a specific account for this invocation
 
       --max-retries <N>
           Retry child invocations this many times after a detected 429

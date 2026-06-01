@@ -16,8 +16,6 @@ pub(crate) enum AccountCommand {
     List(AccountListArgs),
     /// Print the currently active account and its source.
     Current(AccountCurrentArgs),
-    /// Pin the active account (writes state/last-account).
-    Use(AccountUseArgs),
     /// Remove an account permanently.
     Remove(AccountRemoveArgs),
     /// Refresh an account's root auth.json from the native codex login.
@@ -50,15 +48,6 @@ pub(crate) struct AccountListArgs {
 pub(crate) struct AccountCurrentArgs {
     /// Output format for the reported current account.
     #[arg(long, value_enum, default_value_t = crate::cli::OutputFormat::Text)]
-    pub(crate) format: crate::cli::OutputFormat,
-}
-
-#[derive(Debug, Clone, clap::Args)]
-pub(crate) struct AccountUseArgs {
-    /// Account name to pin.
-    pub(crate) name: AccountId,
-    /// Output format for the mutation result.
-    #[arg(long, value_name = "FMT", value_enum, default_value_t = crate::cli::OutputFormat::Text)]
     pub(crate) format: crate::cli::OutputFormat,
 }
 

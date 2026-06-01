@@ -492,7 +492,7 @@ pub(crate) fn validate_ping_config_recipe(ctx: &AppContext) -> Result<(), AppErr
 /// contains the combined stdout+stderr for the caller to display.
 async fn heartbeat_probe(
     ctx: &AppContext,
-    account: &AccountId,
+    auth_source: &camino::Utf8Path,
 ) -> Result<(Option<bool>, String), AppError> {
     use std::process::Stdio;
     use std::time::Duration;
@@ -503,9 +503,7 @@ async fn heartbeat_probe(
     ctx.ensure_child_version()?;
     let ping_config = extract_ping_config(ctx)?;
 
-    let registry = Registry::from_config(&ctx.config);
-    let seed = registry.group_auth_seed_path(account);
-    let bytes = crate::services::auth::secure_file_read(&seed)?;
+    let bytes = crate::services::auth::secure_file_read(auth_source)?;
 
     // Place the probe dir under state_dir, not /tmp — codex refuses to
     // create helper binaries when CODEX_HOME is under a temporary directory.
@@ -623,7 +621,21 @@ pub(crate) async fn probe_token(
     ctx: &AppContext,
     account: &AccountId,
 ) -> Result<(Option<bool>, String), AppError> {
-    heartbeat_probe(ctx, account).await
+    let registry = Registry::from_config(&ctx.config);
+    let seed = registry.group_auth_seed_path(account);
+    heartbeat_probe(ctx, &seed).await
+}
+
+/// Probe a specific auth file rather than the account seed.
+///
+/// Used by `account health` to re-probe against freshly-rotated credentials
+/// after `quota::refresh` performs a 401 token rotation, so the probe never
+/// races quota on `OpenAI`'s single-use refresh token.
+pub(crate) async fn probe_token_with_auth(
+    ctx: &AppContext,
+    auth_source: &camino::Utf8Path,
+) -> Result<(Option<bool>, String), AppError> {
+    heartbeat_probe(ctx, auth_source).await
 }
 
 pub(crate) fn run_login(ctx: &AppContext, opts: &LoginOptions) -> Result<i32, AppError> {
@@ -731,7 +743,8 @@ fn login_handle_ready(
         }
     };
 
-    match crate::runtime::block_on(heartbeat_probe(ctx, &resolved.id)) {
+    let seed = Registry::from_config(&ctx.config).group_auth_seed_path(&resolved.id);
+    match crate::runtime::block_on(heartbeat_probe(ctx, &seed)) {
         Ok((Some(true), stderr)) => {
             emit_stderr(&stderr);
             narrate(

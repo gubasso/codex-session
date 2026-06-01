@@ -6,14 +6,19 @@
 
 #![allow(clippy::result_large_err)]
 
+use std::sync::Arc;
+
 use crate::{cli, commands, context, error};
 
 /// Route a parsed root `Cli` to its handler. Returns the process exit code
 /// on success (most commands return 0; `doctor` can return 0/1/3).
-pub(crate) async fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, error::AppError> {
+pub(crate) async fn run(
+    ctx: Arc<context::AppContext>,
+    cli: cli::Cli,
+) -> Result<u8, error::AppError> {
     if cli.global.version {
         return commands::version::run(
-            ctx,
+            ctx.as_ref(),
             cli::version::VersionArgs {
                 format: cli.global.format.unwrap_or_default(),
             },
@@ -21,21 +26,27 @@ pub(crate) async fn run(ctx: &context::AppContext, cli: cli::Cli) -> Result<u8, 
         .map(|()| 0);
     }
     match cli.command {
-        Some(cli::Commands::Version(args)) => commands::version::run(ctx, args).map(|()| 0),
-        Some(cli::Commands::Completion(args)) => commands::completion::run(ctx, args).map(|()| 0),
-        Some(cli::Commands::Config(args)) => run_config(ctx, &args).map(|()| 0),
-        Some(cli::Commands::ConfigRecipe(args)) => run_config_recipe(ctx, args).map(|()| 0),
-        Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx, args),
-        Some(cli::Commands::Account(args)) => {
-            commands::account::dispatch(ctx, args).await.map(|()| 0)
+        Some(cli::Commands::Version(args)) => {
+            commands::version::run(ctx.as_ref(), args).map(|()| 0)
         }
+        Some(cli::Commands::Completion(args)) => {
+            commands::completion::run(ctx.as_ref(), args).map(|()| 0)
+        }
+        Some(cli::Commands::Config(args)) => run_config(ctx.as_ref(), &args).map(|()| 0),
+        Some(cli::Commands::ConfigRecipe(args)) => {
+            run_config_recipe(ctx.as_ref(), args).map(|()| 0)
+        }
+        Some(cli::Commands::Doctor(args)) => commands::doctor::run(ctx.as_ref(), args),
+        Some(cli::Commands::Account(args)) => commands::account::dispatch(Arc::clone(&ctx), args)
+            .await
+            .map(|()| 0),
         Some(cli::Commands::External(argv)) => {
-            tokio::task::block_in_place(|| commands::pass_through::run(ctx, &argv))
+            tokio::task::block_in_place(|| commands::pass_through::run(ctx.as_ref(), &argv))
                 .map(child_exit_code)
         }
         // No subcommand: forward to `codex` with an empty child argv
         // (launches the Codex TUI when `codex` is resolvable).
-        None => tokio::task::block_in_place(|| commands::pass_through::run(ctx, &[]))
+        None => tokio::task::block_in_place(|| commands::pass_through::run(ctx.as_ref(), &[]))
             .map(child_exit_code),
     }
 }

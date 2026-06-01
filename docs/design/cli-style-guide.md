@@ -134,7 +134,64 @@ Quota percentage displays use a 20-column progress bar:
 - `>20%`: `BOLD_YELLOW`
 - `<=20%`: `BOLD_RED`
 
-Progress bars are used only for quota percentage displays.
+The 20-column bar widget is used only for quota percentage displays; animated
+spinners are specified in §9b.
+
+## 9b. Spinners & live progress narration
+
+Spinners are used for wrapper-owned wait-time narration where the command is
+performing live work and stdout still belongs to the final command result.
+
+Current scope:
+
+- `account health`, only when not using `--fast`.
+- `account quota`.
+
+Future scope:
+
+- `doctor`, as rolling single-line progress.
+- `account refresh` and `account add`, before and after interactive login, never
+  during the native login flow.
+
+Spinner output is stderr only. Command results, including text tables and JSON,
+stay on stdout.
+
+Visible spinners are suppressed when any of these are true:
+
+- stderr is not a TTY.
+- `--format json` is selected.
+- `--quiet` or `--silent` is selected.
+- `account health --fast` is selected.
+- The effective stderr `tracing` mirror is not `Off`, such as with `-v`,
+  `--log-stderr`, or `log.mirror_stderr = true`.
+
+Color gating is not visibility gating. `NO_COLOR` on a TTY produces a plain but
+visible spinner; non-TTY stderr suppresses the spinner entirely.
+
+Spinner frames use `{spinner:.cyan} {msg}` when stderr color is enabled and
+`{spinner} {msg}` when plain. Color is decided through
+`color::should_color(Stream::Stderr)`. Spinners use
+`enable_steady_tick(80ms)`.
+
+Completion markers render as `✓ <msg>` in `GREEN` for success and `✗ <msg>` in
+`RED` for failure. When color is disabled, use `[ok] <msg>` and `[err] <msg>`
+ASCII fallbacks. Finished spinner lines render as marker plus message only; the
+spinner style must switch to `{msg}` before finishing. Transient spinners may
+finish-and-clear when no residual progress line is useful.
+
+While a spinner group is live, any other wrapper stderr writer, including
+warnings and prompts, must write through the spinner suspend mechanism. The
+stderr `tracing` mirror writes directly to `std::io::stderr` and can emit from
+inside spawned tasks, so this round disables visible spinners whenever the
+effective stderr mirror is not `Off`. A future progress-aware tracing writer may
+relax that restriction.
+
+Message conventions:
+
+- In-progress messages use a present participle, such as `Checking account
+  "work"...`.
+- Account names are quoted.
+- Finish messages are 60 characters or fewer.
 
 ## 10. Error Rendering
 

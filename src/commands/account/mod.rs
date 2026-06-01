@@ -333,20 +333,20 @@ fn map_fs_error(err: crate::adapters::fs::FsError) -> crate::error::AppError {
 }
 
 pub(crate) async fn dispatch(
-    ctx: &crate::context::AppContext,
+    ctx: std::sync::Arc<crate::context::AppContext>,
     args: crate::cli::account::AccountArgs,
 ) -> Result<(), crate::error::AppError> {
     use crate::cli::account::AccountCommand;
 
     match args.command {
-        AccountCommand::Add(args) => add::run(ctx, &args),
-        AccountCommand::List(args) => list::run(ctx, args),
-        AccountCommand::Current(args) => current::run(ctx, args),
-        AccountCommand::Remove(args) => remove::run(ctx, &args),
-        AccountCommand::Refresh(args) => refresh::run(ctx, &args),
-        AccountCommand::Quota(args) => quota::run(ctx, args).await,
-        AccountCommand::Health(args) => health::run(ctx, args).await,
-        AccountCommand::Cooldown(args) => cooldown::run(ctx, args),
+        AccountCommand::Add(args) => add::run(ctx.as_ref(), &args),
+        AccountCommand::List(args) => list::run(ctx.as_ref(), args),
+        AccountCommand::Current(args) => current::run(ctx.as_ref(), args),
+        AccountCommand::Remove(args) => remove::run(ctx.as_ref(), &args),
+        AccountCommand::Refresh(args) => refresh::run(ctx.as_ref(), &args),
+        AccountCommand::Quota(args) => quota::run(std::sync::Arc::clone(&ctx), args).await,
+        AccountCommand::Health(args) => health::run(std::sync::Arc::clone(&ctx), args).await,
+        AccountCommand::Cooldown(args) => cooldown::run(ctx.as_ref(), args),
     }
 }
 

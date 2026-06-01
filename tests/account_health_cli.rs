@@ -6,11 +6,7 @@ mod support;
 use std::os::unix::fs::PermissionsExt as _;
 
 use predicates::prelude::*;
-use support::{FakeCodexBehavior, TestEnv};
-
-const TEST_AUTH: &str = r#"{"tokens":{
-    "access_token":"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDAwMDB9.",
-    "account_id":"acct-123","plan":"pro"}}"#;
+use support::{FakeCodexBehavior, TEST_AUTH, TestEnv};
 
 #[test]
 fn health_rejects_account_auto() {

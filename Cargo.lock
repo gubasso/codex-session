@@ -258,6 +258,7 @@ dependencies = [
  "camino",
  "clap",
  "clap_complete",
+ "console",
  "directories",
  "figment",
  "filetime",

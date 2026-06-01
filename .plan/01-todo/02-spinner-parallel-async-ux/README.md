@@ -45,18 +45,22 @@ it needs no spec.
    heartbeat probe run concurrently (`tokio::join!`). Re-sort results for deterministic output. Add
    wiremock live tests (concurrency-based, not flaky wall-clock).
 
-3. **Round 03 — Doctor, Refresh, Add Spinners + Polish** (M): Add rolling progress to doctor,
-   before/after-login spinners to account refresh/add, `Drop`-based cleanup, the concrete signal
-   expectation, and the message-consistency pass. Integration tests for TTY/non-TTY, JSON
-   suppression, and clean-exit-on-SIGINT.
+3. **Round 03 — Doctor/Refresh/Add Spinners + Refresh-Race Fix + Robust Tests** (L): First fix the
+   remaining quota/probe single-use-refresh-token race (the inverse / probe-wins case carried over
+   from Round 02 review — Step 0). Then add rolling progress to doctor, before/after-login spinners
+   to account refresh/add, `Drop`-based cleanup, the concrete signal expectation, and the
+   message-consistency pass. Replace the draft test sketches with a guide-aligned pyramid (colocated
+   unit tests + per-subcommand integration + insta snapshots + refresh-race regression tests) per
+   `cli-design/08-testing-and-quality`. Finish with a robust, history-preserving move to
+   `.plan/02-done/`.
 
 ## Execution Order
 
-| Round | File                                  | Topic                                             | Status | Completed  |
-| ----- | ------------------------------------- | ------------------------------------------------- | ------ | ---------- |
-| 01    | `01-async-runtime-migration.md`       | Tokio + async reqwest migration (network surface) | done   | 2026-06-01 |
-| 02    | `02-spinner-parallel-health-quota.md` | §9b spec + spinner module + health/quota parallel | todo   | --         |
-| 03    | `03-doctor-refresh-add-polish.md`     | Doctor/refresh/add spinners + edge cases          | todo   | --         |
+| Round | File                                  | Topic                                                         | Status | Completed  |
+| ----- | ------------------------------------- | ------------------------------------------------------------- | ------ | ---------- |
+| 01    | `01-async-runtime-migration.md`       | Tokio + async reqwest migration (network surface)             | done   | 2026-06-01 |
+| 02    | `02-spinner-parallel-health-quota.md` | §9b spec + spinner module + health/quota parallel             | done   | 2026-06-01 |
+| 03    | `03-doctor-refresh-add-polish.md`     | Doctor/refresh/add spinners + refresh-race fix + robust tests | todo   | --         |
 
 ## Execution Commands
 

@@ -3,6 +3,8 @@
 
 mod support;
 
+use std::collections::HashSet;
+
 use support::{TestEnv, fixture_path};
 
 fn quota_cache(five_hour: f64, weekly: f64) -> String {
@@ -117,4 +119,89 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
     }
     assert!(logs.contains("\"state\":\"rate_limited_429\""));
     assert!(logs.contains("\"earliest_available_at_unix\""));
+}
+
+#[test]
+fn auto_failover_never_recycles_across_three_accounts() {
+    let env = TestEnv::new_empty();
+    env.seed_account("alpha", "{\"token\":\"test\"}\n");
+    env.seed_account("beta", "{\"token\":\"test\"}\n");
+    env.seed_account("gamma", "{\"token\":\"test\"}\n");
+    env.write_quota_cache("alpha", &quota_cache(90.0, 90.0));
+    env.write_quota_cache("beta", &quota_cache(80.0, 80.0));
+    env.write_quota_cache("gamma", &quota_cache(70.0, 70.0));
+
+    let assert = env
+        .cmd()
+        .env("CODEX_SESSION_CHILD_BIN", fixture_path("fake-429.sh"))
+        .args([
+            "-v",
+            "--account",
+            "auto",
+            "--max-retries",
+            "3",
+            "exec",
+            "trigger 429",
+        ])
+        .assert()
+        .failure()
+        .code(75);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    let homes: Vec<_> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("marker:codex-session-fake-429 home="))
+        .map(ToOwned::to_owned)
+        .collect();
+
+    assert_eq!(
+        homes.len(),
+        3,
+        "expected three child attempts, got {homes:?}"
+    );
+    let unique: HashSet<&String> = homes.iter().collect();
+    assert_eq!(unique.len(), 3, "no account may be recycled, got {homes:?}");
+    assert_ne!(homes[0], homes[1]);
+    assert_ne!(homes[1], homes[2]);
+    assert_ne!(homes[0], homes[2]);
+
+    assert!(
+        homes
+            .iter()
+            .any(|home| home.contains("/accounts/alpha/groups/")),
+        "alpha should be attempted, got {homes:?}"
+    );
+    assert!(
+        homes
+            .iter()
+            .any(|home| home.contains("/accounts/beta/groups/")),
+        "beta should be attempted, got {homes:?}"
+    );
+    assert!(
+        homes
+            .iter()
+            .any(|home| home.contains("/accounts/gamma/groups/")),
+        "gamma should be attempted, got {homes:?}"
+    );
+
+    assert!(
+        env.named_account_root("alpha")
+            .join("cooldown.json")
+            .exists()
+    );
+    assert!(
+        env.named_account_root("beta")
+            .join("cooldown.json")
+            .exists()
+    );
+    assert!(
+        env.named_account_root("gamma")
+            .join("cooldown.json")
+            .exists()
+    );
+
+    assert!(stderr.contains("account: auto-selection exhausted"));
+    assert!(stderr.contains("• alpha  rate limited (429)"));
+    assert!(stderr.contains("• beta  rate limited (429)"));
+    assert!(stderr.contains("• gamma  rate limited (429)"));
 }

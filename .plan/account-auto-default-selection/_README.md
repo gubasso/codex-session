@@ -148,3 +148,11 @@ When all rounds are done:
 # Fill in completion timestamps in the execution order table
 mv .plan/01-todo/00-account-auto-default-selection .plan/02-done/00-account-auto-default-selection
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- `run_auto` behaviors are covered by integration tests (`tests/account_failover_*.rs`), not unit tests inside `retry.rs`.
+- The usability helper is named `unusable_reason` (not the plan's `skip_reason`); same responsibility.
+- The `NoneSelected` message wording differs slightly from the plan; semantics are equivalent and `account use` is correctly absent.
+- The dedicated 3-account no-recycle test the README advertised was missing and is added by plan `done-plans-fidelity-cleanup` round 01.
+- A stale `LRU` code comment in `src/ui/mod.rs` was corrected in the same fix plan.

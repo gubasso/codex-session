@@ -77,6 +77,13 @@ pub(crate) struct DoctorReport {
     pub(crate) env: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+impl DoctorReport {
+    /// Iterate every check across all groups, in group order.
+    pub(crate) fn all_checks(&self) -> impl Iterator<Item = &CheckResult> {
+        self.groups.iter().flat_map(|group| group.checks.iter())
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct DoctorAccountEntry {
@@ -375,13 +382,7 @@ fn build_report(
     push_group(&mut groups, GROUP_AUTH, auth_checks);
     push_group(&mut groups, GROUP_ONLINE, online_checks);
 
-    populate_next_steps(
-        groups.iter().flat_map(|group| group.checks.iter()),
-        &mut next_steps,
-    );
-
-    let summary = summarize(groups.iter().flat_map(|group| group.checks.iter()));
-    DoctorReport {
+    let mut report = DoctorReport {
         config_recipe: active,
         account: account_name.clone(),
         account_source: account_source.clone(),
@@ -394,10 +395,16 @@ fn build_report(
             source: account_source,
         },
         groups,
-        summary,
-        next_steps,
+        summary: CheckSummary::default(),
+        next_steps: Vec::new(),
         env: env_dump,
-    }
+    };
+
+    let mut collected_next_steps = next_steps;
+    populate_next_steps(report.all_checks(), &mut collected_next_steps);
+    report.next_steps = collected_next_steps;
+    report.summary = summarize(report.all_checks());
+    report
 }
 
 fn push_group(groups: &mut Vec<CheckGroup>, name: &str, checks: Vec<CheckResult>) {
@@ -1646,5 +1653,41 @@ mod tests {
             doctor_finish(&summary),
             DoctorFinish::Ok("All checks passed".to_owned())
         );
+    }
+
+    #[test]
+    fn all_checks_iterates_every_group_in_order() {
+        let report = DoctorReport {
+            config_recipe: None,
+            account: "acct".to_owned(),
+            account_source: "auto".to_owned(),
+            group_id: "group".to_owned(),
+            group_id_source: "test".to_owned(),
+            codex_home: Utf8PathBuf::new(),
+            accounts: Vec::new(),
+            active_account: DoctorActiveAccount {
+                name: "acct".to_owned(),
+                source: "auto".to_owned(),
+            },
+            groups: vec![
+                CheckGroup {
+                    name: "first".to_owned(),
+                    checks: vec![ok("a", "ok"), warn("b", "warn")],
+                },
+                CheckGroup {
+                    name: "second".to_owned(),
+                    checks: vec![fail("c", "fail")],
+                },
+            ],
+            summary: CheckSummary::default(),
+            next_steps: Vec::new(),
+            env: BTreeMap::new(),
+        };
+
+        let names: Vec<_> = report
+            .all_checks()
+            .map(|check| check.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
     }
 }

@@ -118,3 +118,10 @@ All rounds are done (moved to `.plan/02-done/` on 2026-05-29). The steps taken:
 # Completion timestamps filled in the execution order table
 mv .plan/01-todo/01-cli-design-system-colorful-output .plan/02-done/01-cli-design-system-colorful-output
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- The doctor renderer uses a grouped layout with `✓/⚠/✗` symbols, superseding the columnar `STATUS/CHECK/DETAIL` table the plan prose described; the design guide SoT was updated to match.
+- Plan prose carries stale line numbers (the codebase grew after writing).
+- Health status tokens render with spaces (`"cache only"`, `"cache missing"`), not the underscore forms the spec table showed.
+- §9b "Future scope" for doctor/refresh/add spinners was reconciled to "Current scope" by the fix plan.

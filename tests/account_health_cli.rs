@@ -172,6 +172,58 @@ fn health_fast_json_uses_cache_when_present() {
     assert_eq!(arr[0]["fetched-at-unix"], 1_700_000_000_u64);
 }
 
+#[test]
+fn health_fast_json_clamps_out_of_range_cache_percentages() {
+    // The cache reader (`read_quota_from_cache`) is a separate production
+    // `quota::Window` construction site from `parse_window`; it must clamp
+    // `percent_left` to [0, 100] too. A malformed cache with 150.0 / -20.0
+    // must surface as 100.0 / 0.0 in the scoring view.
+    let env = TestEnv::new_empty();
+    env.seed_account("work", TEST_AUTH);
+
+    let cache = env
+        .state_session_root()
+        .join("cache")
+        .join("quota")
+        .join("work.json");
+    std::fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    std::fs::write(
+        &cache,
+        r#"{
+    "fetched_at_unix": 1700000000,
+    "ttl_secs": 30,
+    "body": {
+        "kind": "ok",
+        "five_hour": {"percent_left": 150.0, "reset_at_unix": 1710000000},
+        "weekly": {"percent_left": -20.0, "reset_at_unix": 1710500000}
+    }
+}"#,
+    )
+    .unwrap();
+
+    let out = env
+        .cmd()
+        .args(["account", "health", "--fast", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let arr = value.as_array().unwrap();
+    assert_eq!(arr[0]["account"], "work");
+    assert_eq!(
+        arr[0]["scoring"]["five-hour-pct"].as_f64(),
+        Some(100.0),
+        "above-100 cache percent_left must clamp to 100"
+    );
+    assert_eq!(
+        arr[0]["scoring"]["weekly-pct"].as_f64(),
+        Some(0.0),
+        "below-0 cache percent_left must clamp to 0"
+    );
+}
+
 fn install_default_recipe_with_ping(env: &TestEnv) {
     std::fs::write(
         env.wrapper_user_config_path(),

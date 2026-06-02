@@ -145,3 +145,9 @@ When the round is done:
 # Update status in this file to "done"; fill the completion timestamp.
 mkdir -p .plan/02-done && mv .plan/01-todo/03-quota-soft-gate-and-messaging .plan/02-done/03-quota-soft-gate-and-messaging
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- The `account quota` **summary** table does not visually mark below-knee accounts as "deprioritized"; only the detailed scoring view surfaces it. No blocking/"ineligible" language appears, so the contract holds.
+- `percent_left` was unclamped at parse time; the fix plan clamps it to `[0, 100]` to make the scoring dominance guarantee robust to malformed input.
+- The empty-report branch of `no_eligible_detail` is unreachable from the live auto path (the user-facing `NoEligible` always carries a populated report).

@@ -203,3 +203,10 @@ When all rounds are done:
 # Fill in completion timestamps in the execution order table
 mkdir -p .plan/02-done && mv .plan/01-todo/02-spinner-parallel-async-ux .plan/02-done/02-spinner-parallel-async-ux
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- **Architecture divergence (intentional, kept):** `quota::get` stayed synchronous; a new `src/runtime.rs` `block_on` sync→async bridge (`block_in_place`, multi-thread-only) was introduced, and `pass_through::run` is wrapped in `tokio::task::block_in_place` by dispatch. The plan said `quota::get` would become `async` and the exec path would call it without `.await`; the shipped design keeps the exec hot path sync, which is better.
+- `indicatif` is `0.18` (not `0.17`); `console 0.16` was added for the spinner draw target.
+- `token_rotated`/`read_access_token` live in a shared `src/services/account/online_probe.rs`, not colocated in `health.rs`.
+- A multi-thread guard test for the `block_on` bridge was added by the fix plan.

@@ -398,6 +398,7 @@ fn parse_window(candidates: &[Option<&Value>], name: &'static str) -> Result<Win
                 .map(|used| 100.0 - used)
         })
         .ok_or(QuotaError::ParseMissingWindow(name))?;
+    let percent_left = percent_left.clamp(0.0, 100.0);
     let reset_at_unix = parse_reset_at_unix(window).unwrap_or(0);
 
     Ok(Window {
@@ -745,5 +746,18 @@ mod tests {
         let quota = parse_quota_body(body).unwrap();
         assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
         assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+    }
+
+    #[test]
+    fn parse_percent_left_clamps_to_valid_range() {
+        let body = br#"{
+            "rate_limit": {
+                "five_hour": { "percent_left": 150.0, "reset_at": 100 },
+                "weekly": { "percent_left": -20.0, "reset_at": 200 }
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!((quota.five_hour.percent_left - 100.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.percent_left - 0.0).abs() < f64::EPSILON);
     }
 }

@@ -181,3 +181,10 @@ When all rounds are done:
 # fill completion timestamps, then move the directory:
 mkdir -p .plan/02-done && mv .plan/01-todo/04-doctor-refactor-completeness-ux .plan/02-done/04-doctor-refactor-completeness-ux
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- `DoctorReport::all_checks()` was specified but not implemented (code inlined `flat_map`); the fix plan adds the named helper.
+- `run_online_checks` delegates to `online_probe::probe_and_quota` rather than containing a literal `block_on(tokio::join!)` - an improvement (stronger race mitigation); the literal AC wording is therefore not met as written.
+- Three R02 tests exist only under merged names (`doctor_text_piped_output_is_clean`, `doctor_text_output_snapshot`), not the plan's `doctor_piped_output_no_ansi` / `_has_section_headers` / `_has_summary_banner`.
+- The decorative `── Title ──` group header and the "no resolved account to probe" online warn branch were not implemented; current behavior accepted.

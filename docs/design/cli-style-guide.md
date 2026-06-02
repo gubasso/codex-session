@@ -147,9 +147,6 @@ Current scope:
 
 - `account health`, only when not using `--fast`.
 - `account quota`.
-
-Future scope:
-
 - `doctor`, as rolling single-line progress.
 - `account refresh` and `account add`, before and after interactive login, never
   during the native login flow.
@@ -276,7 +273,7 @@ Supported output formats per command:
 ```text
 codex-session 0.1.0
 codex /usr/local/bin/codex 1.0.2
-account:         cwnt (source: lru)
+account:         cwnt (source: auto)
 ```
 
 Version numbers use `BOLD`. Account info uses the same account styling as
@@ -302,7 +299,7 @@ use `DIM`. Layer sub-items are indented.
 active-config-recipe: default
 manifest-path:        /path/to/default.yaml
 account:              cwnt
-account-source:       lru
+account-source:       auto
 group-id:             project
 group-id-source:      config.project
 codex_home:           /home/gu/.codex
@@ -369,7 +366,7 @@ Labels use `DIM`. Paths use `DIM`.
 
 ```text
 account:         cwnt
-account-source:  lru
+account-source:  auto
 ...
 
 ENVIRONMENT
@@ -394,7 +391,7 @@ Section titles and the summary label use ALL-CAPS `DIM`. Check names use
 
 ```text
   ACCOUNT    AUTH   LAST USED      STATUS
-▸ cwnt       ✓      2m ago         active (lru)
+▸ cwnt       ✓      2m ago         active (auto)
   default    ✓      1d 14h ago
 ```
 
@@ -405,7 +402,7 @@ last-used values use `—` in `DIM`.
 ### `account current`
 
 ```text
-▸ cwnt (lru)
+▸ cwnt (auto)
 ```
 
 The marker uses `BOLD_CYAN`; the account name uses `BOLD`; the `({source})`
@@ -532,12 +529,12 @@ Success prefixes use `BOLD_GREEN`. Account names and counts use `BOLD`.
 Managed login and logout write runtime narration to stderr, not stdout.
 
 ```text
-[codex-session] verifying token for account 'cwnt' (source: lru)...
+[codex-session] verifying token for account 'cwnt' (source: auto)...
 [codex-session] account 'cwnt' is already authenticated.
 ```
 
 ```text
-[codex-session] logging out account 'cwnt' (source: lru)...
+[codex-session] logging out account 'cwnt' (source: auto)...
 [codex-session] revoking token via isolated codex logout...
 [codex-session] account 'cwnt' is now logged out.
 ```
@@ -552,7 +549,7 @@ style or summarize it.
 
 ```text
 account: cwnt
-account-source: lru
+account-source: auto
 binary: /usr/local/bin/codex
 argv:
   [0] exec

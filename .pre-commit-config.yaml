@@ -146,15 +146,18 @@ repos:
   #                   integration = tests the interaction between things."
   #   - Live:         tests/*_live.rs (kind=test, binary matches /live/).
   #                   Hits real API endpoints with real OAuth credentials.
-  #                   Excluded from pre-push via nextest filter subtraction:
-  #                   pre-push profile uses `kind(test) - binary(/live/)`.
-  #                   Manual invocation only: `just test-live`.
+  #                   Still excluded from the integration pre-push lane via
+  #                   nextest filter subtraction: pre-push profile uses
+  #                   `kind(test) - binary(/live/)`.
+  #                   Runs at the `pre-push` git stage via the dedicated
+  #                   `cargo-nextest-live` hook (`live` profile; creds +
+  #                   network required). `just test-live` delegates to it.
   #                   See docs/wham-usage-api-spec.md §7.
   #
   # Tier-to-hook mapping (matches 08-testing-strategy.md § CI essentials):
   #   - pre-commit: unit only           (sub-second budget)
   #   - pre-push:   unit + integration  (single-digit-seconds budget)
-  #   - live:       manual only         (`just test-live`, no hook)
+  #   - live:       pre-push            (`cargo-nextest-live` + `just test-live`)
   #
   # Doctests are intentionally omitted: binary-only crate, `cargo test
   # --doc` has nothing to run. Re-add the template's hook if a [lib]
@@ -162,7 +165,8 @@ repos:
   #
   # Profiles live in `.config/nextest.toml` and pin the filtersets:
   #     [profile.pre-commit] default-filter = "kind(lib) + kind(bin)"
-  #     [profile.pre-push]   default-filter = "kind(test)"
+  #     [profile.pre-push]   default-filter = "kind(test) - binary(/live/)"
+  #     [profile.live]       default-filter = "binary(/live/)"
   #
   # Requires `cargo nextest` on PATH (cargo install --locked cargo-nextest).
   - repo: local
@@ -180,6 +184,16 @@ repos:
         entry: cargo nextest run --profile pre-push --all-features
         language: system
         types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-push]
+
+  - repo: local
+    hooks:
+      - id: cargo-nextest-live
+        name: cargo nextest (live API tests)
+        entry: env CODEX_SESSION_LIVE_TESTS=1 cargo nextest run --profile live --all-features
+        language: system
+        types: [rust]
         pass_filenames: false
         stages: [pre-push]
 

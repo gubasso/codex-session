@@ -8,6 +8,13 @@ of truth). The recipes encode project-specific settings the agents don't see
 otherwise — most notably `cargo-nextest` profiles tuned for coding-agent output,
 `clippy-strict`, and a local stdout/stderr-ownership lint.
 
+**Principle — pre-commit hooks are the Source of Truth for quality gates.**
+The `justfile` gate recipes MUST delegate to `pre-commit run …` rather than
+invoke `cargo` directly. A new test/lint tier is defined as a pre-commit hook
+first (in `.pre-commit-config.yaml`), then exposed via a `just` recipe that
+calls that hook. Raw `cargo` in the justfile is reserved for inner-loop,
+non-gate recipes (`build`, `run`, `fmt`, `fix`, `watch`, `clean`).
+
 **Prefer the recipes below over running raw `cargo` for verification.** Raw
 `cargo test` / `cargo clippy` / `cargo build --release` will appear to work but
 skip the project's configuration and produce different output than CI.

@@ -13,11 +13,6 @@
 
 plans:
   # ---- active ----
-  - item: account-quota-percent-display
-    status: todo
-    depends_on: []
-    prompt: /prex -ar @.plan/account-quota-percent-display/
-    notes: Display-layer fix so freshly-reset quota windows read 100% left.
   - item: account-quota-aggregate-totals
     status: todo
     depends_on: []
@@ -43,3 +38,10 @@ plans:
     depends_on: []
     prompt: /prex -ar .plan/cli-user-guide.md
     notes: Multi-file user guide under docs/guide/. Not yet round-split.
+
+  # ---- done ----
+  - item: account-quota-percent-display
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/account-quota-percent-display/
+    notes: Display-layer fix so freshly-reset quota windows read 100% left.

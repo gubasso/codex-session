@@ -1,7 +1,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::sync::OnceLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
@@ -9,6 +9,7 @@ use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
 
 use super::{AccountError, AccountId, registry::Registry};
+use crate::clock::now_unix;
 
 const API_KEY_TTL_SECS: u64 = 300;
 const DEFAULT_WHAM_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
@@ -605,12 +606,6 @@ fn plan_type_from_jwt(value: &Value) -> Option<String> {
         .and_then(|auth| auth.get("chatgpt_plan_type"))
         .and_then(Value::as_str)
         .map(str::to_ascii_lowercase)
-}
-
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }
 
 #[cfg(test)]

@@ -12,8 +12,12 @@ use super::{
     registry::{AccountEntry, Registry},
     token_expiry,
 };
+use crate::clock::now_unix;
 
 const LONG_IDLE_SECS: u64 = 7 * 24 * 60 * 60;
+/// Dominates the reachable score spread so any above-knee account outranks any
+/// below-knee account, while below-knee accounts remain selectable.
+const BELOW_KNEE_PENALTY: f64 = 1000.0;
 
 pub(crate) fn pick(
     ctx: &crate::context::AppContext,
@@ -31,7 +35,7 @@ pub(crate) fn pick(
             tracing::debug!(account = %entry.id, reason = "already-tried");
             continue;
         }
-        if let Some(reason) = usability_skip_reason(ctx, &registry, &entry) {
+        if let Some(reason) = unusable_reason(ctx, &registry, &entry) {
             tracing::debug!(account = %entry.id, reason);
             continue;
         }
@@ -81,23 +85,22 @@ pub(crate) fn is_usable(
     registry: &Registry,
     entry: &AccountEntry,
 ) -> bool {
-    usability_skip_reason(ctx, registry, entry).is_none()
+    unusable_reason(ctx, registry, entry).is_none()
 }
 
-pub(crate) fn skip_reason(
+pub(crate) fn unusable_reason(
     ctx: &crate::context::AppContext,
     registry: &Registry,
     entry: &AccountEntry,
 ) -> Option<String> {
-    try_skip_reason(ctx, registry, entry, true)
+    try_unusable_reason(ctx, registry, entry)
         .unwrap_or_else(|err| Some(format!("account state error: {err}")))
 }
 
-fn try_skip_reason(
+fn try_unusable_reason(
     ctx: &crate::context::AppContext,
     registry: &Registry,
     entry: &AccountEntry,
-    include_quota_threshold: bool,
 ) -> Result<Option<String>, AccountError> {
     if !entry.has_auth {
         return Ok(Some("no auth".to_owned()));
@@ -108,19 +111,7 @@ fn try_skip_reason(
     if token_expired(ctx, &entry.id) {
         return Ok(Some("token expired".to_owned()));
     }
-    if include_quota_threshold && let Some(reason) = quota_threshold_reason(ctx, &entry.id) {
-        return Ok(Some(reason));
-    }
     Ok(None)
-}
-
-fn usability_skip_reason(
-    ctx: &crate::context::AppContext,
-    registry: &Registry,
-    entry: &AccountEntry,
-) -> Option<String> {
-    try_skip_reason(ctx, registry, entry, false)
-        .unwrap_or_else(|err| Some(format!("account state error: {err}")))
 }
 
 fn cooldown_reason(
@@ -138,21 +129,6 @@ fn cooldown_reason(
         "cooldown until {}",
         format_unix_rfc3339(cd.reset_at_unix)
     )))
-}
-
-fn quota_threshold_reason(ctx: &crate::context::AppContext, account: &AccountId) -> Option<String> {
-    let ttl = Duration::from_secs(ctx.config.account.quota_ttl_secs);
-    let Ok(quota::QuotaResult::Ok(quota)) = quota::get(ctx, account, ttl) else {
-        return None;
-    };
-    let below_five_hour = quota.five_hour.percent_left <= ctx.config.account.five_hour_threshold;
-    let below_weekly = quota.weekly.percent_left <= ctx.config.account.weekly_floor;
-    (below_five_hour || below_weekly).then(|| {
-        format!(
-            "below quota threshold (5h {:.1}% / weekly {:.1}%)",
-            quota.five_hour.percent_left, quota.weekly.percent_left
-        )
-    })
 }
 
 fn format_unix_rfc3339(value: u64) -> String {
@@ -220,16 +196,13 @@ fn pick_from_candidates(
     let mut best: Option<ScoredCandidate> = None;
 
     for candidate in candidates {
-        let Some(scored) = score_candidate(
+        let scored = score_candidate(
             candidate,
             now,
             five_hour_threshold,
             weekly_floor,
             five_hour_weight,
-        ) else {
-            tracing::debug!(account = %candidate.id, reason = "threshold");
-            continue;
-        };
+        );
 
         let replace =
             best.as_ref()
@@ -256,7 +229,7 @@ fn pick_from_candidates(
     best.map_or_else(
         || {
             tracing::warn!(op = "account.select_no_eligible");
-            Err(AccountError::NoEligible)
+            Err(AccountError::NoEligible { report: Vec::new() })
         },
         Ok,
     )
@@ -268,7 +241,7 @@ fn score_candidate(
     five_hour_threshold: f64,
     weekly_floor: f64,
     five_hour_weight: f64,
-) -> Option<ScoredCandidate> {
+) -> ScoredCandidate {
     let params = ScoringParams {
         plan_bonus: candidate.plan_bonus,
         last_used_at: candidate.last_used_at,
@@ -279,15 +252,12 @@ fn score_candidate(
         five_hour_weight,
     };
     let breakdown = score_for_display(&candidate.quota_state, &params);
-    if !breakdown.eligible {
-        return None;
-    }
 
-    Some(ScoredCandidate {
+    ScoredCandidate {
         id: candidate.id.clone(),
         total: breakdown.total,
         tie_five_hour: breakdown.tie_five_hour,
-    })
+    }
 }
 
 pub(crate) struct ScoringParams {
@@ -345,7 +315,9 @@ fn score_for_display(quota_state: &QuotaState, params: &ScoringParams) -> ScoreB
                 && quota.weekly.percent_left > params.weekly_floor;
             let fht = params.five_hour_threshold;
             let wf = params.weekly_floor;
-            let reason = (!eligible).then_some(format!("five_hour>{fht} and weekly>{wf} required"));
+            let reason = (!eligible).then(|| {
+                format!("below penalty knee (5h<={fht}% or weekly<={wf}%): deprioritized")
+            });
             let weekly_weight = 1.0 - params.five_hour_weight;
             let avail_score = params.five_hour_weight.mul_add(
                 quota.five_hour.percent_left,
@@ -382,7 +354,9 @@ fn score_for_display(quota_state: &QuotaState, params: &ScoringParams) -> ScoreB
         "none"
     }
     .to_owned();
-    let total = base + plan_bonus_f + recency + avail_score + weekly_pressure + fh_pressure;
+    let knee_penalty = if eligible { 0.0 } else { -BELOW_KNEE_PENALTY };
+    let total =
+        base + plan_bonus_f + recency + avail_score + weekly_pressure + fh_pressure + knee_penalty;
 
     ScoreBreakdown {
         base,
@@ -424,12 +398,6 @@ fn token_expired(ctx: &crate::context::AppContext, account: &AccountId) -> bool 
         token_expiry::TokenExpiry::ExpiresAt(exp) => now_unix() + 60 >= exp,
         _ => false,
     }
-}
-
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }
 
 #[cfg(test)]
@@ -544,27 +512,54 @@ mod tests {
     }
 
     #[test]
-    fn below_threshold_is_excluded() {
+    fn below_knee_is_selectable() {
         let now = std::time::SystemTime::now();
         let candidates = vec![candidate("low", known(49.0, 80.0), None, None, 0)];
-        let err = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap_err();
-        assert!(matches!(
-            err,
-            crate::services::account::AccountError::NoEligible
-        ));
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "low");
     }
 
     #[test]
-    fn all_below_threshold_returns_no_eligible() {
+    fn all_below_knee_picks_highest_remaining_quota() {
         let now = std::time::SystemTime::now();
         let candidates = vec![
-            candidate("one", known(40.0, 80.0), None, None, 0),
-            candidate("two", known(80.0, 5.0), None, None, 0),
+            candidate("one", known(40.0, 90.0), None, None, 0),
+            candidate("two", known(45.0, 90.0), None, None, 0),
         ];
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "two");
+    }
+
+    #[test]
+    fn above_knee_always_beats_below_knee() {
+        let now = std::time::SystemTime::now();
+        let candidates = vec![
+            candidate("below", known(49.0, 99.0), None, None, 30),
+            candidate("above", known(51.0, 12.0), None, None, 0),
+        ];
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "above");
+    }
+
+    #[test]
+    fn below_knee_ordering_uses_remaining_quota() {
+        let now = std::time::SystemTime::now();
+        let candidates = vec![
+            candidate("low", known(49.0, 40.0), None, None, 0),
+            candidate("high", known(49.0, 80.0), None, None, 0),
+        ];
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "high");
+    }
+
+    #[test]
+    fn empty_candidate_pool_returns_no_eligible() {
+        let now = std::time::SystemTime::now();
+        let candidates = Vec::new();
         let err = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap_err();
         assert!(matches!(
             err,
-            crate::services::account::AccountError::NoEligible
+            crate::services::account::AccountError::NoEligible { .. }
         ));
     }
 
@@ -677,6 +672,43 @@ mod tests {
         assert!(score.eligible);
         assert!(score.total > 100.0);
         assert_eq!(score.five_hour_pct, Some(80.0));
+    }
+
+    #[test]
+    fn below_knee_breakdown_is_deprioritized_not_blocked() {
+        let result = crate::services::account::quota::QuotaResult::Ok(
+            crate::services::account::quota::Quota {
+                five_hour: crate::services::account::quota::Window {
+                    percent_left: 49.0,
+                    reset_at_unix: 0,
+                },
+                weekly: crate::services::account::quota::Window {
+                    percent_left: 80.0,
+                    reset_at_unix: 0,
+                },
+            },
+        );
+        let now = std::time::SystemTime::now();
+        let score = score_from_quota_result(
+            &result,
+            &ScoringParams {
+                plan_bonus: 0,
+                last_used_at: None,
+                is_lru: false,
+                now,
+                five_hour_threshold: 50.0,
+                weekly_floor: 10.0,
+                five_hour_weight: 0.70,
+            },
+        );
+        assert!(!score.eligible);
+        assert!(score.total < -800.0);
+        assert!(
+            score
+                .ineligible_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("deprioritized"))
+        );
     }
 
     #[test]

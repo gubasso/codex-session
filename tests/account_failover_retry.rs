@@ -97,6 +97,12 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
             .join("cooldown.json")
             .exists()
     );
+    assert!(stderr.contains("account: auto-selection exhausted"));
+    assert!(stderr.contains("• work  rate limited (429)"));
+    assert!(stderr.contains("• personal  rate limited (429)"));
+    assert!(stderr.contains("back in"));
+    assert!(stderr.contains("earliest available:"));
+    assert!(stderr.contains("codex-session account cooldown clear --all"));
 
     let log_file = latest_log_file(&env.state_home.join("codex-session"));
     let logs = std::fs::read_to_string(log_file).unwrap();
@@ -105,7 +111,10 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
         "\"op\":\"account.switch\"",
         "\"op\":\"cooldown.write\"",
         "\"op\":\"retry.exhausted\"",
+        "\"op\":\"command.error.account_outcome\"",
     ] {
         assert!(logs.contains(op), "missing log op {op}");
     }
+    assert!(logs.contains("\"state\":\"rate_limited_429\""));
+    assert!(logs.contains("\"earliest_available_at_unix\""));
 }

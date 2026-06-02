@@ -8,6 +8,7 @@ use serde_json::Value;
 use tokio::task::JoinSet;
 
 use crate::cli::account::{AccountHealthArgs, AccountSelector};
+use crate::clock::now_unix;
 use crate::commands::account::{AccountHealthEntryView, AccountHealthView, AccountScoringView};
 use crate::context::AppContext;
 use crate::services::account::{
@@ -531,12 +532,6 @@ fn cache_path(ctx: &crate::context::AppContext, account: &AccountId) -> camino::
         .join("cache")
         .join("quota")
         .join(format!("{}.json", account.as_str()))
-}
-
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }
 
 fn scoring_view_from_breakdown(raw: &selector::ScoreBreakdown) -> AccountScoringView {

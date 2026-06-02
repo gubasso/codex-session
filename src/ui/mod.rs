@@ -1560,7 +1560,7 @@ fn write_quota_entry_text(
     Ok(())
 }
 
-fn human_duration_until(reset_at_unix: u64) -> String {
+pub(crate) fn human_duration_until(reset_at_unix: u64) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs());

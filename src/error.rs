@@ -6,6 +6,7 @@
 
 #![allow(clippy::must_use_candidate)]
 
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::os::unix::process::ExitStatusExt as _;
@@ -177,8 +178,9 @@ impl AppError {
                 crate::services::account::AccountError::NotFound { .. }
                 | crate::services::account::AccountError::AlreadyExists { .. }
                 | crate::services::account::AccountError::PingProfileMissing { .. } => 78,
-                crate::services::account::AccountError::NoEligible
+                crate::services::account::AccountError::NoEligible { .. }
                 | crate::services::account::AccountError::AutoExhausted { .. }
+                | crate::services::account::AccountError::ResumeBlocked { .. }
                 | crate::services::account::AccountError::LoginFailed { .. }
                 | crate::services::account::AccountError::AuthMissing { .. } => 75,
                 crate::services::account::AccountError::QuotaFetch { .. } => 69,
@@ -261,6 +263,23 @@ pub(crate) fn log_error(err: &AppError) {
     let path = error_path(err);
     let line = error_line(err);
     let hint = error_hint(err);
+    let hint_ref = hint.as_ref().map(std::convert::AsRef::as_ref);
+    let outcome_lines = account_error_outcome_lines(err);
+    // For ResumeBlocked the thread is account-bound: only the OWNER's reset
+    // governs when the resume can continue. Folding free alternates into the
+    // top-level `earliest_available_at_unix` would make the machine log claim
+    // the thread is retryable now when the owner is still blocked. The
+    // per-account records below still carry every account's own time.
+    let earliest_available_at_unix =
+        if let AppError::Account(crate::services::account::AccountError::ResumeBlocked {
+            owner,
+            ..
+        }) = err
+        {
+            owner.available_at_unix
+        } else {
+            earliest_available(outcome_lines.iter().copied())
+        };
     tracing::error!(
         op = "command.error",
         status = "error",
@@ -268,8 +287,20 @@ pub(crate) fn log_error(err: &AppError) {
         err.msg = %err,
         err.path = path.as_deref(),
         err.line = line,
-        err.hint = hint,
+        err.hint = hint_ref,
+        earliest_available_at_unix,
     );
+    for line in outcome_lines {
+        tracing::error!(
+            op = "command.error.account_outcome",
+            account = %line.id,
+            state = line.state.as_str(),
+            outcome = %line.outcome,
+            five_hour_left = line.five_hour_left,
+            weekly_left = line.weekly_left,
+            available_at_unix = line.available_at_unix,
+        );
+    }
 }
 
 /// Log, render, and map an application error into an exit code.
@@ -497,10 +528,7 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             what: "account: registry io error".to_owned(),
             why_line: source.to_string(),
         },
-        AccountError::NoEligible => ErrorDetail {
-            what: "account: no eligible account".to_owned(),
-            why_line: "all accounts were filtered out".to_owned(),
-        },
+        AccountError::NoEligible { report } => no_eligible_detail(report),
         AccountError::QuotaFetch { detail } => ErrorDetail {
             what: "account: quota fetch failed".to_owned(),
             why_line: detail.clone(),
@@ -521,16 +549,12 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             what: "account: no native auth.json found".to_owned(),
             why_line: "~/.codex/auth.json does not exist; run `codex login` first".to_owned(),
         },
-        AccountError::AutoExhausted { report } => {
-            let mut why_line = "no account could complete the request".to_owned();
-            for line in report {
-                let _ = write!(why_line, "\n  • {}   {}", line.id, line.outcome);
-            }
-            ErrorDetail {
-                what: "account: auto-selection exhausted".to_owned(),
-                why_line,
-            }
-        }
+        AccountError::AutoExhausted { report } => auto_exhausted_detail(report),
+        AccountError::ResumeBlocked {
+            thread_id,
+            owner,
+            others,
+        } => resume_blocked_detail(thread_id, owner, others),
         AccountError::AuthMissing { name } => ErrorDetail {
             what: format!("account: '{name}' has no valid authentication"),
             why_line: format!("run `codex-session account refresh {name}` to re-authenticate"),
@@ -554,6 +578,145 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             what: "account: cooldown state failed".to_owned(),
             why_line: err.to_string(),
         },
+    }
+}
+
+fn no_eligible_detail(
+    report: &[crate::services::account::error::AccountOutcomeLine],
+) -> ErrorDetail {
+    let mut why_line = if report.is_empty() {
+        "all accounts were filtered out".to_owned()
+    } else {
+        "no usable account is available".to_owned()
+    };
+    append_account_outcome_block(&mut why_line, report);
+    ErrorDetail {
+        what: "account: no eligible account".to_owned(),
+        why_line,
+    }
+}
+
+fn auto_exhausted_detail(
+    report: &[crate::services::account::error::AccountOutcomeLine],
+) -> ErrorDetail {
+    let mut why_line = "no account could complete the request".to_owned();
+    append_account_outcome_block(&mut why_line, report);
+    ErrorDetail {
+        what: "account: auto-selection exhausted".to_owned(),
+        why_line,
+    }
+}
+
+fn resume_blocked_detail(
+    thread_id: &str,
+    owner: &crate::services::account::error::AccountOutcomeLine,
+    others: &[crate::services::account::error::AccountOutcomeLine],
+) -> ErrorDetail {
+    let mut why_line = format!(
+        "thread `{thread_id}` belongs to account `{}`; that account cannot continue now",
+        owner.id
+    );
+    append_account_outcome_block(&mut why_line, std::slice::from_ref(owner));
+    if !others.is_empty() {
+        why_line.push_str("\n  other accounts cannot continue this thread:");
+        append_account_outcome_block(&mut why_line, others);
+    }
+    ErrorDetail {
+        what: "account: resume blocked".to_owned(),
+        why_line,
+    }
+}
+
+fn append_account_outcome_block(
+    out: &mut String,
+    report: &[crate::services::account::error::AccountOutcomeLine],
+) {
+    for line in report {
+        let _ = write!(out, "\n  • {}  {}", line.id, account_state_phrase(line));
+        if let Some(value) = line.available_at_unix {
+            let _ = write!(out, "  back in {}", availability_phrase(Some(value)));
+        }
+    }
+    if let Some(earliest) = earliest_available(report.iter()) {
+        let _ = write!(
+            out,
+            "\n  earliest available: {}",
+            availability_phrase(Some(earliest))
+        );
+    }
+}
+
+fn account_state_phrase(line: &crate::services::account::error::AccountOutcomeLine) -> String {
+    use crate::services::account::error::OutcomeState;
+
+    let quota = match (line.five_hour_left, line.weekly_left) {
+        (Some(five), Some(weekly)) => format!(" (5h {five:.1}% left / weekly {weekly:.1}% left)"),
+        (Some(five), None) => format!(" (5h {five:.1}% left)"),
+        (None, Some(weekly)) => format!(" (weekly {weekly:.1}% left)"),
+        (None, None) => String::new(),
+    };
+    match line.state {
+        OutcomeState::FiveHourExhausted => format!("five-hour quota exhausted{quota}"),
+        OutcomeState::WeeklyExhausted => format!("weekly quota exhausted{quota}"),
+        OutcomeState::RateLimited429 => format!("rate limited (429){quota}"),
+        OutcomeState::AuthFailed401 => "auth failed (401)".to_owned(),
+        OutcomeState::Cooldown => "cooldown active".to_owned(),
+        OutcomeState::BelowKnee => format!("below penalty knee{quota}"),
+        OutcomeState::NoAuth => "no auth".to_owned(),
+        OutcomeState::TokenExpired => "token expired".to_owned(),
+        OutcomeState::NotAttempted | OutcomeState::AttemptedUnknown => line.outcome.clone(),
+    }
+}
+
+fn availability_phrase(available_at_unix: Option<u64>) -> String {
+    available_at_unix.map_or_else(
+        || "— (—)".to_owned(),
+        |value| {
+            format!(
+                "{} ({})",
+                crate::ui::human_duration_until(value),
+                format_unix_clock(value)
+            )
+        },
+    )
+}
+
+fn format_unix_clock(value: u64) -> String {
+    let Ok(timestamp) = i64::try_from(value) else {
+        return value.to_string();
+    };
+    let Ok(datetime) = time::OffsetDateTime::from_unix_timestamp(timestamp) else {
+        return value.to_string();
+    };
+    // Short UTC clock (HH:MM); the "back in <dur>" already carries the relative
+    // distance, so a full RFC3339 timestamp here is needlessly verbose for the
+    // human-facing stderr block (see docs/design/cli-style-guide.md).
+    format!("{:02}:{:02} UTC", datetime.hour(), datetime.minute())
+}
+
+fn earliest_available<'a>(
+    lines: impl IntoIterator<Item = &'a crate::services::account::error::AccountOutcomeLine>,
+) -> Option<u64> {
+    lines
+        .into_iter()
+        .filter_map(|line| line.available_at_unix)
+        .min()
+}
+
+fn account_error_outcome_lines(
+    err: &AppError,
+) -> Vec<&crate::services::account::error::AccountOutcomeLine> {
+    match err {
+        AppError::Account(
+            crate::services::account::AccountError::AutoExhausted { report }
+            | crate::services::account::AccountError::NoEligible { report },
+        ) => report.iter().collect(),
+        AppError::Account(crate::services::account::AccountError::ResumeBlocked {
+            owner,
+            others,
+            ..
+        }) => std::iter::once(owner).chain(others.iter()).collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -633,8 +796,74 @@ The file should contain bare top-level keys (no [profiles.ping] header), e.g.:\n
 model = \"gpt-5.4-mini\"\n    model_reasoning_effort = \"minimal\"\n\n\
 See docs/upstream-codex.md §F6b for the codex v0.134+ profile contract.";
 
+fn error_hint(err: &AppError) -> Option<Cow<'static, str>> {
+    match err {
+        AppError::Account(
+            crate::services::account::AccountError::AutoExhausted { report }
+            | crate::services::account::AccountError::NoEligible { report },
+        ) => {
+            let lines: Vec<_> = report.iter().collect();
+            Some(account_report_hint(&lines))
+        }
+        AppError::Account(crate::services::account::AccountError::ResumeBlocked {
+            owner, ..
+        }) => {
+            // Resume is account-bound: only the OWNER's state can unblock this
+            // thread. Alternate accounts' cooldowns are irrelevant here, so the
+            // hint is gated on the owner alone — never suggest clearing cooldowns
+            // because some other account happens to be cooling down.
+            Some(account_report_hint(std::slice::from_ref(&owner)))
+        }
+        _ => static_error_hint(err).map(Cow::Borrowed),
+    }
+}
+
+fn account_report_hint(
+    report: &[&crate::services::account::error::AccountOutcomeLine],
+) -> Cow<'static, str> {
+    use crate::services::account::error::OutcomeState;
+
+    if report.is_empty() {
+        return Cow::Borrowed("run `codex-session account health` for details");
+    }
+    let has_cooldown = report.iter().any(|line| {
+        matches!(
+            line.state,
+            OutcomeState::Cooldown | OutcomeState::RateLimited429 | OutcomeState::AuthFailed401
+        )
+    });
+    // A quota-window block (5-hour / weekly exhaustion) is NOT cleared by
+    // `cooldown clear --all`; suggesting it there is misleading. Only offer the
+    // clear hint when cooldowns are the actual block and no window exhaustion is
+    // present among the reported accounts. Detect exhaustion from the quota
+    // fields too, not just `state`: when an account is BOTH cooling down and out
+    // of quota, `apply_quota` keeps `state == Cooldown` but still records
+    // `five_hour_left`/`weekly_left` at 0%, so a state-only check would miss it
+    // and wrongly recommend clearing cooldowns.
+    let has_window_exhaustion = report.iter().any(|line| {
+        matches!(
+            line.state,
+            OutcomeState::FiveHourExhausted | OutcomeState::WeeklyExhausted
+        ) || line.five_hour_left.is_some_and(|left| left <= 0.0)
+            || line.weekly_left.is_some_and(|left| left <= 0.0)
+    });
+    if has_cooldown && !has_window_exhaustion {
+        return Cow::Borrowed(
+            "run `codex-session account health` for details, or clear cooldowns with\
+            `codex-session account cooldown clear --all` to retry early",
+        );
+    }
+    if let Some(earliest) = earliest_available(report.iter().copied()) {
+        return Cow::Owned(format!(
+            "wait until the earliest reset shown ({}) and retry",
+            availability_phrase(Some(earliest))
+        ));
+    }
+    Cow::Borrowed("run `codex-session account health` for details")
+}
+
 #[allow(clippy::too_many_lines)]
-const fn error_hint(err: &AppError) -> Option<&'static str> {
+const fn static_error_hint(err: &AppError) -> Option<&'static str> {
     use crate::config::ConfigError;
     use crate::services::auth::AuthError;
 
@@ -690,10 +919,9 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         AppError::Account(crate::services::account::AccountError::NativeAuthMissing) => {
             Some("run `codex login` first to create ~/.codex/auth.json")
         }
-        AppError::Account(crate::services::account::AccountError::AutoExhausted { .. }) => Some(
-            "Run `codex-session account health` for details, or clear cooldowns with \
-                `codex-session account cooldown clear --all`.",
-        ),
+        AppError::Account(crate::services::account::AccountError::AutoExhausted { .. }) => {
+            Some("run `codex-session account health` for details")
+        }
         AppError::Account(crate::services::account::AccountError::AuthMissing { .. }) => {
             Some("run `codex-session account refresh <name>` to re-authenticate")
         }
@@ -729,7 +957,8 @@ const fn error_hint(err: &AppError) -> Option<&'static str> {
         | AppError::Account(
             crate::services::account::AccountError::InvalidName { .. }
             | crate::services::account::AccountError::RegistryIo { .. }
-            | crate::services::account::AccountError::NoEligible
+            | crate::services::account::AccountError::NoEligible { .. }
+            | crate::services::account::AccountError::ResumeBlocked { .. }
             | crate::services::account::AccountError::QuotaFetch { .. }
             | crate::services::account::AccountError::QuotaParse { .. }
             | crate::services::account::AccountError::Cooldown { .. },
@@ -997,7 +1226,9 @@ mod tests {
 
     #[test]
     fn account_no_eligible_maps_to_tempfail() {
-        let err = AppError::Account(crate::services::account::AccountError::NoEligible);
+        let err = AppError::Account(crate::services::account::AccountError::NoEligible {
+            report: Vec::new(),
+        });
         assert_eq!(err.exit_code(), 75);
         assert_eq!(err.kind(), "account-no-eligible");
     }

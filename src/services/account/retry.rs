@@ -2,13 +2,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::clock::now_unix;
 use crate::context::AppContext;
 use crate::error::AppError;
 
 use super::{
-    AccountError, AccountId, cooldown, failover, quota,
+    AccountError, AccountId, cooldown,
+    error::{AccountOutcomeLine, OutcomeState},
+    failover, quota,
     registry::{AccountEntry, Registry},
     resolver::{self, ResolvedAccount},
     selector, token_refresh,
@@ -19,10 +21,16 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
     let max_retries = ctx.global.max_retries;
     let registry = Registry::from_config(&ctx.config);
     let accounts = registry.list()?;
-    let eligible = accounts
+    let usable_count = accounts
         .iter()
         .filter(|entry| selector::is_usable(ctx, &registry, entry))
         .count();
+    if usable_count == 0 {
+        return Err(AccountError::NoEligible {
+            report: build_report(ctx, &registry, &accounts, Vec::new(), &HashSet::new()),
+        }
+        .into());
+    }
     // Rotation cap. This is the auto path only (pinned accounts go through
     // `single_attempt` and never reach here), so the default `--max-retries 0`
     // deliberately means "try every eligible account once" rather than "one
@@ -31,9 +39,9 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
     // caps total attempts at `(max_retries + 1)`, still bounded by the eligible
     // count. (The `--max-retries` help text is reworded in round 02.)
     let cap = if max_retries == 0 {
-        eligible
+        usable_count
     } else {
-        ((max_retries as usize) + 1).min(eligible)
+        ((max_retries as usize) + 1).min(usable_count)
     };
 
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
@@ -51,7 +59,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
         } else {
             match resolver::resolve_for_exec(ctx, &tried) {
                 Ok(resolved) => resolved,
-                Err(AppError::Account(AccountError::NoEligible)) => break,
+                Err(AppError::Account(AccountError::NoEligible { .. })) => break,
                 Err(err) => return Err(err),
             }
         };
@@ -101,7 +109,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
             kind = ?matched.kind,
         );
 
-        let (kind_label, outcome) = match matched.kind {
+        let (kind_label, state, outcome) = match matched.kind {
             failover::MatchKind::AuthFailure => {
                 if first_use && try_refresh(ctx, &resolved.id) {
                     tracing::info!(
@@ -113,18 +121,29 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
                     continue;
                 }
                 write_cooldown(&registry, &resolved.id, "401", &matched)?;
-                ("401", format!("401 auth failed: {}", matched.snippet))
+                (
+                    "401",
+                    OutcomeState::AuthFailed401,
+                    format!("401 auth failed: {}", matched.snippet),
+                )
             }
             failover::MatchKind::RateLimit => {
                 write_cooldown(&registry, &resolved.id, "429", &matched)?;
-                ("429", format!("429 rate limit: {}", matched.snippet))
+                (
+                    "429",
+                    OutcomeState::RateLimited429,
+                    format!("429 rate limit: {}", matched.snippet),
+                )
             }
         };
 
-        ran_report.push(crate::services::account::error::AccountOutcomeLine {
-            id: resolved.id.clone(),
+        ran_report.push(account_outcome_line(
+            ctx,
+            &registry,
+            &resolved.id,
+            state,
             outcome,
-        });
+        ));
 
         tracing::warn!(
             op = "account.switch",
@@ -166,35 +185,27 @@ fn build_report(
     ctx: &AppContext,
     registry: &Registry,
     accounts: &[AccountEntry],
-    ran_report: Vec<crate::services::account::error::AccountOutcomeLine>,
+    ran_report: Vec<AccountOutcomeLine>,
     tried: &HashSet<AccountId>,
-) -> Vec<crate::services::account::error::AccountOutcomeLine> {
-    let mut ran: HashMap<AccountId, String> = ran_report
+) -> Vec<AccountOutcomeLine> {
+    let mut ran: HashMap<AccountId, AccountOutcomeLine> = ran_report
         .into_iter()
-        .map(|line| (line.id, line.outcome))
+        .map(|line| (line.id.clone(), line))
         .collect();
 
     accounts
         .iter()
         .map(|entry| {
-            let outcome = ran.remove(&entry.id).unwrap_or_else(|| {
-                selector::skip_reason(ctx, registry, entry).unwrap_or_else(|| {
-                    if tried.contains(&entry.id) {
-                        "attempted but no terminal outcome recorded".to_owned()
-                    } else {
-                        "not attempted (rotation cap reached)".to_owned()
-                    }
-                })
-            });
-            crate::services::account::error::AccountOutcomeLine {
-                id: entry.id.clone(),
-                outcome,
+            if let Some(line) = ran.remove(&entry.id) {
+                return line;
             }
+            let (state, outcome) = fallback_state(ctx, registry, entry, tried);
+            account_outcome_line(ctx, registry, &entry.id, state, outcome)
         })
         .collect()
 }
 
-fn write_cooldown(
+pub(crate) fn write_cooldown(
     registry: &Registry,
     account: &AccountId,
     reason: &str,
@@ -216,6 +227,194 @@ fn write_cooldown(
         reason = %cd.reason
     );
     Ok(())
+}
+
+pub(crate) fn account_outcome_line(
+    ctx: &AppContext,
+    registry: &Registry,
+    account: &AccountId,
+    state: OutcomeState,
+    outcome: String,
+) -> AccountOutcomeLine {
+    let ttl = std::time::Duration::from_secs(ctx.config.account.quota_ttl_secs);
+    let mut line = AccountOutcomeLine {
+        id: account.clone(),
+        outcome,
+        state,
+        five_hour_left: None,
+        weekly_left: None,
+        available_at_unix: None,
+    };
+
+    apply_quota(ctx, account, ttl, &mut line);
+    apply_cooldown(registry, account, &mut line);
+    line
+}
+
+/// Classify an alternate (non-owner) account for a `ResumeBlocked` report.
+///
+/// A genuinely usable account is reported as `NotAttempted` / "available for a
+/// new thread"; an unusable one (no auth, expired token, active cooldown) gets
+/// its real blocking state so the resume message never offers a fresh-exec path
+/// that cannot actually run.
+pub(crate) fn alternate_state(
+    ctx: &AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+) -> (OutcomeState, String) {
+    if let Some((state, outcome)) = unusable_outcome(ctx, registry, entry) {
+        return (state, outcome);
+    }
+    (
+        OutcomeState::NotAttempted,
+        "available for a new thread".to_owned(),
+    )
+}
+
+fn unusable_outcome(
+    ctx: &AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+) -> Option<(OutcomeState, String)> {
+    let reason = selector::unusable_reason(ctx, registry, entry)?;
+    if reason == "no auth" {
+        return Some((OutcomeState::NoAuth, "no auth".to_owned()));
+    }
+    if reason == "token expired" {
+        return Some((OutcomeState::TokenExpired, "token expired".to_owned()));
+    }
+    if reason.starts_with("cooldown until ") {
+        return Some((OutcomeState::Cooldown, reason));
+    }
+    Some((OutcomeState::AttemptedUnknown, reason))
+}
+
+fn fallback_state(
+    ctx: &AppContext,
+    registry: &Registry,
+    entry: &AccountEntry,
+    tried: &HashSet<AccountId>,
+) -> (OutcomeState, String) {
+    if let Some((state, outcome)) = unusable_outcome(ctx, registry, entry) {
+        return (state, outcome);
+    }
+    if tried.contains(&entry.id) {
+        (
+            OutcomeState::AttemptedUnknown,
+            "attempted but no terminal outcome recorded".to_owned(),
+        )
+    } else {
+        (
+            OutcomeState::NotAttempted,
+            "not attempted (rotation cap reached)".to_owned(),
+        )
+    }
+}
+
+fn apply_quota(
+    ctx: &AppContext,
+    account: &AccountId,
+    ttl: std::time::Duration,
+    line: &mut AccountOutcomeLine,
+) {
+    let Ok(quota::QuotaResult::Ok(quota)) = quota::get(ctx, account, ttl) else {
+        return;
+    };
+    line.five_hour_left = Some(quota.five_hour.percent_left);
+    line.weekly_left = Some(quota.weekly.percent_left);
+
+    let mut reset = None;
+    let can_quota_set_state = !matches!(
+        line.state,
+        OutcomeState::RateLimited429
+            | OutcomeState::AuthFailed401
+            | OutcomeState::Cooldown
+            | OutcomeState::NoAuth
+            | OutcomeState::TokenExpired
+    );
+    if quota.five_hour.percent_left <= 0.0 {
+        if can_quota_set_state {
+            line.state = OutcomeState::FiveHourExhausted;
+            line.outcome = format!(
+                "five-hour quota exhausted ({:.1}% left)",
+                quota.five_hour.percent_left
+            );
+        }
+        reset = min_available(reset, quota.five_hour.reset_at_unix);
+    }
+    if quota.weekly.percent_left <= 0.0 {
+        if can_quota_set_state && !matches!(line.state, OutcomeState::FiveHourExhausted) {
+            line.state = OutcomeState::WeeklyExhausted;
+            line.outcome = format!(
+                "weekly quota exhausted ({:.1}% left)",
+                quota.weekly.percent_left
+            );
+        }
+        reset = min_available(reset, quota.weekly.reset_at_unix);
+    }
+    if !matches!(
+        line.state,
+        OutcomeState::RateLimited429
+            | OutcomeState::AuthFailed401
+            | OutcomeState::Cooldown
+            | OutcomeState::FiveHourExhausted
+            | OutcomeState::WeeklyExhausted
+            | OutcomeState::NoAuth
+            | OutcomeState::TokenExpired
+    ) {
+        let below_five = quota.five_hour.percent_left <= ctx.config.account.five_hour_threshold;
+        let below_weekly = quota.weekly.percent_left <= ctx.config.account.weekly_floor;
+        if below_five || below_weekly {
+            line.state = OutcomeState::BelowKnee;
+            line.outcome = format!(
+                "below penalty knee (5h {:.1}% / weekly {:.1}% left)",
+                quota.five_hour.percent_left, quota.weekly.percent_left
+            );
+            // Below-knee is a soft scoring penalty, not a block: the account is
+            // still selectable now. Do NOT record a window reset as
+            // `available_at_unix` — that would render it as "back in <dur>" and
+            // fold it into "earliest available", reintroducing hard-floor
+            // semantics in the user guidance.
+        }
+    }
+    line.available_at_unix = min_option(line.available_at_unix, reset);
+}
+
+fn apply_cooldown(registry: &Registry, account: &AccountId, line: &mut AccountOutcomeLine) {
+    let Ok(Some(cd)) = cooldown::read(&registry.account_dir(account)) else {
+        return;
+    };
+    if !cooldown::is_active(&cd, now_unix()) {
+        return;
+    }
+    if !matches!(
+        line.state,
+        OutcomeState::RateLimited429
+            | OutcomeState::AuthFailed401
+            | OutcomeState::FiveHourExhausted
+            | OutcomeState::WeeklyExhausted
+    ) {
+        line.state = OutcomeState::Cooldown;
+        line.outcome = format!("cooldown active: {}", cd.reason);
+    }
+    line.available_at_unix = min_option(line.available_at_unix, Some(cd.reset_at_unix));
+}
+
+const fn min_option(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
+const fn min_available(current: Option<u64>, candidate: u64) -> Option<u64> {
+    if candidate == 0 {
+        current
+    } else {
+        min_option(current, Some(candidate))
+    }
 }
 
 fn try_refresh(ctx: &AppContext, account: &AccountId) -> bool {
@@ -240,10 +439,4 @@ fn try_refresh(ctx: &AppContext, account: &AccountId) -> bool {
             false
         }
     }
-}
-
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }

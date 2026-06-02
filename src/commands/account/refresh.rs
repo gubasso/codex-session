@@ -21,7 +21,7 @@ pub(crate) fn run(
         Some(name) => name.clone(),
         None => registry
             .current()?
-            .ok_or(crate::services::account::AccountError::NoEligible)?,
+            .ok_or(crate::services::account::AccountError::NoEligible { report: Vec::new() })?,
     };
     let spinners = SpinnerGroup::new(should_show_spinner(ctx, args.format, false));
     let spinner = spinners.add(&format!("Preparing login for \"{name}\"..."));

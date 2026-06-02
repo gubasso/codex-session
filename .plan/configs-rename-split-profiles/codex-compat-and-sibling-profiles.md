@@ -39,7 +39,7 @@ subsequent test fixture in Block B can assume the new contract is in force.
 The principle codified in round 01 (`CLAUDE.md` § Codex config compatibility)
 drives every edit in both blocks. The cross-repo dotfiles propagation and
 docs sync that previously lived in this round are now Round 05 — see
-[`05-dotfiles-propagation-and-cross-repo-sync.md`](./05-dotfiles-propagation-and-cross-repo-sync.md).
+[`dotfiles-propagation-and-cross-repo-sync.md`](./dotfiles-propagation-and-cross-repo-sync.md).
 
 ## Previous Rounds
 
@@ -761,4 +761,4 @@ The plan directory move (from `01-todo/` to `02-done/`) happens in Round
 Round 05 — dotfiles propagation (`~/.dotfiles/codex-session`), dotfiles
 cleanup, and cross-repo docs sync (`~/DocsNNotes`,
 `~/.dotfiles/{claude,claude-session}`). See
-[`05-dotfiles-propagation-and-cross-repo-sync.md`](./05-dotfiles-propagation-and-cross-repo-sync.md).
+[`dotfiles-propagation-and-cross-repo-sync.md`](./dotfiles-propagation-and-cross-repo-sync.md).

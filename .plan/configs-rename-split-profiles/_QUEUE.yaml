@@ -1,0 +1,27 @@
+# Rounds for this plan, in execution order. status: backlog | todo | doing | done
+rounds:
+  - item: docs-and-principle
+    status: done
+    depends_on: []
+    prompt: /prex -ar .plan/configs-rename-split-profiles/docs-and-principle.md
+    notes: Codify the composer/config contract.
+  - item: composer-and-input-rename
+    status: done
+    depends_on: [docs-and-principle]
+    prompt: /prex -ar .plan/configs-rename-split-profiles/composer-and-input-rename.md
+    notes: Rename settings->configs at the input layer + composer.
+  - item: heartbeat-cache-doctor
+    status: done
+    depends_on: [composer-and-input-rename]
+    prompt: /prex -ar .plan/configs-rename-split-profiles/heartbeat-cache-doctor.md
+    notes: Heartbeat/cache/doctor follow-through.
+  - item: codex-compat-and-sibling-profiles
+    status: done
+    depends_on: [heartbeat-cache-doctor]
+    prompt: /prex -ar .plan/configs-rename-split-profiles/codex-compat-and-sibling-profiles.md
+    notes: Upstream-codex compat + sibling profiles/ layout.
+  - item: dotfiles-propagation-and-cross-repo-sync
+    status: done
+    depends_on: [codex-compat-and-sibling-profiles]
+    prompt: /prex -ar .plan/configs-rename-split-profiles/dotfiles-propagation-and-cross-repo-sync.md
+    notes: Cross-repo (dotfiles + DocsNNotes) propagation.

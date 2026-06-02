@@ -1,0 +1,17 @@
+# Rounds for this plan, in execution order. status: backlog | todo | doing | done
+rounds:
+  - item: core-selection-engine
+    status: done
+    depends_on: []
+    prompt: /prex -ar .plan/account-auto-default-selection/core-selection-engine.md
+    notes: Quota-aware auto-selection engine.
+  - item: cleanup-removals
+    status: done
+    depends_on: [core-selection-engine]
+    prompt: /prex -ar .plan/account-auto-default-selection/cleanup-removals.md
+    notes: Remove obsolete resolution sources (incl. LRU).
+  - item: docs-api-sweep
+    status: done
+    depends_on: [cleanup-removals]
+    prompt: /prex -ar .plan/account-auto-default-selection/docs-api-sweep.md
+    notes: Docs + public API reconciliation.

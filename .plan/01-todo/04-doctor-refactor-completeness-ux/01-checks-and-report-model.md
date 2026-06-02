@@ -1,27 +1,20 @@
 # Round 01: Check Completeness + Grouped Report Model
 
-> Plan: doctor-refactor-completeness-ux | Round: 01 of 02 | Complexity: L (override) | Generated:
-> 2026-05-27 | Repo: /workspaces/codex-session
+> Plan: 04-doctor-refactor-completeness-ux | Round: 01 of 02 | Complexity: L (override) |
+> Executor: prex (EF 1.5) | Generated: 2026-05-27 | Updated: 2026-06-02 | Repo: /workspaces/codex-session
 
 ## Context
 
-The `codex-session doctor` subcommand validates the setup of config-recipes, accounts, sessions,
-and auth. It currently runs ~15 checks and renders results as a flat list. However, it is missing
-several important checks:
+The `codex-session doctor` subcommand validates config-recipes, accounts, sessions, and auth. It
+runs ~25 checks and renders them as a flat list. It is missing five diagnostics — `[profiles.ping]`
+presence, token validity, quota reachability, trust-sync cache health, and session-directory
+permissions — and its flat `Vec<CheckResult>` makes both text and JSON hard to consume.
 
-- Whether `[profiles.ping]` exists in the composed config-recipe (required for token validation)
-- Whether the active account's token actually works against the API
-- Whether the quota API is reachable for the active account
-- Trust-sync cache settings file health (permissions, existence, stale lock files)
-- Session directory permissions beyond just the root
-- Child binary (`codex`) version compatibility
-
-Additionally, the `DoctorReport` struct dumps all checks into a flat `Vec<CheckResult>` with no
-grouping. This makes both the text output hard to scan and the JSON output hard to consume
-programmatically.
-
-This round adds all new checks, introduces `--online` for network-dependent checks, and
-restructures `DoctorReport` into grouped sections.
+This round adds the `--online` flag, introduces a `CheckGroup` model, restructures `DoctorReport`
+into grouped sections, implements the five new checks (the two network checks run **concurrently**
+under `--online`), assigns every existing check to a group, updates the JSON serialization, and
+updates tests to compile against the new shape. **Text rendering stays flat in this round** — the
+grouped/styled text output is Round 02.
 
 ## Previous Rounds
 
@@ -31,118 +24,187 @@ This is the first round — no prior rounds.
 
 **IN scope:**
 
-- Add `--online` flag to `DoctorArgs` in `src/cli/doctor.rs`
-- Create `CheckGroup` struct and restructure `DoctorReport` to use `Vec<CheckGroup>`
-- Implement 6 new check functions in `src/commands/doctor.rs`:
-  1. `check_ping_config` — verifies `[profiles.ping]` exists in composed settings
-  2. `check_token_probe` — runs `gate::probe_token()` to verify API connectivity (online only)
-  3. `check_quota_connectivity` — calls quota API with short timeout (online only)
-  4. `check_trust_cache` — validates cache settings file health
-  5. `check_session_permissions` — audits session directory ownership/mode beyond root
-  6. `check_child_version_compat` — parses child version and checks compatibility
-- Assign all existing checks to their appropriate groups
-- Update `DoctorReport` JSON serialization to use grouped structure
-- Update existing tests to compile with new struct shape
-- Add tests for each new check function
+- Add `--online` flag to `DoctorArgs` (`src/cli/doctor.rs`).
+- Create `CheckGroup` struct; restructure `DoctorReport` to `groups: Vec<CheckGroup>`.
+- Implement five new check functions in `src/commands/doctor.rs`:
+  1. `check_ping_config` — `[profiles.ping]` presence (offline).
+  2. `run_online_checks` — concurrent token probe + quota connectivity (online only).
+  3. `check_trust_cache` — trust-sync cache file health (offline).
+  4. `check_session_permissions` — session directory ownership/mode (offline).
+- Assign **all** existing checks to groups (Environment, Accounts, Config Recipe, Session, Auth).
+- Update `DoctorReport` JSON serialization to the grouped structure.
+- Update `hint_for`/`is_actionable_warn`/`populate_next_steps` for the new check names.
+- Update existing tests to compile; add tests for the new checks.
 
-**OUT of scope:**
+**OUT of scope (Round 02):**
 
-- Beautiful text rendering (Round 02)
-- Design system color integration (Round 02)
-- Spinner integration for online checks (Round 02)
-- Text output restructuring into sections with headers (Round 02)
+- Grouped/styled text rendering, ✓/⚠/✗ symbols in check rows, human-readable timestamps.
+- Online-aware spinner messages.
 
 ## Current State
 
-### Key Files
+### Key files & exact shapes
 
-- `/workspaces/codex-session/src/cli/doctor.rs` — CLI argument parser for doctor. Currently has
-  two flags:
+`src/cli/doctor.rs` — `DoctorArgs` is `#[derive(Debug, Clone, Copy, Default, clap::Args)]` with two
+fields:
+
+```rust
+pub(crate) struct DoctorArgs {
+    #[arg(long = "all-config-recipes")]
+    pub(crate) all_config_recipes: bool,
+    #[arg(long)]
+    pub(crate) show_env: bool,
+}
+```
+
+`src/commands/doctor.rs` (~1383 lines):
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CheckStatus { Ok, Warn, Fail }
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct CheckResult { pub(crate) name: String, pub(crate) status: CheckStatus, pub(crate) detail: String }
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct CheckSummary { pub(crate) ok: usize, pub(crate) warn: usize, pub(crate) fail: usize }
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct DoctorReport {
+    pub(crate) config_recipe: Option<String>,
+    pub(crate) account: String,
+    pub(crate) account_source: String,
+    pub(crate) group_id: String,
+    pub(crate) group_id_source: String,
+    pub(crate) codex_home: Utf8PathBuf,
+    pub(crate) accounts: Vec<DoctorAccountEntry>,
+    pub(crate) active_account: DoctorActiveAccount,
+    pub(crate) checks: Vec<CheckResult>,          // <-- becomes `groups: Vec<CheckGroup>`
+    pub(crate) summary: CheckSummary,
+    pub(crate) next_steps: Vec<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) env: BTreeMap<String, BTreeMap<String, String>>,
+}
+```
+
+`run()` and `build_report()` are **synchronous**:
+
+```rust
+pub(crate) fn run(ctx: &crate::context::AppContext, args: crate::cli::doctor::DoctorArgs)
+    -> Result<u8, crate::error::AppError> {
+    let fmt = ctx.global.format.unwrap_or_default();
+    let spinners = SpinnerGroup::new(should_show_spinner(ctx, fmt, false));
+    let spinner = spinners.add("Running checks...");
+    let report = build_report(ctx, args, Some(&spinner));
+    match doctor_finish(&report.summary) { /* finish_ok / finish_err */ }
+    ctx.ui.write_doctor(&report, fmt)?;
+    Ok(u8::from(report.summary.fail > 0))
+}
+
+fn build_report(ctx: &crate::context::AppContext, args: crate::cli::doctor::DoctorArgs,
+    progress: Option<&SpinnerHandle>) -> DoctorReport {
+    let mut checks: Vec<CheckResult> = Vec::new();
+    // ... set_progress(progress, "..."); checks.push(...) sequentially ...
+}
+```
+
+Constructors and helpers already exist: `ok(name, detail)`, `warn(...)`, `fail(...)`,
+`summarize(&[CheckResult])`, `populate_next_steps(&[CheckResult], &mut Vec<String>)`,
+`is_actionable_warn(name)` (currently `name == "account.cooldowns"`), `hint_for(name)`,
+`redact_secrets(...)`, and `set_progress(progress, msg)`.
+
+Current `hint_for` already maps `codex.version`, `child.binary`, `auth.native`, `account.active.auth`,
+`account.cooldowns`, `session.account`, `session.root`, plus the `manifest.*`/`layer.*`/`composition.*`
+prefixes.
+
+The child-version check **already exists**:
+
+```rust
+fn check_codex_version_minimum(ctx: &crate::context::AppContext) -> CheckResult {
+    use crate::codex_compat::{REQUIRED_CODEX_VERSION, VersionCheck};
+    match ctx.resolved_child_with_version_check() {
+        Ok((_, VersionCheck::Ok(version)))       => ok("codex.version", /* ... */),
+        Ok((_, VersionCheck::TooOld(version)))   => fail("codex.version", /* ... */),
+        Ok((_, VersionCheck::Unparseable(raw)))  => warn("codex.version", /* ... */),
+        Err(err)                                  => fail("codex.version", /* ... */),
+    }
+}
+```
+
+A cache-path helper already exists:
+
+```rust
+fn cache_config_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
+    let path = ctx.config.paths.cache_dir.join("configs.toml");
+    path.is_file().then_some(path)
+}
+```
+
+### Service APIs to reuse
+
+- `src/services/account/gate.rs`:
+  - `pub(crate) fn validate_ping_config_recipe(ctx: &AppContext) -> Result<(), AppError>` (**sync**).
+  - `pub(crate) async fn probe_token(ctx: &AppContext, account: &AccountId) -> Result<(Option<bool>, String), AppError>` (**async**).
+- `src/services/account/quota.rs`:
+  - `pub(crate) async fn refresh(ctx: &AppContext, account: &AccountId) -> Result<QuotaResult, QuotaError>` (**async**, forces a network fetch). (`get` is cache-first — do not use it for a connectivity probe.)
+- `src/services/session/dir.rs`:
+  - `pub(crate) fn inspect_session_root(runtime_dir: Option<&Utf8Path>, state_dir: &Utf8Path) -> Result<InspectedRoot, ConfigError>` returning `InspectedRoot { root: SessionRoot { path, source }, root_missing: bool, accounts_subdir_missing: bool }`.
+- `src/services/auth_inspect.rs` — permission-check pattern to copy (uses
+  `std::os::unix::fs::{MetadataExt, PermissionsExt}`): `meta.uid()`, `meta.permissions().mode() & 0o777`,
+  `meta.file_type().is_symlink()`, expecting `0o700`.
+- `src/runtime.rs` — `pub(crate) fn block_on<F: Future>(fut: F) -> F::Output`. Under the active
+  multi-thread runtime it uses `block_in_place(|| handle.block_on(fut))`. The doctor dispatch arm
+  (`commands::doctor::run(ctx.as_ref(), args)` in `src/cli/dispatch.rs`) is called from an async
+  context, so `block_on` is the correct bridge — **do not** make `run`/`build_report` async.
+- Prior art for concurrency — `src/commands/account/health.rs:181`:
 
   ```rust
-  pub(crate) struct DoctorArgs {
-      #[arg(long = "all-config-recipes")]
-      pub(crate) all_config_recipes: bool,
-      #[arg(long)]
-      pub(crate) show_env: bool,
-  }
+  let (quota_tuple, probe) = tokio::join!(
+      fetch_quota(ctx.as_ref(), account, fast),
+      fetch_probe(ctx.as_ref(), account, probe_auth, fast),
+  );
   ```
 
-- `/workspaces/codex-session/src/commands/doctor.rs` — Main doctor logic (~1100 lines). Contains:
-  - `CheckStatus` enum: `Ok`, `Warn`, `Fail`
-  - `CheckResult` struct: `name`, `status`, `detail`
-  - `CheckSummary` struct: `ok`, `warn`, `fail` counts
-  - `DoctorReport` struct: flat structure with `checks: Vec<CheckResult>`, `summary`,
-    `next_steps`, `accounts`, `active_account`, plus top-level metadata
-  - `build_report()` function that runs all checks sequentially
-  - Individual check functions: `check_active_config_recipe`, `check_one_recipe`,
-    `check_one_layer`, `check_layer_env`, `check_orphan_layers`, `check_xdg_paths`,
-    `check_session_root`, `check_child_binary`, `check_session_inventory`, `check_auth_native`,
-    `check_account_health`
-  - Helper functions: `ok()`, `warn()`, `fail()`, `summarize()`, `populate_next_steps()`,
-    `hint_for()`, `redact_secrets()`
+### Current check IDs (every one must be assigned to a group)
 
-- `/workspaces/codex-session/src/services/account/gate.rs` — Contains the token probe API:
+`session.account`, `session.group_id`, `account.<id>.cooldown.read`, `config-recipe.active`,
+`config-recipes.all`, `manifest.<name>.exists`, `manifest.<name>.parse`, `composition.<name>.dry-run`,
+`layer.<recipe>.<layer>.exists`, `layer.<recipe>.<layer>.parse`, `layer.<recipe>.<layer>.env`,
+`layers.orphan`, `legacy-settings-dir`, `legacy-cache-config`, `config_recipe.legacy_layout`,
+`legacy-profile-form`, `xdg.paths`, `session.root`, `child.binary`, `codex.version`,
+`session.inventory`, `auth.native`, `accounts.registry`, `account.active.auth`, `account.cooldowns`.
 
-  ```rust
-  pub(crate) fn probe_token(
-      ctx: &AppContext,
-      account: &AccountId,
-  ) -> Result<(Option<bool>, String), AppError>
-  ```
+### Tests
 
-  Also `validate_ping_config_recipe(ctx)` which validates that `[profiles.ping]` exists.
+`tests/cmd_doctor.rs` (~27 tests) + `tests/account_doctor.rs`. `doctor_json_shape` currently does:
 
-- `/workspaces/codex-session/src/services/account/quota.rs` — Quota fetch API:
-
-  ```rust
-  pub(crate) fn get(
-      // ... parameters for fetching quota
-  ) -> Result<Quota, ...>
-  ```
-
-- `/workspaces/codex-session/src/services/trust_sync.rs` — Trust cache at
-  `<cache_dir>/settings.toml`. The `persist_projects()` function writes to this file using an
-  atomic write pattern with a `.settings.toml.lock` lockfile.
-
-- `/workspaces/codex-session/src/services/auth_inspect.rs` — Read-only health inspection:
-
-  ```rust
-  pub(crate) fn inspect_native_health(home: &Utf8Path) -> NativeHealth
-  ```
-
-- `/workspaces/codex-session/tests/cmd_doctor.rs` — Integration tests (~460 lines). Tests check
-  for specific check names and status keywords in stdout. The `doctor_json_shape` test asserts
-  on JSON field names like `value["checks"]`, `value["summary"]`.
-
-- `/workspaces/codex-session/tests/account_doctor.rs` — Account-specific doctor tests (~36 lines).
-
-### Existing Patterns
-
-- Check functions return `CheckResult` using `ok()`, `warn()`, `fail()` constructors.
-- Check names use dotted notation: `config-recipe.active`, `manifest.<name>.exists`,
-  `layer.<recipe>.<layer>.parse`, `session.root`, `child.binary`, `auth.native`.
-- `build_report()` collects all checks into a single `Vec<CheckResult>`.
-- `populate_next_steps()` generates actionable hints based on failed/warned check names.
-- `hint_for()` maps check name prefixes/suffixes to help text.
-- Online-capable services live in `src/services/account/` and take `&AppContext`.
+```rust
+let checks = value["checks"].as_array().unwrap();
+assert!(!checks.is_empty());
+let summary = &value["summary"];
+assert_eq!(summary["fail"], 0);
+```
 
 ## Implementation Steps
 
-### Step 1: Add `--online` flag to DoctorArgs
+### Step 1: Add `--online` flag
 
-In `/workspaces/codex-session/src/cli/doctor.rs`, add:
+In `src/cli/doctor.rs` add (keeps `DoctorArgs: Copy`):
 
 ```rust
-/// Run network-dependent checks (token probe, quota connectivity).
-/// Without this flag, doctor only performs fast local checks.
+/// Run network-dependent checks (token probe, quota connectivity), in parallel.
+/// Without this flag, doctor performs only fast local checks.
 #[arg(long)]
 pub(crate) online: bool,
 ```
 
-### Step 2: Create CheckGroup model
+### Step 2: Create the `CheckGroup` model
 
-In `/workspaces/codex-session/src/commands/doctor.rs`, add a new struct:
+In `src/commands/doctor.rs`:
 
 ```rust
 #[derive(Debug, Clone, serde::Serialize)]
@@ -151,11 +213,7 @@ pub(crate) struct CheckGroup {
     pub(crate) name: String,
     pub(crate) checks: Vec<CheckResult>,
 }
-```
 
-Define group name constants:
-
-```rust
 const GROUP_ENVIRONMENT: &str = "environment";
 const GROUP_ACCOUNTS: &str = "accounts";
 const GROUP_CONFIG_RECIPE: &str = "config-recipe";
@@ -164,14 +222,10 @@ const GROUP_AUTH: &str = "auth";
 const GROUP_ONLINE: &str = "online";
 ```
 
-### Step 3: Restructure DoctorReport
+### Step 3: Restructure `DoctorReport`
 
-Modify `DoctorReport` to replace the flat `checks: Vec<CheckResult>` with
-`groups: Vec<CheckGroup>`. Keep `summary`, `next_steps`, `accounts`, `active_account`, and the
-top-level metadata fields (`config_recipe`, `account`, `account_source`, `group_id`,
-`group_id_source`, `codex_home`). Remove the flat `checks` field.
-
-Add a helper method on `DoctorReport` to iterate all checks across groups (for summarization):
+Replace `pub(crate) checks: Vec<CheckResult>` with `pub(crate) groups: Vec<CheckGroup>`. Keep every
+other field. Add an iterator helper and route summarize/next-steps through it:
 
 ```rust
 impl DoctorReport {
@@ -181,174 +235,139 @@ impl DoctorReport {
 }
 ```
 
-Update `summarize()` and `populate_next_steps()` to work with the grouped structure by using
-`all_checks()`.
+Update `summarize` to accept `impl Iterator<Item = &CheckResult>` (or call `summarize` on a
+collected slice from `all_checks()`), and have `populate_next_steps` iterate `report.all_checks()`.
 
-### Step 4: Refactor build_report into grouped collection
+### Step 4: Refactor `build_report` into grouped collection
 
-Restructure `build_report()` to collect checks into groups. Replace the single `let mut checks`
-vector with per-group vectors that are assembled into `CheckGroup` instances at the end.
+Keep the **sync signature and `progress: Option<&SpinnerHandle>` parameter.** Replace the single
+`checks` vec with one vec per group, then assemble `CheckGroup`s at the end (skip empty groups, and
+skip Online entirely unless `args.online` with a resolved account). Group assignment:
 
-Assignment of existing checks to groups:
+- **Environment** (`GROUP_ENVIRONMENT`): `xdg.paths`, `child.binary`, `codex.version`.
+- **Accounts** (`GROUP_ACCOUNTS`): `accounts.registry`, `account.<id>.cooldown.read`,
+  `account.active.auth`, `account.cooldowns`.
+- **Config Recipe** (`GROUP_CONFIG_RECIPE`): `config-recipe.active`, `config-recipes.all`,
+  `manifest.*`, `composition.*`, `layer.*`, `layers.orphan`, `legacy-settings-dir`,
+  `legacy-cache-config`, `config_recipe.legacy_layout`, `legacy-profile-form`,
+  `config-recipe.ping-profile` (new).
+- **Session** (`GROUP_SESSION`): `session.account`, `session.group_id`, `session.root`,
+  `session.inventory`, `session.trust-cache` (new), `session.permissions` (new).
+- **Auth** (`GROUP_AUTH`): `auth.native`.
+- **Online** (`GROUP_ONLINE`, only with `--online`): `online.token-probe`, `online.quota-api`.
 
-- **Environment**: `check_xdg_paths`, `check_child_binary`, `check_child_version_compat` (new)
-- **Accounts**: `check_account_health` results, account registry errors
-- **Config Recipe**: `check_active_config_recipe`, all `check_one_recipe`/`check_one_layer`
-  results, `check_orphan_layers`, `check_ping_config` (new)
-- **Session**: `check_session_root`, `check_session_inventory`, `check_session_permissions` (new),
-  `check_trust_cache` (new)
-- **Auth**: `check_auth_native`, account resolution errors
-- **Online** (only when `--online`): `check_token_probe` (new), `check_quota_connectivity` (new)
+Display names for Round 02 are derived from these constants; Round 01 only needs correct membership.
 
-### Step 5: Implement check_ping_config
-
-Add a new check function that validates the `[profiles.ping]` section exists in the composed
-config-recipe settings. This uses the existing
-`crate::services::account::gate::validate_ping_config_recipe()`:
+### Step 5: `check_ping_config` (offline)
 
 ```rust
 fn check_ping_config(ctx: &crate::context::AppContext) -> CheckResult {
     match crate::services::account::gate::validate_ping_config_recipe(ctx) {
         Ok(()) => ok("config-recipe.ping-profile", "[profiles.ping] found in composed settings"),
-        Err(err) => warn(
-            "config-recipe.ping-profile",
-            format!("no [profiles.ping] section: {err}"),
-        ),
+        Err(err) => warn("config-recipe.ping-profile", format!("no [profiles.ping] section: {err}")),
     }
 }
 ```
 
-This is a `warn` not a `fail` because ping is optional — the wrapper works without it, but token
-validation and some health checks require it.
+`warn`, not `fail` — ping is optional, but token validation needs it.
 
-Add corresponding entry in `hint_for()`:
+### Step 6: `run_online_checks` — concurrent probe + quota (online only)
 
-```text
-"config-recipe.ping-profile" => "add [profiles.ping] with a model to your settings layer"
-```
-
-### Step 6: Implement check_token_probe (online only)
-
-Add a check that calls `crate::services::account::gate::probe_token()`. This check only runs when
-`--online` is passed:
+Add one async runner that joins the two network calls, then bridge it once from sync `build_report`:
 
 ```rust
-fn check_token_probe(
+async fn run_online_checks(
     ctx: &crate::context::AppContext,
     account: &crate::services::account::id::AccountId,
-) -> CheckResult {
-    match crate::services::account::gate::probe_token(ctx, account) {
-        Ok((Some(true), detail)) => ok("online.token-probe", format!("token valid: {detail}")),
-        Ok((Some(false), detail)) => fail(
-            "online.token-probe",
-            format!("token rejected (401): {detail}"),
-        ),
-        Ok((None, detail)) => warn(
-            "online.token-probe",
-            format!("probe inconclusive: {detail}"),
-        ),
-        Err(err) => warn("online.token-probe", format!("probe failed: {err}")),
-    }
-}
-```
+) -> [CheckResult; 2] {
+    // Concurrent: overlaps the ~15s probe timeout with the ~10s quota timeout.
+    // Prior art: src/commands/account/health.rs:181.
+    // Race note: probe + quota refresh on one account can re-orphan a refresh token in the
+    // narrow no-group case (health.rs:170-178). Doctor is read-only and never persists a rotated
+    // token of its own, so the rare residual is acceptable here.
+    let (probe, quota) = tokio::join!(
+        crate::services::account::gate::probe_token(ctx, account),
+        crate::services::account::quota::refresh(ctx, account),
+    );
 
-Add `hint_for()` entry:
-
-```text
-"online.token-probe" => "run `codex-session account refresh` to re-authenticate"
-```
-
-### Step 7: Implement check_quota_connectivity (online only)
-
-Add a check that attempts to fetch quota for the active account. Uses
-`crate::services::account::quota::get()` (or the async equivalent if the spinner plan migrated
-it). The check verifies the Wham API is reachable and the account can fetch quota data:
-
-```rust
-fn check_quota_connectivity(
-    ctx: &crate::context::AppContext,
-    account: &crate::services::account::id::AccountId,
-) -> CheckResult {
-    // Use the existing quota fetch with a reasonable timeout.
-    // The exact API shape depends on whether the spinner plan
-    // made quota::get async. Adapt to the current state.
-    match fetch_quota_for_probe(ctx, account) {
-        Ok(_quota) => ok("online.quota-api", "quota API reachable"),
+    let token_check = match probe {
+        Ok((Some(true), detail))  => ok("online.token-probe", format!("token valid: {detail}")),
+        Ok((Some(false), detail)) => fail("online.token-probe", format!("token rejected (401): {detail}")),
+        Ok((None, detail))        => warn("online.token-probe", format!("probe inconclusive: {detail}")),
+        Err(err)                  => warn("online.token-probe", format!("probe failed: {err}")),
+    };
+    let quota_check = match quota {
+        Ok(_)    => ok("online.quota-api", "quota API reachable"),
         Err(err) => warn("online.quota-api", format!("quota fetch failed: {err}")),
+    };
+    [token_check, quota_check]
+}
+```
+
+In `build_report`, gate on `args.online` and a resolved account, then bridge **once**:
+
+```rust
+if args.online {
+    if let Some(account) = resolved_account.as_ref() {
+        set_progress(progress, "Probing token + quota (parallel)...");
+        let [token_check, quota_check] =
+            crate::runtime::block_on(run_online_checks(ctx, &account.id));
+        online_checks.push(token_check);
+        online_checks.push(quota_check);
+    } else {
+        online_checks.push(warn("online.token-probe", "no resolved account to probe"));
     }
 }
 ```
 
-This is a `warn` not a `fail` because quota unavailability does not prevent codex from running.
+(`resolved_account` is the `Option<ResolvedAccount { id, source }>` already computed earlier in
+`build_report`.)
 
-### Step 8: Implement check_trust_cache
+### Step 7: `check_trust_cache` (offline)
 
-Add a check that validates the trust-sync cache settings file at
-`<cache_dir>/settings.toml`. Verify:
-
-- File exists (OK) or doesn't (OK — fresh install)
-- If it exists: is a regular file (not symlink), readable, valid TOML
-- Check for stale `.settings.toml.lock` lockfile (warn if exists and older than 60 seconds)
+Validate the **current** cache file `<cache_dir>/configs.toml` (lock `.configs.toml.lock`). Reuse
+`cache_config_path(ctx)` for existence. This is distinct from the existing `legacy-cache-config`
+check, which warns about the _legacy_ `settings.toml`.
 
 ```rust
 fn check_trust_cache(ctx: &crate::context::AppContext) -> CheckResult {
-    let cache_path = ctx.config.paths.cache_dir.join("settings.toml");
-    let lock_path = ctx.config.paths.cache_dir.join(".settings.toml.lock");
-
-    if !cache_path.exists() {
+    let Some(cache_path) = cache_config_path(ctx) else {
         return ok("session.trust-cache", "no cache yet (fresh install)");
-    }
+    };
+    let lock_path = ctx.config.paths.cache_dir.join(".configs.toml.lock");
 
-    // Check for symlink
     match std::fs::symlink_metadata(cache_path.as_std_path()) {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            return fail("session.trust-cache", format!("{cache_path} is a symlink"));
-        }
-        Ok(meta) if !meta.is_file() => {
-            return fail("session.trust-cache", format!("{cache_path} is not a file"));
-        }
-        Err(err) => {
-            return fail("session.trust-cache", format!("cannot stat {cache_path}: {err}"));
-        }
+        Ok(meta) if meta.file_type().is_symlink() =>
+            return fail("session.trust-cache", format!("{cache_path} is a symlink")),
+        Ok(meta) if !meta.is_file() =>
+            return fail("session.trust-cache", format!("{cache_path} is not a file")),
+        Err(err) =>
+            return fail("session.trust-cache", format!("cannot stat {cache_path}: {err}")),
         Ok(_) => {}
     }
-
-    // Validate TOML parseable
     match std::fs::read_to_string(cache_path.as_std_path()) {
-        Ok(contents) => {
-            if contents.parse::<toml::Table>().is_err() {
-                return fail("session.trust-cache", format!("{cache_path} is not valid TOML"));
-            }
-        }
-        Err(err) => {
-            return fail("session.trust-cache", format!("cannot read {cache_path}: {err}"));
-        }
+        Ok(contents) if contents.parse::<toml::Table>().is_err() =>
+            return fail("session.trust-cache", format!("{cache_path} is not valid TOML")),
+        Err(err) =>
+            return fail("session.trust-cache", format!("cannot read {cache_path}: {err}")),
+        Ok(_) => {}
     }
-
-    // Check for stale lock
     if let Ok(lock_meta) = std::fs::metadata(lock_path.as_std_path()) {
-        if let Ok(age) = lock_meta
-            .modified()
-            .and_then(|mtime| std::time::SystemTime::now().duration_since(mtime))
-        {
+        if let Ok(age) = lock_meta.modified()
+            .and_then(|m| std::time::SystemTime::now().duration_since(m)) {
             if age > std::time::Duration::from_secs(60) {
-                return warn(
-                    "session.trust-cache",
-                    format!("{lock_path} is stale ({}s old)", age.as_secs()),
-                );
+                return warn("session.trust-cache",
+                    format!("{lock_path} is stale ({}s old)", age.as_secs()));
             }
         }
     }
-
     ok("session.trust-cache", format!("{cache_path} OK"))
 }
 ```
 
-### Step 9: Implement check_session_permissions
+### Step 8: `check_session_permissions` (offline)
 
-Add a check that audits session directory permissions beyond just the root. Walk the session tree
-(root → accounts → groups) and verify each directory is owned by the current user and has mode
-0o700 or stricter. Follow the same no-symlink policy as `check_session_inventory`:
+Audit session directory ownership/mode beyond the root, following the `auth_inspect.rs` pattern:
 
 ```rust
 fn check_session_permissions(ctx: &crate::context::AppContext) -> CheckResult {
@@ -358,139 +377,98 @@ fn check_session_permissions(ctx: &crate::context::AppContext) -> CheckResult {
     ) else {
         return ok("session.permissions", "session root unresolved — skipped");
     };
-
     if inspected.root_missing {
         return ok("session.permissions", "session root not yet initialized — skipped");
     }
-
     let mut problems: Vec<String> = Vec::new();
-    // Check root permissions
     check_dir_mode(&inspected.root.path, &mut problems);
-    // Check accounts/ subdir if it exists
     let accounts_dir = inspected.root.path.join("accounts");
     if accounts_dir.is_dir() {
         check_dir_mode(&accounts_dir, &mut problems);
     }
-
     if problems.is_empty() {
-        ok("session.permissions", "all session directories have correct permissions")
+        ok("session.permissions", "all session directories have correct ownership and mode")
     } else {
         warn("session.permissions", problems.join("; "))
     }
 }
 ```
 
-Use `rustix::fs::statx` or `std::os::unix::fs::MetadataExt` (already used elsewhere) for
-permission checks. The exact implementation should follow patterns already used in `auth_inspect.rs`
-for permission checking.
+Add a `check_dir_mode(path, &mut Vec<String>)` helper that uses `MetadataExt::uid` (compare to
+`current_uid` as `auth_inspect.rs` does) and `permissions().mode() & 0o777` (flag anything looser
+than `0o700`), and flags symlinks.
 
-### Step 10: Implement check_child_version_compat
+### Step 9: Group the existing child-version check
 
-Add a check that parses the child binary's version output and checks for known compatibility
-requirements:
+No new check. In `build_report`, place `check_codex_version_minimum` (`codex.version`) and
+`check_child_binary` (`child.binary`) into the **Environment** group. Keep both IDs unchanged.
 
-```rust
-fn check_child_version_compat(ctx: &crate::context::AppContext) -> CheckResult {
-    let Ok(path) = ctx.resolved_child() else {
-        return ok("environment.child-version", "child binary unresolved — skipped");
-    };
+### Step 10: Update `hint_for` / `is_actionable_warn`
 
-    let version_output = std::process::Command::new(path.as_std_path())
-        .arg("--version")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_owned());
+Add `hint_for` arms:
 
-    let Some(version_str) = version_output else {
-        return warn("environment.child-version", "could not determine child version");
-    };
-
-    // Parse version and check known compatibility constraints.
-    // The exact version parsing depends on the codex version format.
-    ok("environment.child-version", format!("{version_str} — compatible"))
-}
-```
-
-Note: The existing `check_child_binary` already captures version info. Consider whether to merge
-these or keep them separate. The version compat check adds the compatibility assertion; the binary
-check just verifies existence. Keep them separate — `check_child_binary` (renamed to
-`environment.child-binary`) confirms the binary exists; `check_child_version_compat`
-(`environment.child-version`) confirms the version is compatible.
-
-### Step 11: Update hint_for and populate_next_steps
-
-Add entries to `hint_for()` for all new check names:
-
-```rust
+```text
 "config-recipe.ping-profile" => "add [profiles.ping] with a model to your settings layer"
-"online.token-probe" => "run `codex-session account refresh` to re-authenticate"
-"online.quota-api" => "check network connectivity or API status"
-"session.trust-cache" => "delete the stale lock file or corrupt cache"
-"session.permissions" => "fix directory permissions: chmod 700"
-"environment.child-version" => "update codex to a compatible version"
+"online.token-probe"         => "run `codex-session account refresh` to re-authenticate"
+"online.quota-api"           => "check network connectivity or API status"
+"session.trust-cache"        => "delete the stale lock file or fix the corrupt cache"
+"session.permissions"        => "fix directory ownership/permissions: chmod 700"
 ```
 
-Update `is_actionable_warn()` to include the new check names that should generate next-steps
-entries when they warn (at minimum `config-recipe.ping-profile` and `session.trust-cache`).
+Extend `is_actionable_warn` to also return `true` for `config-recipe.ping-profile`,
+`session.trust-cache`, and `online.quota-api`.
 
-### Step 12: Update existing tests
+### Step 11: Update tests
 
-Update `/workspaces/codex-session/tests/cmd_doctor.rs` and
-`/workspaces/codex-session/tests/account_doctor.rs` to account for the new `DoctorReport`
-structure:
+In `tests/cmd_doctor.rs` + `tests/account_doctor.rs`:
 
-- `doctor_json_shape`: Update to navigate grouped structure. Instead of
-  `value["checks"].as_array()`, use `value["groups"]` and find checks within groups.
-- `doctor_happy_path_exits_zero`: Update string assertions for any changed output format.
-  The text rendering hasn't changed yet (Round 02), but check names in groups may cause different
-  output ordering.
-- All other tests: Ensure they still find their expected check names in output.
+- `doctor_json_shape`: navigate the grouped structure. Add a small flatten helper, e.g.:
+
+  ```rust
+  let groups = value["groups"].as_array().unwrap();
+  let all: Vec<&serde_json::Value> = groups.iter()
+      .flat_map(|g| g["checks"].as_array().unwrap().iter())
+      .collect();
+  assert!(!all.is_empty());
+  assert_eq!(value["summary"]["fail"], 0);
+  ```
+
+- All other tests: they assert on the **text** output (still flat in this round) and on check
+  names/statuses — they keep passing. Only JSON-shape tests change.
 
 Add new tests:
 
-- `doctor_check_ping_config_warns_when_missing`: Verify that without `[profiles.ping]`, the check
-  warns.
-- `doctor_check_ping_config_ok_when_present`: Verify that with `[profiles.ping]`, the check passes.
-- `doctor_online_flag_runs_network_checks`: Verify that `--online` causes online group checks to
-  appear.
-- `doctor_default_omits_online_group`: Verify that without `--online`, the online group is absent
-  from JSON output.
-- `doctor_trust_cache_ok_when_absent`: Fresh install has no cache — should be OK.
-- `doctor_trust_cache_warns_on_stale_lock`: Create a stale `.settings.toml.lock` and verify warn.
+- `doctor_check_ping_config_warns_when_missing` / `_ok_when_present`.
+- `doctor_online_flag_runs_network_checks` (Online group present with `--online`).
+- `doctor_default_omits_online_group` (no Online group in JSON without `--online`).
+- `doctor_trust_cache_ok_when_absent` (fresh install).
+- `doctor_trust_cache_warns_on_stale_lock` (create `<cache_dir>/.configs.toml.lock`, age it >60s).
 
 ### Final Step: Update plan index
 
-Update the plan's `README.md` (in the same directory as this round file) to record completion:
-
-1. In the `## Execution Order` table, find the row for round 01.
-2. Change `Status` from `todo` to `done`.
-3. Change `Completed` from `--` to today's date (`YYYY-MM-DD`).
+In this directory's `README.md` Execution Order table, set round 01 `Status` → `done` and
+`Completed` → today's date (`YYYY-MM-DD`).
 
 ## Acceptance Criteria
 
-- [ ] `DoctorArgs` has `--online` flag
-- [ ] `CheckGroup` struct exists with `name` and `checks` fields
-- [ ] `DoctorReport` uses `groups: Vec<CheckGroup>` instead of flat `checks: Vec<CheckResult>`
-- [ ] All existing checks are assigned to their correct group
-- [ ] `check_ping_config` implemented and tested
-- [ ] `check_token_probe` implemented (runs only with `--online`)
-- [ ] `check_quota_connectivity` implemented (runs only with `--online`)
-- [ ] `check_trust_cache` implemented and tested
-- [ ] `check_session_permissions` implemented
-- [ ] `check_child_version_compat` implemented
-- [ ] `hint_for()` covers all new check names
-- [ ] JSON output reflects grouped structure
-- [ ] All existing tests pass with updated assertions
-- [ ] New tests cover each new check
-- [ ] `just test` passes
-- [ ] `just lint` passes
-- [ ] Plan `README.md` execution order table shows round 01 as `done` with today's date
+- [ ] `DoctorArgs` has `--online` and remains `Copy`.
+- [ ] `CheckGroup { name, checks }` exists; `DoctorReport` uses `groups: Vec<CheckGroup>`.
+- [ ] `DoctorReport::all_checks()` added; `summarize`/`populate_next_steps` route through it.
+- [ ] **Every** current check ID is assigned to exactly one group (Environment/Accounts/Config
+      Recipe/Session/Auth); Online appears only with `--online` + resolved account.
+- [ ] `codex.version` and `child.binary` are in the Environment group (no duplicate version check).
+- [ ] `check_ping_config` implemented and tested (`config-recipe.ping-profile`).
+- [ ] `run_online_checks` runs probe + quota via a **single** `block_on(tokio::join!)`; cites
+      `health.rs:181` and documents the race stance in a comment.
+- [ ] `check_trust_cache` validates `<cache_dir>/configs.toml` / `.configs.toml.lock` and is tested.
+- [ ] `check_session_permissions` implemented via `inspect_session_root` + `check_dir_mode`.
+- [ ] `hint_for`/`is_actionable_warn` cover all new check names.
+- [ ] JSON output reflects the grouped structure; `build_report`/`run` stay sync.
+- [ ] `just test` and `just lint` pass.
+- [ ] README round 01 row is `done` with today's date.
 
 ## Next Round
 
-Round 02 rewrites the text rendering in `src/ui/mod.rs` to use the design system styles, grouped
-section headers with visual separation, status symbols (✓/⚠/✗), colored summary banner, styled
-account table within the doctor output, spinner integration for `--online` checks, and full test
-suite updates for the new output format.
+Round 02 rewrites the text branch of `write_doctor` to iterate `report.groups` with section headers
+and ✓/⚠/✗ status symbols, renders human-readable timestamps, sets online-aware spinner messages, and
+completes the integration-test updates for the new output format.

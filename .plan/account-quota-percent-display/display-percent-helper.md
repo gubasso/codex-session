@@ -239,22 +239,14 @@ full value:
 
 Keep existing assertions intact; the mock feeds `percent_left` directly via `payload(...)`.
 
-### Final Step: Update plan index
+### Final Step: Update the queue
 
-Update the plan's `README.md` (same directory as this round file) to record completion:
+Record completion in the queue files — status lives in YAML; nothing moves on
+disk:
 
-1. In the `## Execution Order` table, find the row for round 01.
-2. Change `Status` from `todo` to `done`.
-3. Change `Completed` from `--` to today's date (`YYYY-MM-DD`).
-
-Because this is the final (and only) round, also:
-
-1. In the README.md header blockquote, change `Status: todo` to `Status: done`.
-2. Move the plan directory to done:
-
-```bash
-mkdir -p .plan/02-done && mv .plan/01-todo/account-quota-percent-display .plan/02-done/account-quota-percent-display
-```
+1. In this plan's `_QUEUE.yaml`, set this round's `status` to `done`.
+2. All rounds are now done, so in the top-level `.plan/_QUEUE.yaml` set this
+   plan's `status` to `done`. Leave the plan directory in place.
 
 ## Acceptance Criteria
 
@@ -268,10 +260,8 @@ mkdir -p .plan/02-done && mv .plan/01-todo/account-quota-percent-display .plan/0
       `percent_left`).
 - [ ] `just test-unit` passes (including the new helper test).
 - [ ] `just lint` passes (fmt-check + clippy-strict + print-ownership).
-- [ ] Plan `README.md` execution order table shows round 01 as `done` with today's date.
-- [ ] Plan `README.md` header status is `done`.
-- [ ] Plan directory moved from `.plan/01-todo/account-quota-percent-display` to
-      `.plan/02-done/account-quota-percent-display`.
+- [ ] This plan's `_QUEUE.yaml` shows the round as `done`.
+- [ ] The top-level `.plan/_QUEUE.yaml` shows this plan as `done`.
 
 ## Next Round
 

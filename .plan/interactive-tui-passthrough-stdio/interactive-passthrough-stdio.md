@@ -339,22 +339,14 @@ by unit tests.
   requires `isatty(stdout)` (and stdin); the wrapper must inherit, not pipe, for interactive
   launches. Bump the `Last verified` date to today.
 
-### Final Step: Update plan index
+### Final Step: Update the queue
 
-Update the plan's `README.md` (in the same directory as this round file) to record completion:
+Record completion in the queue files — status lives in YAML; nothing moves on
+disk:
 
-1. In the `## Execution Order` table, find the row for round 01.
-2. Change `Status` from `todo` to `done`.
-3. Change `Completed` from `--` to today's date (`YYYY-MM-DD`).
-
-This is the final round, so also:
-
-1. In the README.md header blockquote, change `Status: todo` to `Status: done`.
-2. Move the plan directory to done:
-
-```bash
-mkdir -p .plan/02-done && mv .plan/01-todo/interactive-tui-passthrough-stdio .plan/02-done/interactive-tui-passthrough-stdio
-```
+1. In this plan's `_QUEUE.yaml`, set this round's `status` to `done`.
+2. All rounds are now done, so in the top-level `.plan/_QUEUE.yaml` set this
+   plan's `status` to `done`. Leave the plan directory in place.
 
 ## Acceptance Criteria
 
@@ -377,10 +369,8 @@ mkdir -p .plan/02-done && mv .plan/01-todo/interactive-tui-passthrough-stdio .pl
 - [ ] Manual E2E in a real terminal: with two eligible accounts and no pin, `codex-session` launches
       the TUI with no "stdout is not a terminal"; `codex-session resume <id>` launches; piped
       `codex-session ... | cat` and `codex-session exec --json "…"` still capture (failover intact).
-- [ ] Plan `README.md` execution order table shows round 01 as `done` with today's date.
-- [ ] Plan `README.md` header status is `done`.
-- [ ] Plan directory moved from `.plan/01-todo/interactive-tui-passthrough-stdio` to
-      `.plan/02-done/interactive-tui-passthrough-stdio`.
+- [ ] This plan's `_QUEUE.yaml` shows the round as `done`.
+- [ ] The top-level `.plan/_QUEUE.yaml` shows this plan as `done`.
 
 ## Next Round
 

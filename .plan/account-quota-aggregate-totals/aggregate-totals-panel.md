@@ -507,24 +507,14 @@ Confirm the bar column alignment between per-account rows and the TOTAL
 row (the leading two-space indent and `5-hour` vs `Weekly` padding
 should produce flush bar starts).
 
-### Final Step: Update plan index
+### Final Step: Update the queue
 
-Update the plan's `README.md` (in the same directory as this round file)
-to record completion:
+Record completion in the queue files — status lives in YAML; nothing moves on
+disk:
 
-1. In the `## Execution Order` table, find the row for round 01.
-2. Change `Status` from `todo` to `done`.
-3. Change `Completed` from `--` to today's date (`YYYY-MM-DD`).
-
-Because this is the final round, also:
-
-1. In the README.md header blockquote, change `Status: todo` to
-   `Status: done`.
-2. Move the plan directory to done:
-
-```bash
-mkdir -p .plan/02-done && mv .plan/01-todo/account-quota-aggregate-totals .plan/02-done/account-quota-aggregate-totals
-```
+1. In this plan's `_QUEUE.yaml`, set this round's `status` to `done`.
+2. All rounds are now done, so in the top-level `.plan/_QUEUE.yaml` set this
+   plan's `status` to `done`. Leave the plan directory in place.
 
 ## Acceptance Criteria
 
@@ -550,11 +540,8 @@ mkdir -p .plan/02-done && mv .plan/01-todo/account-quota-aggregate-totals .plan/
 - [ ] `docs/design/cli-style-guide.md` §14 reflects the new TOTAL footer
       example and the `5-hour` label.
 - [ ] `just test-unit`, `just test-integration`, and `just lint` all pass.
-- [ ] Plan `README.md` execution order table shows round 01 as `done`
-      with today's date.
-- [ ] Plan `README.md` header status is `done`.
-- [ ] Plan directory moved from `.plan/01-todo/account-quota-aggregate-totals`
-      to `.plan/02-done/account-quota-aggregate-totals`.
+- [ ] This plan's `_QUEUE.yaml` shows the round as `done`.
+- [ ] The top-level `.plan/_QUEUE.yaml` shows this plan as `done`.
 
 ## Next Round
 

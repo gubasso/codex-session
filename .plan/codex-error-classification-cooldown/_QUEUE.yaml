@@ -1,0 +1,30 @@
+# Rounds for this plan, in execution order. status: backlog | todo | doing | done
+rounds:
+  - item: live-harness-and-gate-wiring
+    status: todo
+    depends_on: []
+    prompt: /prex -ar .plan/codex-error-classification-cooldown/live-harness-and-gate-wiring.md
+    notes: >-
+      Live `codex exec --json` schema-verification test (answers openai/codex
+      #14728), wired as a `cargo-nextest-live` pre-commit hook (own group,
+      pre-push stage) with the justfile delegating to pre-commit; adds the
+      "pre-commit is the Source of Truth" principle to CLAUDE.md. Run it to
+      record the RATE_LIMITS_IN_EXEC_MODE verdict for later rounds.
+  - item: event-reader-and-classification
+    status: todo
+    depends_on: [live-harness-and-gate-wiring]
+    prompt: /prex -ar .plan/codex-error-classification-cooldown/event-reader-and-classification.md
+    notes: >-
+      Foundation: new codex_events.rs JSONL reader (token_count.rate_limits +
+      turn.failed), tail-preserving capture so trailing events survive the 1 MiB
+      cap, and the RateLimitClass/Category/Classification layer in failover.rs
+      (structured-first, text fallback). Unit tests. No behavior change yet.
+  - item: cooldown-backoff-and-error-ux
+    status: todo
+    depends_on: [event-reader-and-classification]
+    prompt: /prex -ar .plan/codex-error-classification-cooldown/cooldown-backoff-and-error-ux.md
+    notes: >-
+      Behavior + UX: reset-aware cooldown duration (server reset, 300s fallback),
+      transient same-account backoff in run_auto (rotate only on usage-limit
+      exhaustion), resume-blocked call site, general unhandled-error verbose+log
+      handler, docs/upstream-codex.md update. Integration tests.

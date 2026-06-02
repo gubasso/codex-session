@@ -21,6 +21,18 @@ plans:
       Pool-wide TOTAL panel + 5-hour label rename + JSON wrapper. Shares the
       `account quota` render surface (src/ui/mod.rs) with
       account-quota-percent-display; no hard ordering, but expect to reconcile.
+  - item: codex-error-classification-cooldown
+    status: todo
+    depends_on: []
+    prompt: /prex -ar @.plan/codex-error-classification-cooldown/
+    notes: >-
+      Fix the recurring exec 429 that burns the account pool: classify codex
+      errors from the --json event stream (token_count.rate_limits + turn.failed)
+      vs improved text fallback, set cooldowns from the server's real reset, back
+      off transient limits on the same account (rotate only on true usage-limit
+      exhaustion), and add a general verbose+log handler for unmodeled errors.
+      3 rounds (live-test+gate-wiring → reader/classification → behavior).
+      Touches the failover/cooldown engine in src/services/account/.
   - item: interactive-tui-passthrough-stdio
     status: todo
     depends_on: []

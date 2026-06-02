@@ -1,1 +1,4 @@
 /target
+
+# lychee link-checker cache (local; URL timestamps churn every run)
+/.lycheecache

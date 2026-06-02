@@ -31,18 +31,18 @@ session under `prex`'s in-round review-loop is the right shape.
 
 ## Execution Order
 
-| Round | File                           | Topic                  | Status | Completed |
-| ----- | ------------------------------ | ---------------------- | ------ | --------- |
-| 01    | `01-aggregate-totals-panel.md` | aggregate totals panel | todo   | --        |
+| Round | File                        | Topic                  | Status | Completed |
+| ----- | --------------------------- | ---------------------- | ------ | --------- |
+| 01    | `aggregate-totals-panel.md` | aggregate totals panel | todo   | --        |
 
 ## Execution Commands
 
 ```bash
 # Execute the single round:
-/prex -ar .plan/01-todo/account-quota-aggregate-totals/01-aggregate-totals-panel.md
+/prex -ar .plan/account-quota-aggregate-totals/aggregate-totals-panel.md
 
-# Or with full directory context:
-/prex -ar @.plan/01-todo/account-quota-aggregate-totals/
+# Or with full directory context (executor reads _QUEUE.yaml, runs first todo round):
+/prex -ar @.plan/account-quota-aggregate-totals/
 ```
 
 ## Execution Discipline
@@ -126,9 +126,6 @@ applies — do not chain follow-up work into the same session.
 
 ## Completion
 
-When the single round is done:
-
-```bash
-# Update status in this file to "done" (round 01 marks it via the round's Final Step)
-mv .plan/01-todo/account-quota-aggregate-totals .plan/02-done/account-quota-aggregate-totals
-```
+When the single round is done, set the round `done` in this plan's
+`_QUEUE.yaml` and set this plan `done` in the top-level `.plan/_QUEUE.yaml`.
+Nothing moves on disk.

@@ -43,18 +43,18 @@ untouched, so codex-CLI compatibility is preserved.
 
 ## Execution Order
 
-| Round | File                                  | Topic                                   | Status | Completed |
-| ----- | ------------------------------------- | --------------------------------------- | ------ | --------- |
-| 01    | `01-interactive-passthrough-stdio.md` | predicate + auto/resume inherited stdio | todo   | --        |
+| Round | File                               | Topic                                   | Status | Completed |
+| ----- | ---------------------------------- | --------------------------------------- | ------ | --------- |
+| 01    | `interactive-passthrough-stdio.md` | predicate + auto/resume inherited stdio | todo   | --        |
 
 ## Execution Commands
 
 ```bash
 # Execute the single round:
-/prex -ar .plan/01-todo/interactive-tui-passthrough-stdio/01-interactive-passthrough-stdio.md
+/prex -ar .plan/interactive-tui-passthrough-stdio/interactive-passthrough-stdio.md
 
-# Or with full directory context:
-/prex -ar @.plan/01-todo/interactive-tui-passthrough-stdio/
+# Or with full directory context (executor reads _QUEUE.yaml, runs first todo round):
+/prex -ar @.plan/interactive-tui-passthrough-stdio/
 ```
 
 ## Execution Discipline
@@ -119,10 +119,5 @@ After completing a round:
 
 ## Completion
 
-When all rounds are done:
-
-```bash
-# Update status in this file to "done"
-# Fill in completion timestamps in the execution order table
-mv .plan/01-todo/interactive-tui-passthrough-stdio .plan/02-done/interactive-tui-passthrough-stdio
-```
+When all rounds are done, set the round `done` in this plan's `_QUEUE.yaml` and
+set this plan `done` in the top-level `.plan/_QUEUE.yaml`. Nothing moves on disk.

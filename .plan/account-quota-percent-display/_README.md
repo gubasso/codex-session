@@ -36,18 +36,18 @@ they always agree.
 
 ## Execution Order
 
-| Round | File                           | Topic                             | Status | Completed |
-| ----- | ------------------------------ | --------------------------------- | ------ | --------- |
-| 01    | `01-display-percent-helper.md` | Display helper + renderer + tests | todo   | --        |
+| Round | File                        | Topic                             | Status | Completed |
+| ----- | --------------------------- | --------------------------------- | ------ | --------- |
+| 01    | `display-percent-helper.md` | Display helper + renderer + tests | todo   | --        |
 
 ## Execution Commands
 
 ```bash
 # Execute the single round:
-/prex -ar .plan/01-todo/account-quota-percent-display/01-display-percent-helper.md
+/prex -ar .plan/account-quota-percent-display/display-percent-helper.md
 
-# Or with full directory context:
-/prex -ar @.plan/01-todo/account-quota-percent-display/
+# Or with full directory context (executor reads _QUEUE.yaml, runs first todo round):
+/prex -ar @.plan/account-quota-percent-display/
 ```
 
 ## Execution Discipline
@@ -106,10 +106,5 @@ This plan has a single round, so one `/prex` session completes it.
 
 ## Completion
 
-When the round is done:
-
-```bash
-# Update status in this file to "done"
-# Fill in completion timestamp in the execution order table
-mv .plan/01-todo/account-quota-percent-display .plan/02-done/account-quota-percent-display
-```
+When the round is done, set the round `done` in this plan's `_QUEUE.yaml` and
+set this plan `done` in the top-level `.plan/_QUEUE.yaml`. Nothing moves on disk.

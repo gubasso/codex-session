@@ -7,6 +7,8 @@ use std::os::unix::fs::{PermissionsExt as _, symlink};
 
 use predicates::prelude::*;
 use support::{FakeCodexBehavior, TestEnv};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn install_minimal_recipe(env: &TestEnv) {
     env.install_config_recipe(
@@ -15,6 +17,38 @@ fn install_minimal_recipe(env: &TestEnv) {
         &[("base", "[model]\ndefault = \"gpt-5\"\n")],
     );
     env.make_fake_codex_printing_stdout("codex-stub 0.0.0");
+}
+
+fn install_ping_recipe(env: &TestEnv) {
+    env.install_config_recipe(
+        "default",
+        "config-layers:\n  - base\nprofile-files:\n  - ping\n",
+        &[("base", "[model]\ndefault = \"gpt-5\"\n")],
+    );
+    env.write_profile_file("ping", "model = \"gpt-5\"\n");
+}
+
+fn grouped_checks(value: &serde_json::Value) -> Vec<&serde_json::Value> {
+    value["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|group| group["checks"].as_array().unwrap().iter())
+        .collect()
+}
+
+fn find_check<'a>(value: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+    grouped_checks(value)
+        .into_iter()
+        .find(|check| check["name"] == name)
+}
+
+fn has_group(value: &serde_json::Value, name: &str) -> bool {
+    value["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|group| group["name"] == name)
 }
 
 #[test]
@@ -112,11 +146,18 @@ fn doctor_json_shape() {
     assert!(value.get("group-id").is_some());
     assert!(value.get("group-id-source").is_some());
     assert!(value.get("codex-home").is_some());
-    let checks = value["checks"].as_array().unwrap();
-    assert!(!checks.is_empty());
-    let summary = &value["summary"];
-    assert_eq!(summary["fail"], 0);
-    let names: Vec<_> = checks
+    let groups = value["groups"].as_array().unwrap();
+    let all: Vec<&serde_json::Value> = groups
+        .iter()
+        .flat_map(|g| g["checks"].as_array().unwrap().iter())
+        .collect();
+    assert!(!all.is_empty());
+    assert_eq!(value["summary"]["fail"], 0);
+    assert!(
+        value.get("checks").is_none(),
+        "flat `checks` array must be gone"
+    );
+    let names: Vec<_> = all
         .iter()
         .map(|c| c.get("name").and_then(|v| v.as_str()).unwrap_or(""))
         .collect();
@@ -124,6 +165,153 @@ fn doctor_json_shape() {
     assert!(names.contains(&"composition.default.dry-run"));
     assert!(names.contains(&"session.root"));
     assert!(names.contains(&"auth.native"));
+}
+
+#[test]
+fn doctor_check_ping_config_warns_when_missing() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+
+    let output = env
+        .cmd()
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let check = find_check(&value, "config-recipe.ping-profile").unwrap();
+    assert_eq!(check["status"], "warn");
+}
+
+#[test]
+fn doctor_check_ping_config_ok_when_present() {
+    let env = TestEnv::new();
+    install_ping_recipe(&env);
+    env.make_fake_codex_printing_stdout("codex-stub 0.0.0");
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+
+    let output = env
+        .cmd()
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let check = find_check(&value, "config-recipe.ping-profile").unwrap();
+    assert_eq!(check["status"], "ok");
+}
+
+#[tokio::test]
+async fn doctor_online_flag_runs_network_checks() {
+    let env = TestEnv::new();
+    install_ping_recipe(&env);
+    env.make_fake_codex_with_version("codex 0.134.0", FakeCodexBehavior::Succeed);
+    support::quota::add_oauth_account(&env, "work");
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(support::quota::default_payload(), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let output = env
+        .cmd()
+        .env(
+            "CODEX_SESSION_WHAM_USAGE_URL",
+            support::quota::wham_url(&server),
+        )
+        .args(["--format", "json", "doctor", "--online"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert!(has_group(&value, "online"));
+    assert_eq!(
+        find_check(&value, "online.token-probe").unwrap()["status"],
+        "ok"
+    );
+    assert_eq!(
+        find_check(&value, "online.quota-api").unwrap()["status"],
+        "ok"
+    );
+}
+
+#[test]
+fn doctor_default_omits_online_group() {
+    let env = TestEnv::new();
+    install_ping_recipe(&env);
+    env.make_fake_codex_with_version("codex 0.134.0", FakeCodexBehavior::Succeed);
+    support::quota::add_oauth_account(&env, "work");
+
+    let output = env
+        .cmd()
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert!(!has_group(&value, "online"));
+}
+
+#[test]
+fn doctor_trust_cache_ok_when_absent() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+
+    let output = env
+        .cmd()
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let check = find_check(&value, "session.trust-cache").unwrap();
+    assert_eq!(check["status"], "ok");
+    assert!(
+        check["detail"]
+            .as_str()
+            .unwrap()
+            .contains("no cache yet (fresh install)")
+    );
+}
+
+#[test]
+fn doctor_trust_cache_warns_on_stale_lock() {
+    let env = TestEnv::new();
+    install_minimal_recipe(&env);
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.write_cache_config("[projects]\n");
+    let lock_path = env.cache.join("codex-session/.configs.toml.lock");
+    std::fs::write(&lock_path, "").unwrap();
+    TestEnv::touch_older(&lock_path);
+
+    let output = env
+        .cmd()
+        .args(["--format", "json", "doctor"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let check = find_check(&value, "session.trust-cache").unwrap();
+    assert_eq!(check["status"], "warn");
+    assert!(check["detail"].as_str().unwrap().contains("is stale"));
 }
 
 #[test]

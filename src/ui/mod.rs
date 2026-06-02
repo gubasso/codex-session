@@ -496,17 +496,21 @@ impl Ui {
                     for account in &report.accounts {
                         let cooldown_str = if account.cooldown_active {
                             format!(
-                                "cooldown=active(reset_at={})",
+                                "cooldown=active(resets in {})",
                                 account
                                     .cooldown_reset_at_unix
-                                    .map_or_else(|| "?".to_owned(), |v| v.to_string())
+                                    .map_or_else(|| "?".to_owned(), human_duration_until,)
                             )
                         } else {
                             "cooldown=none".to_owned()
                         };
+                        let last_used = account.last_used_at_unix.map_or_else(
+                            || styled_text("(none)", styles::DIM, use_color),
+                            |value| styled_text(human_age(value), styles::DIM, use_color),
+                        );
                         writeln!(
                             stdout,
-                            "  {} current={} has_auth={} last_used_at_unix={} {}",
+                            "  {} current={} has_auth={} last used {} {}",
                             styled_text(&account.name, styles::BOLD, use_color),
                             if account.current {
                                 styled_text("true", styles::BOLD_CYAN, use_color)
@@ -518,10 +522,7 @@ impl Ui {
                             } else {
                                 styled_text("✗", styles::RED, use_color)
                             },
-                            account.last_used_at_unix.map_or_else(
-                                || styled_text("(none)", styles::DIM, use_color),
-                                |value| styled_text(value.to_string(), styles::DIM, use_color),
-                            ),
+                            last_used,
                             if account.cooldown_active {
                                 styled_text(&cooldown_str, styles::BOLD_RED, use_color)
                             } else {
@@ -530,38 +531,9 @@ impl Ui {
                         )?;
                     }
                 }
-                writeln!(stdout)?;
-                let name_width = report
-                    .checks
-                    .iter()
-                    .map(|c| c.name.len())
-                    .max()
-                    .unwrap_or(8)
-                    .max(8);
-                writeln!(
-                    stdout,
-                    "{}  {}  {}",
-                    styled_padded("STATUS", 7, styles::DIM, use_color),
-                    styled_padded("CHECK", name_width, styles::DIM, use_color),
-                    styled_text("DETAIL", styles::DIM, use_color),
-                )?;
-                for check in &report.checks {
-                    writeln!(
-                        stdout,
-                        "{}  {}  {}",
-                        styled_padded(
-                            format_status(check.status),
-                            7,
-                            match check.status {
-                                crate::commands::doctor::CheckStatus::Ok => styles::BOLD_GREEN,
-                                crate::commands::doctor::CheckStatus::Warn => styles::BOLD_YELLOW,
-                                crate::commands::doctor::CheckStatus::Fail => styles::BOLD_RED,
-                            },
-                            use_color,
-                        ),
-                        styled_padded(&check.name, name_width, styles::BOLD, use_color),
-                        check.detail,
-                    )?;
+                for group in &report.groups {
+                    writeln!(stdout)?;
+                    write_doctor_group(&mut stdout, group, use_color)?;
                 }
                 if !report.next_steps.is_empty() {
                     writeln!(stdout, "\nNext:")?;
@@ -1007,12 +979,58 @@ const fn format_log(format: crate::config::LogFormat) -> &'static str {
     }
 }
 
-const fn format_status(status: crate::commands::doctor::CheckStatus) -> &'static str {
-    match status {
-        crate::commands::doctor::CheckStatus::Ok => "OK",
-        crate::commands::doctor::CheckStatus::Warn => "WARN",
-        crate::commands::doctor::CheckStatus::Fail => "FAIL",
+fn doctor_group_title(name: &str) -> &str {
+    match name {
+        "environment" => "ENVIRONMENT",
+        "accounts" => "ACCOUNTS",
+        "config-recipe" => "CONFIG RECIPE",
+        "session" => "SESSION",
+        "auth" => "AUTH",
+        "online" => "ONLINE",
+        _ => name,
     }
+}
+
+fn format_status_symbol(status: crate::commands::doctor::CheckStatus, use_color: bool) -> String {
+    let (sym, style) = match status {
+        crate::commands::doctor::CheckStatus::Ok => ("✓", styles::BOLD_GREEN),
+        crate::commands::doctor::CheckStatus::Warn => ("⚠", styles::BOLD_YELLOW),
+        crate::commands::doctor::CheckStatus::Fail => ("✗", styles::BOLD_RED),
+    };
+    format!(
+        "{}{sym}{}",
+        style_open(style, use_color),
+        style_close(style, use_color)
+    )
+}
+
+fn write_doctor_group(
+    stdout: &mut impl std::io::Write,
+    group: &crate::commands::doctor::CheckGroup,
+    use_color: bool,
+) -> std::io::Result<()> {
+    let name_width = group
+        .checks
+        .iter()
+        .map(|check| check.name.len())
+        .max()
+        .unwrap_or(8)
+        .max(8);
+    writeln!(
+        stdout,
+        "{}",
+        styled_text(doctor_group_title(&group.name), styles::DIM, use_color)
+    )?;
+    for check in &group.checks {
+        writeln!(
+            stdout,
+            "{}  {}  {}",
+            format_status_symbol(check.status, use_color),
+            styled_padded(&check.name, name_width, styles::BOLD, use_color),
+            check.detail,
+        )?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]

@@ -30,12 +30,14 @@ fn normalize_doctor_text(env: &TestEnv, stdout: &str) -> String {
                 );
                 format!("{prefix}{normalized_path}")
             } else if line.trim_start().starts_with("default current=true") {
-                let prefix = "  default current=true has_auth=✓ last_used_at_unix=";
+                let prefix = "  default current=true has_auth=✓ last used ";
                 line.strip_prefix(prefix).map_or_else(
                     || line.to_owned(),
                     |rest| {
-                        let suffix = rest.split_once(' ').map_or("", |(_, suffix)| suffix);
-                        format!("{prefix}<LAST_USED_AT> {suffix}")
+                        let suffix = rest
+                            .split_once(" cooldown=")
+                            .map_or("", |(_, suffix)| suffix);
+                        format!("{prefix}<LAST_USED_AT> cooldown={suffix}")
                     },
                 )
             } else {
@@ -65,6 +67,14 @@ fn doctor_text_piped_output_is_clean() {
     assert!(
         stdout.contains("OK") || stdout.contains("WARN") || stdout.contains("FAIL"),
         "doctor text output should include check status tokens:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("ENVIRONMENT"),
+        "doctor text output should include section titles:\n{stdout}"
+    );
+    assert!(
+        stdout.contains('✓'),
+        "doctor text output should include UTF-8 status symbols:\n{stdout}"
     );
     assert!(!stdout.contains('\u{1b}'), "stdout contains ANSI escapes");
     assert!(!stdout.contains('⠋'), "stdout contains spinner frame ⠋");

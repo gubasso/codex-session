@@ -72,6 +72,7 @@ stream and then emit styles with `style_open()` and `style_close()`. When
   `BOLD_CYAN`.
 - `✓` (U+2713): positive, authenticated, or OK indicator, styled `GREEN` or
   `BOLD_GREEN` until `GREEN` exists.
+- `⚠` (U+26A0): warning or caution indicator, styled `BOLD_YELLOW`.
 - `✗` (U+2717): negative, no-auth, or fail indicator, styled `RED`.
 - `—` (U+2014): missing or not applicable value, preferably styled `DIM`.
 
@@ -371,10 +372,13 @@ account:         cwnt
 account-source:  lru
 ...
 
-STATUS   CHECK                      DETAIL
-OK       config-recipe.active             default (source: config.default)
-WARN     account.cooldowns          1 account(s) in cooldown: default
-FAIL     child.binary               could not find `codex` on PATH=...
+ENVIRONMENT
+✓  xdg.paths             XDG_CONFIG_HOME=/path/to/config XDG_CACHE_HOME=/path/to/cache ...
+✗  child.binary          could not find `codex` on PATH=...
+
+CONFIG RECIPE
+✓  config-recipe.active  default (source: config.default)
+⚠  account.cooldowns     1 account(s) in cooldown: default
 
 Next:
   - child.binary: set CODEX_SESSION_CHILD_BIN or install `codex` on PATH
@@ -382,9 +386,9 @@ Next:
 summary: 8 OK, 1 WARN, 1 FAIL
 ```
 
-Header uses `DIM`. `OK` uses `BOLD_GREEN`, `WARN` uses `BOLD_YELLOW`, and
-`FAIL` uses `BOLD_RED`. Check names use `BOLD`. Summary counts are colored to
-match their status.
+Section titles and the summary label use ALL-CAPS `DIM`. Check names use
+`BOLD`. Doctor check rows use `✓` in `BOLD_GREEN`, `⚠` in `BOLD_YELLOW`, and
+`✗` in `BOLD_RED`. Summary counts are colored to match their status.
 
 ### `account list`
 

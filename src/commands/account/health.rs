@@ -11,16 +11,17 @@ use crate::cli::account::{AccountHealthArgs, AccountSelector};
 use crate::clock::now_unix;
 use crate::commands::account::{AccountHealthEntryView, AccountHealthView, AccountScoringView};
 use crate::context::AppContext;
+use crate::services::account::online_probe::{
+    copy_auth_file, quota_resolved_probe_auth, read_access_token, read_token_state,
+    token_needs_refresh, token_rotated,
+};
 use crate::services::account::{
     AccountError, AccountId, cooldown, gate, quota,
     registry::{AccountEntry, Registry},
     selector,
-    token_expiry::{TokenExpiry, token_expiry_from_auth},
+    token_expiry::TokenExpiry,
 };
 use crate::ui::spinner::{SpinnerGroup, should_show_spinner};
-
-/// Near-expiry skew: refresh if the token expires within this window.
-const TOKEN_REFRESH_SKEW_SECS: u64 = 60;
 
 pub(crate) async fn run(
     ctx: Arc<AppContext>,
@@ -272,19 +273,6 @@ async fn fetch_quota(
     }
 }
 
-/// Choose which auth file the health probe should read.
-///
-/// Defaults to the account seed (probe `auth_source = None`). When quota
-/// resolved a *distinct* group `auth.json`, probe that file instead so the
-/// health verdict reflects the token quota will actually use, closing the
-/// stale-seed / live-group false negative.
-fn quota_resolved_probe_auth<'a>(
-    seed: &'a camino::Utf8Path,
-    active_auth: Option<&'a camino::Utf8Path>,
-) -> Option<&'a camino::Utf8Path> {
-    active_auth.filter(|path| *path != seed)
-}
-
 async fn fetch_probe(
     ctx: &crate::context::AppContext,
     account: &AccountId,
@@ -383,28 +371,6 @@ async fn reconcile_probe_after_quota_rotation(
     fetch_probe_with_auth(ctx, path, fast).await
 }
 
-/// Read the OAuth `access_token` from an auth file, if present and non-empty.
-/// Used to detect whether `quota::refresh` rotated the token during the
-/// concurrent quota∥probe window.
-fn read_access_token(path: &camino::Utf8Path) -> Option<String> {
-    let bytes = std::fs::read(path.as_std_path()).ok()?;
-    let auth: Value = serde_json::from_slice(&bytes).ok()?;
-    auth.get("tokens")
-        .and_then(|tokens| tokens.get("access_token"))
-        .and_then(Value::as_str)
-        .filter(|token| !token.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn read_token_state(path: &camino::Utf8Path) -> TokenExpiry {
-    let bytes = std::fs::read(path.as_std_path()).ok();
-    let Some(bytes) = bytes else {
-        return TokenExpiry::Missing;
-    };
-    let auth: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    token_expiry_from_auth(&auth)
-}
-
 async fn refresh_health_seed_if_needed(
     account: &AccountId,
     seed: &camino::Utf8Path,
@@ -460,27 +426,6 @@ async fn refresh_health_seed_if_needed(
         }
     }
     read_token_state(seed)
-}
-
-const fn token_needs_refresh(state: &TokenExpiry, now_unix: u64) -> bool {
-    match state {
-        TokenExpiry::ExpiresAt(ts) => *ts <= now_unix.saturating_add(TOKEN_REFRESH_SKEW_SECS),
-        TokenExpiry::Missing | TokenExpiry::Malformed => false,
-    }
-}
-
-fn token_rotated(pre: Option<&str>, post: Option<&str>) -> bool {
-    post.is_some() && post != pre
-}
-
-fn copy_auth_file(
-    source: &camino::Utf8Path,
-    target: &camino::Utf8Path,
-) -> Result<(), crate::error::AppError> {
-    let bytes = crate::services::auth::secure_file_read(source)?;
-    crate::adapters::fs::atomic_write(target, &bytes)
-        .map_err(crate::services::auth::AuthError::from)?;
-    Ok(())
 }
 
 fn read_quota_from_cache(
@@ -551,81 +496,5 @@ fn scoring_view_from_breakdown(raw: &selector::ScoreBreakdown) -> AccountScoring
         eligible: raw.eligible,
         ineligible_reason: raw.ineligible_reason.clone(),
         tie_five_hour: raw.tie_five_hour,
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use camino::Utf8PathBuf;
-
-    use super::*;
-
-    fn write_auth_file(contents: &str) -> Utf8PathBuf {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.keep().join("auth.json");
-        std::fs::write(&path, contents).unwrap();
-        Utf8PathBuf::from_path_buf(path).unwrap()
-    }
-
-    #[test]
-    fn token_rotated_detects_new_or_changed_post_token() {
-        assert!(token_rotated(None, Some("new")));
-        assert!(token_rotated(Some("old"), Some("new")));
-        assert!(!token_rotated(Some("same"), Some("same")));
-        assert!(!token_rotated(Some("old"), None));
-        assert!(!token_rotated(None, None));
-    }
-
-    #[test]
-    fn token_needs_refresh_for_expired_or_near_expiry_oauth_token() {
-        let now = 1_000;
-        assert!(token_needs_refresh(&TokenExpiry::ExpiresAt(now - 1), now));
-        assert!(token_needs_refresh(
-            &TokenExpiry::ExpiresAt(now + TOKEN_REFRESH_SKEW_SECS),
-            now,
-        ));
-        assert!(!token_needs_refresh(
-            &TokenExpiry::ExpiresAt(now + TOKEN_REFRESH_SKEW_SECS + 1),
-            now,
-        ));
-    }
-
-    #[test]
-    fn token_needs_refresh_ignores_missing_or_malformed_tokens() {
-        assert!(!token_needs_refresh(&TokenExpiry::Missing, 1_000));
-        assert!(!token_needs_refresh(&TokenExpiry::Malformed, 1_000));
-    }
-
-    #[test]
-    fn read_access_token_returns_non_empty_oauth_access_token() {
-        let path = write_auth_file(
-            r#"{"tokens":{"access_token":"access-token","refresh_token":"refresh-token"}}"#,
-        );
-        assert_eq!(read_access_token(&path).as_deref(), Some("access-token"));
-    }
-
-    #[test]
-    fn read_access_token_returns_none_for_missing_key() {
-        let path = write_auth_file(r#"{"tokens":{"refresh_token":"refresh-token"}}"#);
-        assert_eq!(read_access_token(&path), None);
-    }
-
-    #[test]
-    fn read_access_token_returns_none_for_empty_string() {
-        let path = write_auth_file(r#"{"tokens":{"access_token":""}}"#);
-        assert_eq!(read_access_token(&path), None);
-    }
-
-    #[test]
-    fn read_access_token_returns_none_for_malformed_json() {
-        let path = write_auth_file(r#"{"tokens":{"access_token":"unterminated""#);
-        assert_eq!(read_access_token(&path), None);
-    }
-
-    #[test]
-    fn read_access_token_returns_none_for_api_key_mode() {
-        let path = write_auth_file(r#"{"api_key":"sk-test"}"#);
-        assert_eq!(read_access_token(&path), None);
     }
 }

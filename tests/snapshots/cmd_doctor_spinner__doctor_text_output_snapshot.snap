@@ -1,7 +1,7 @@
 ---
 source: tests/cmd_doctor_spinner.rs
-assertion_line: 100
-expression: normalize_doctor_text(&env, &stdout)
+assertion_line: 119
+expression: "normalize_doctor_text(&env, &stdout)"
 ---
 account:         default
 account-source:  auto
@@ -10,21 +10,33 @@ group-id-source: ppid
 codex_home:      <TMP>/state/codex-session/accounts/default/groups/<GROUP_ID>
 active account:  default (auto)
 accounts:
-  default current=true has_auth=✓ last_used_at_unix=<LAST_USED_AT> cooldown=none
+  default current=true has_auth=✓ last used <LAST_USED_AT> cooldown=none
 
-STATUS   CHECK                        DETAIL
-OK       config-recipe.active         default (source: fallback)
-OK       manifest.default.exists      <TMP>/config/codex-session/config-recipes/default.yaml
-OK       manifest.default.parse       1 layers
-OK       layer.default.base.exists    <TMP>/config/codex-session/configs/base.toml
-OK       layer.default.base.parse     1 top-level keys
-OK       composition.default.dry-run  merged 1 layers, 1 top-level keys, 0 env vars
-OK       layers.orphan                no orphan layers
-OK       xdg.paths                    XDG_CONFIG_HOME=<TMP>/config XDG_CACHE_HOME=<TMP>/cache XDG_STATE_HOME=<TMP>/state XDG_RUNTIME_DIR=<TMP>/runtime
-OK       session.root                 <TMP>/state/codex-session (source: state)
-OK       child.binary                 <TMP>/bin/codex (0.134.0)
-OK       codex.version                0.134.0 (>= 0.134.0)
-OK       session.inventory            no sessions
-WARN     auth.native                  <TMP>/home/.codex mode 0755; will be chmod'd on first login; last_refresh unknown
+ENVIRONMENT
+✓  xdg.paths      XDG_CONFIG_HOME=<TMP>/config XDG_CACHE_HOME=<TMP>/cache XDG_STATE_HOME=<TMP>/state XDG_RUNTIME_DIR=<TMP>/runtime
+✓  child.binary   <TMP>/bin/codex (0.134.0)
+✓  codex.version  0.134.0 (>= 0.134.0)
 
-summary: 12 OK, 1 WARN, 0 FAIL
+CONFIG RECIPE
+✓  config-recipe.active         default (source: fallback)
+✓  manifest.default.exists      <TMP>/config/codex-session/config-recipes/default.yaml
+✓  manifest.default.parse       1 layers
+✓  layer.default.base.exists    <TMP>/config/codex-session/configs/base.toml
+✓  layer.default.base.parse     1 top-level keys
+✓  composition.default.dry-run  merged 1 layers, 1 top-level keys, 0 env vars
+⚠  config-recipe.ping-profile   ping profile unavailable: health probe requires profiles/ping.config.toml: profile file `profiles/ping.config.toml` not found in active config-recipe `default` (manifest `profile-files` list may exclude it)
+✓  layers.orphan                no orphan layers
+
+SESSION
+✓  session.root         <TMP>/state/codex-session (source: state)
+✓  session.trust-cache  no cache yet (fresh install)
+⚠  session.permissions  <TMP>/state/codex-session mode is 0o755, expected 0o700; <TMP>/state/codex-session/accounts mode is 0o755, expected 0o700
+✓  session.inventory    no sessions
+
+AUTH
+⚠  auth.native  <TMP>/home/.codex mode 0755; will be chmod'd on first login; last_refresh unknown
+
+Next:
+  - config-recipe.ping-profile: add a ping profile (profiles/ping.config.toml) to enable token probing
+
+summary: 13 OK, 3 WARN, 0 FAIL

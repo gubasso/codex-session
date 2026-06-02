@@ -5,6 +5,7 @@ use crate::cli::account::{
     AccountCooldownArgs, AccountCooldownClearArgs, AccountCooldownCommand, AccountCooldownShowArgs,
     AccountSelector,
 };
+use crate::clock::now_unix;
 use crate::commands::account::{AccountCooldownEntryView, AccountCooldownView};
 use crate::services::account::{AccountError, AccountId, cooldown, registry::Registry};
 
@@ -110,12 +111,6 @@ fn entry_for(
             last_429_at_unix: None,
         },
     })
-}
-
-fn now_unix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs())
 }
 
 fn selected_account(

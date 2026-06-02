@@ -9,6 +9,7 @@
 
 pub(crate) mod adapters;
 pub(crate) mod cli;
+pub(crate) mod clock;
 pub(crate) mod codex_compat;
 pub(crate) mod commands;
 pub(crate) mod config;

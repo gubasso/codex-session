@@ -2,10 +2,46 @@ use camino::Utf8PathBuf;
 
 use super::{cooldown::CooldownError, id::AccountId};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum OutcomeState {
+    FiveHourExhausted,
+    WeeklyExhausted,
+    RateLimited429,
+    AuthFailed401,
+    Cooldown,
+    BelowKnee,
+    NoAuth,
+    TokenExpired,
+    NotAttempted,
+    AttemptedUnknown,
+}
+
+impl OutcomeState {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::FiveHourExhausted => "five_hour_exhausted",
+            Self::WeeklyExhausted => "weekly_exhausted",
+            Self::RateLimited429 => "rate_limited_429",
+            Self::AuthFailed401 => "auth_failed_401",
+            Self::Cooldown => "cooldown",
+            Self::BelowKnee => "below_knee",
+            Self::NoAuth => "no_auth",
+            Self::TokenExpired => "token_expired",
+            Self::NotAttempted => "not_attempted",
+            Self::AttemptedUnknown => "attempted_unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct AccountOutcomeLine {
     pub(crate) id: AccountId,
     pub(crate) outcome: String,
+    pub(crate) state: OutcomeState,
+    pub(crate) five_hour_left: Option<f64>,
+    pub(crate) weekly_left: Option<f64>,
+    pub(crate) available_at_unix: Option<u64>,
 }
 
 #[allow(dead_code)]
@@ -28,7 +64,7 @@ pub(crate) enum AccountError {
     },
 
     #[error("no eligible account")]
-    NoEligible,
+    NoEligible { report: Vec<AccountOutcomeLine> },
 
     #[error("quota fetch failed: {detail}")]
     QuotaFetch { detail: String },
@@ -47,6 +83,13 @@ pub(crate) enum AccountError {
 
     #[error("auto-selection exhausted; no account could complete the request")]
     AutoExhausted { report: Vec<AccountOutcomeLine> },
+
+    #[error("resume blocked; account owner cannot continue thread {thread_id}")]
+    ResumeBlocked {
+        thread_id: String,
+        owner: AccountOutcomeLine,
+        others: Vec<AccountOutcomeLine>,
+    },
 
     #[error(
         "account `{name}` has no valid authentication; run `codex-session account refresh {name}`"
@@ -76,13 +119,14 @@ impl AccountError {
             Self::NotFound { .. } => "account-not-found",
             Self::AlreadyExists { .. } => "account-already-exists",
             Self::RegistryIo { .. } => "account-registry-io",
-            Self::NoEligible => "account-no-eligible",
+            Self::NoEligible { .. } => "account-no-eligible",
             Self::QuotaFetch { .. } => "account-quota-fetch",
             Self::QuotaParse { .. } => "account-quota-parse",
             Self::NonInteractive { .. } => "account-non-interactive",
             Self::LoginFailed { .. } => "account-login-failed",
             Self::NativeAuthMissing => "account-native-auth-missing",
             Self::AutoExhausted { .. } => "account-auto-exhausted",
+            Self::ResumeBlocked { .. } => "account-resume-blocked",
             Self::AuthMissing { .. } => "account-auth-missing",
             Self::NoAccounts => "account-no-accounts",
             Self::NoneSelected => "account-none-selected",
@@ -108,13 +152,14 @@ impl AccountError {
                 | CooldownError::Io { path, .. } => Some(path.as_path()),
             },
             Self::InvalidName { .. }
-            | Self::NoEligible
+            | Self::NoEligible { .. }
             | Self::QuotaFetch { .. }
             | Self::QuotaParse { .. }
             | Self::NonInteractive { .. }
             | Self::LoginFailed { .. }
             | Self::NativeAuthMissing
             | Self::AutoExhausted { .. }
+            | Self::ResumeBlocked { .. }
             | Self::AuthMissing { .. }
             | Self::NoAccounts
             | Self::NoneSelected

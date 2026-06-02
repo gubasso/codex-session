@@ -1,6 +1,6 @@
 # Quota Soft-Gate + Out-of-Quota / Resume Messaging
 
-> Complexity: M | Rounds: 1 | Generated: 2026-06-01 | Repo: /workspaces/codex-session | Status: todo
+> Complexity: M | Rounds: 1 | Generated: 2026-06-01 | Repo: /workspaces/codex-session | Status: done
 
 ## Problem Statement
 
@@ -45,9 +45,9 @@ review-loop de-risks the size; the fewer-larger-rounds preference applies.
 
 ## Execution Order
 
-| Round | File                                  | Topic                                                       | Status | Completed |
-| ----- | ------------------------------------- | ----------------------------------------------------------- | ------ | --------- |
-| 01    | `01-soft-gate-and-quota-messaging.md` | Soft-penalty selection + exhaustion/resume messaging + docs | todo   | --        |
+| Round | File                                  | Topic                                                       | Status | Completed  |
+| ----- | ------------------------------------- | ----------------------------------------------------------- | ------ | ---------- |
+| 01    | `01-soft-gate-and-quota-messaging.md` | Soft-penalty selection + exhaustion/resume messaging + docs | done   | 2026-06-02 |
 
 ## Execution Commands
 

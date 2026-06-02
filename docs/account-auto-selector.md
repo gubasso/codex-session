@@ -12,8 +12,8 @@ D7.
 If you have multiple API accounts (A, B, C), each with its own rate limits and
 quotas, always using the same one will burn through its quota while the others
 sit idle. If that account gets rate-limited (HTTP 429), your session stops. The
-auto-selector spreads the load, avoids exhausted accounts, and fails over
-automatically.
+auto-selector spreads the load, strongly deprioritizes low-quota accounts, keeps
+last-resort accounts selectable, and fails over automatically.
 
 ## Inspecting scores
 
@@ -30,7 +30,7 @@ codex-session account health         # shows score alongside auth/cooldown statu
 
 The algorithm has two phases:
 
-1. **Filter** — disqualify accounts that shouldn't be used right now
+1. **Filter** — disqualify accounts that cannot be used right now
 2. **Score and rank** — compute a composite score for each remaining account and
    pick the highest
 
@@ -42,21 +42,23 @@ If an account recently received a 429 "Too Many Requests" response, it enters a
 5-minute cooldown. During cooldown the account is skipped entirely. Hammering an
 API that just told you to slow down wastes time and may make things worse.
 
-### Quota thresholds
+### Quota penalty knees
 
-Two minimum bars an account must clear:
+Two soft knees add a dominant score penalty when an account is running low:
 
-| Threshold    | Default | Purpose                                                                 |
-| ------------ | ------- | ----------------------------------------------------------------------- |
-| 5-hour quota | > 50%   | Prevents picking an account that is burning too fast right now          |
-| Weekly quota | > 10%   | Prevents picking an account that is nearly dry for the rest of the week |
+| Threshold    | Default | Purpose                                                              |
+| ------------ | ------- | -------------------------------------------------------------------- |
+| 5-hour quota | > 50%   | Deprioritizes an account that is burning too fast right now          |
+| Weekly quota | > 10%   | Deprioritizes an account that is nearly dry for the rest of the week |
 
-Why two? They protect against different failure modes. The 5-hour window catches
-"I'm using this too fast right now." The weekly window catches "I've been
-draining this all week." An account could pass one but fail the other.
+These are not hard floors. A below-knee account stays selectable if every
+above-knee account is unavailable or worse, so the pool can be used down to 0%.
+The 5-hour window catches "I'm using this too fast right now." The weekly window
+catches "I've been draining this all week." An account could pass one but fall
+below the other.
 
 Accounts using API-key mode (no quota tracking) or accounts where the quota
-fetch failed are treated as eligible — they skip both gates.
+fetch failed are not quota-penalized — they skip both quota knees.
 
 ## Phase 2: scoring
 
@@ -64,7 +66,7 @@ Every account that passes filtering gets a composite score:
 
 ```text
 total = health_bonus
-      + penalty
+      + below_knee_penalty
       + plan_bonus
       + recency
       + avail_score
@@ -78,11 +80,12 @@ Every account starts with 100 points as a baseline. This keeps all scores
 positive and makes the math cleaner. The interesting part is how the other terms
 push accounts above or below their peers.
 
-### penalty = 0.0
+### below_knee_penalty = 0.0 or -1000.0
 
-Currently always zero. This is a reserved slot for future punishment logic (e.g.
-accounts with recurring errors, or accounts the user manually deprioritized). It
-is in the formula so the scoring structure does not need to change later.
+Accounts above both quota knees get 0.0. Accounts at or below either knee get
+-1000.0. That penalty dominates the normal score spread, so any above-knee
+account outranks any below-knee account, while below-knee accounts still rank
+among themselves by remaining quota.
 
 ### plan_bonus (0, 20, or 30)
 
@@ -190,7 +193,7 @@ When two accounts end up with the same total score, ties are broken in order:
 
 ## Worked example
 
-Three accounts, all eligible after filtering:
+Three accounts, all usable after filtering:
 
 | Component          | A (LRU, Pro)           | B (Free)               | C (Team, idle 10d)       |
 | ------------------ | ---------------------- | ---------------------- | ------------------------ |
@@ -239,11 +242,20 @@ Failover is triggered by rate-limit (429) and auth-failure (401) errors:
 1. The child process runs and hits a 429 or 401 error
 2. A cooldown file is written with a 5-minute expiry and the error reason
 3. On the next retry, `pick()` skips the cooled-down account
-4. The selector picks the next-best eligible account
+4. The selector picks the next-best usable account
 5. The cooldown auto-expires after 5 minutes (or is manually cleared with `codex-session account cooldown clear`)
 
 This makes multi-account setups resilient: a 429 rate limit or 401 auth failure
 on account A transparently fails over to account B without user intervention.
+True quota exhaustion is discovered by the child process as a 429. The wrapper
+writes a cooldown, rotates to the next usable account, and reports
+`AutoExhausted` with per-account reset ETAs if no account can complete the
+request.
+
+`codex-session exec resume <thread-id>` is account-bound: the resumed thread
+must continue with the account that owns that thread. If that owner is actively
+cooled down or at 0% in a quota window, the wrapper reports `ResumeBlocked` with
+the owner's reset ETA and the availability of other accounts for fresh threads.
 
 ## Configuration
 
@@ -252,6 +264,6 @@ Defaults in `src/config/mod.rs` (`AccountConfig`):
 | Setting               | Default | Purpose                                                     |
 | --------------------- | ------- | ----------------------------------------------------------- |
 | `quota_ttl_secs`      | 30      | Cache quota lookups for 30 seconds                          |
-| `weekly_floor`        | 10.0    | Minimum weekly quota % to be eligible                       |
-| `five_hour_threshold` | 50.0    | Minimum 5-hour quota % to be eligible                       |
+| `weekly_floor`        | 10.0    | Weekly quota % soft penalty knee                            |
+| `five_hour_threshold` | 50.0    | 5-hour quota % soft penalty knee                            |
 | `five_hour_weight`    | 0.70    | Weight for 5-hour window in avail_score (weekly = 1 - this) |

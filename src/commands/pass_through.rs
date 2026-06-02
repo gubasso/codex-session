@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
 
 use crate::adapters::spawner::Spawner as _;
+use crate::clock::now_unix;
 use crate::domain::child_invocation::{ChildEnv, ChildInvocation};
 
 /// Pairs the shared child-PID slot with the once-installed signal-forwarding
@@ -555,6 +556,19 @@ fn run_resume(
 
         let gid_override = Some(original_group_id.as_str());
 
+        // Pre-flight the owner BEFORE the dry-run branch so `--dry-run` reports
+        // `ResumeBlocked` consistently with a real run: a thread owned by a
+        // cooldown- or quota-blocked account must not be presented as runnable.
+        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+        if let Some(owner) = resume_preflight_block(ctx, &registry, &resolved)? {
+            return Err(crate::services::account::AccountError::ResumeBlocked {
+                thread_id,
+                owner,
+                others: resume_other_lines(ctx, &registry, &resolved.id)?,
+            }
+            .into());
+        }
+
         if ctx.global.dry_run {
             let prepared = prepare_invocation(ctx, &effective_argv, &resolved, gid_override)?;
             let dry_ctx = crate::domain::child_invocation::DryRunContext {
@@ -573,14 +587,19 @@ fn run_resume(
         }
 
         let session = SignalSession::install()?;
-        let (exit_code, _stdout, _stderr) = run_once(
+        let (exit_code, stdout, stderr) = run_once(
             ctx,
             &effective_argv,
             &resolved,
             &session,
-            false,
+            true,
             gid_override,
         )?;
+        if let Some(err) = resume_blocked_from_live_rate_limit(
+            ctx, &registry, &resolved, &thread_id, &stdout, &stderr,
+        )? {
+            return Err(err.into());
+        }
         Ok(exit_code)
     } else {
         tracing::info!(
@@ -617,6 +636,113 @@ fn run_resume(
             },
         )
     }
+}
+
+fn resume_blocked_from_live_rate_limit(
+    ctx: &crate::context::AppContext,
+    registry: &crate::services::account::registry::Registry,
+    resolved: &crate::services::account::resolver::ResolvedAccount,
+    thread_id: &str,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<Option<crate::services::account::AccountError>, crate::error::AppError> {
+    let Some(matched) = crate::services::account::failover::pick_priority(
+        crate::services::account::failover::scan(stderr),
+        crate::services::account::failover::scan(stdout),
+    ) else {
+        return Ok(None);
+    };
+    if matched.kind != crate::services::account::failover::MatchKind::RateLimit {
+        return Ok(None);
+    }
+
+    crate::services::account::retry::write_cooldown(registry, &resolved.id, "429", &matched)?;
+    let owner = crate::services::account::retry::account_outcome_line(
+        ctx,
+        registry,
+        &resolved.id,
+        crate::services::account::error::OutcomeState::RateLimited429,
+        format!("429 rate limit: {}", matched.snippet),
+    );
+    Ok(Some(
+        crate::services::account::AccountError::ResumeBlocked {
+            thread_id: thread_id.to_owned(),
+            owner,
+            others: resume_other_lines(ctx, registry, &resolved.id)?,
+        },
+    ))
+}
+
+fn resume_preflight_block(
+    ctx: &crate::context::AppContext,
+    registry: &crate::services::account::registry::Registry,
+    resolved: &crate::services::account::resolver::ResolvedAccount,
+) -> Result<Option<crate::services::account::error::AccountOutcomeLine>, crate::error::AppError> {
+    let account_root = registry.account_dir(&resolved.id);
+    if let Some(cd) = crate::services::account::cooldown::read(&account_root)
+        .map_err(crate::services::account::AccountError::from)?
+        && crate::services::account::cooldown::is_active(&cd, now_unix())
+    {
+        return Ok(Some(crate::services::account::retry::account_outcome_line(
+            ctx,
+            registry,
+            &resolved.id,
+            crate::services::account::error::OutcomeState::Cooldown,
+            format!("cooldown active: {}", cd.reason),
+        )));
+    }
+
+    let ttl = std::time::Duration::from_secs(ctx.config.account.quota_ttl_secs);
+    let Ok(crate::services::account::quota::QuotaResult::Ok(quota)) =
+        crate::services::account::quota::get(ctx, &resolved.id, ttl)
+    else {
+        return Ok(None);
+    };
+    if quota.five_hour.percent_left <= 0.0 {
+        return Ok(Some(crate::services::account::retry::account_outcome_line(
+            ctx,
+            registry,
+            &resolved.id,
+            crate::services::account::error::OutcomeState::FiveHourExhausted,
+            format!(
+                "five-hour quota exhausted ({:.1}% left)",
+                quota.five_hour.percent_left
+            ),
+        )));
+    }
+    if quota.weekly.percent_left <= 0.0 {
+        return Ok(Some(crate::services::account::retry::account_outcome_line(
+            ctx,
+            registry,
+            &resolved.id,
+            crate::services::account::error::OutcomeState::WeeklyExhausted,
+            format!(
+                "weekly quota exhausted ({:.1}% left)",
+                quota.weekly.percent_left
+            ),
+        )));
+    }
+
+    Ok(None)
+}
+
+fn resume_other_lines(
+    ctx: &crate::context::AppContext,
+    registry: &crate::services::account::registry::Registry,
+    owner: &crate::services::account::AccountId,
+) -> Result<Vec<crate::services::account::error::AccountOutcomeLine>, crate::error::AppError> {
+    let mut lines = Vec::new();
+    for entry in registry.list()? {
+        if &entry.id == owner {
+            continue;
+        }
+        let (state, outcome) =
+            crate::services::account::retry::alternate_state(ctx, registry, &entry);
+        lines.push(crate::services::account::retry::account_outcome_line(
+            ctx, registry, &entry.id, state, outcome,
+        ));
+    }
+    Ok(lines)
 }
 
 #[derive(Debug, PartialEq, Eq)]

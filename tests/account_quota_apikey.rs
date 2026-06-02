@@ -35,8 +35,9 @@ async fn api_key_mode_skips_http_and_caches_for_five_minutes() {
             .stdout
             .clone();
         let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-        assert_eq!(value["mode"], "api-key");
-        assert_eq!(value["ttl-secs"], 300);
+        assert!(value["aggregate"].is_null());
+        assert_eq!(value["entries"][0]["mode"], "api-key");
+        assert_eq!(value["entries"][0]["ttl-secs"], 300);
     }
 
     assert_eq!(server.received_requests().await.unwrap().len(), 0);

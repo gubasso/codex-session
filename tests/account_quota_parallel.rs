@@ -37,7 +37,7 @@ async fn quota_multi_account_requests_start_concurrently() {
         .clone();
 
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value.as_array().unwrap().len(), 4);
+    assert_eq!(value["entries"].as_array().unwrap().len(), 4);
     assert_eq!(server.received_requests().await.unwrap().len(), 4);
 
     // Concurrency is proven by the request-arrival window (jitter-resistant),

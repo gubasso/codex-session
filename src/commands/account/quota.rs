@@ -7,6 +7,10 @@ use std::time::SystemTime;
 use camino::Utf8PathBuf;
 use tokio::task::JoinSet;
 
+use crate::commands::account::{
+    AccountQuotaAggregateView, AccountQuotaAggregateWindowView, AccountQuotaEntryView,
+    AccountQuotaWindowView,
+};
 use crate::context::AppContext;
 use crate::services::account::{AccountError, AccountId, quota, registry::Registry, selector};
 use crate::ui::spinner::{SpinnerGroup, should_show_spinner};
@@ -119,15 +123,55 @@ pub(crate) async fn run(
             }
         }
     }
+    let aggregate = if single_account.is_none() {
+        aggregate_windows(&entries)
+    } else {
+        None
+    };
 
     if single_account.is_some() {
         ctx.ui
             .write_account_quota(&entries[0], args.format, args.detail)?;
     } else {
         ctx.ui
-            .write_account_quota_many(&entries, args.format, args.detail)?;
+            .write_account_quota_many(&entries, aggregate.as_ref(), args.format, args.detail)?;
     }
     Ok(())
+}
+
+fn aggregate_windows(entries: &[AccountQuotaEntryView]) -> Option<AccountQuotaAggregateView> {
+    fn mean<F>(rows: &[&AccountQuotaEntryView], pick: F) -> Option<AccountQuotaAggregateWindowView>
+    where
+        F: Fn(&AccountQuotaEntryView) -> Option<f64>,
+    {
+        let vals: Vec<f64> = rows.iter().filter_map(|r| pick(r)).collect();
+        if vals.is_empty() {
+            return None;
+        }
+        let sum: f64 = vals.iter().sum();
+        #[allow(clippy::cast_precision_loss)]
+        Some(AccountQuotaAggregateWindowView {
+            percent_left: sum / vals.len() as f64,
+        })
+    }
+
+    let oauth: Vec<&AccountQuotaEntryView> = entries.iter().filter(|e| e.mode == "oauth").collect();
+    if oauth.len() < 2 {
+        return None;
+    }
+
+    let five_hour = mean(&oauth, |e| e.five_hour.as_ref().map(|w| w.percent_left));
+    let weekly = mean(&oauth, |e| e.weekly.as_ref().map(|w| w.percent_left));
+
+    if five_hour.is_none() && weekly.is_none() {
+        return None;
+    }
+
+    Some(AccountQuotaAggregateView {
+        accounts_counted: oauth.len(),
+        five_hour,
+        weekly,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -140,7 +184,7 @@ async fn fetch_view(
     lru: Option<&AccountId>,
     last_used_at: Option<SystemTime>,
     now: SystemTime,
-) -> Result<crate::commands::account::AccountQuotaEntryView, AccountError> {
+) -> Result<AccountQuotaEntryView, AccountError> {
     let plan_bonus = quota::plan_bonus(ctx, account);
     let result = quota::refresh(ctx, account).await;
 
@@ -170,7 +214,7 @@ async fn fetch_view(
         }
         Err(err) => {
             if multi {
-                Ok(crate::commands::account::AccountQuotaEntryView {
+                Ok(AccountQuotaEntryView {
                     account: account.to_string(),
                     active,
                     mode: "error".to_owned(),
@@ -198,12 +242,12 @@ fn view_from_result(
     meta: &CacheMeta,
     scoring_raw: Option<selector::ScoreBreakdown>,
     verbose: bool,
-) -> crate::commands::account::AccountQuotaEntryView {
+) -> AccountQuotaEntryView {
     match result {
         quota::QuotaResult::Ok(quota) => {
             quota_view(account, active, &quota, meta, scoring_raw, verbose)
         }
-        quota::QuotaResult::ApiKeyMode => crate::commands::account::AccountQuotaEntryView {
+        quota::QuotaResult::ApiKeyMode => AccountQuotaEntryView {
             account: account.to_string(),
             active,
             mode: "api-key".to_owned(),
@@ -251,19 +295,19 @@ fn quota_view(
     meta: &CacheMeta,
     scoring_raw: Option<selector::ScoreBreakdown>,
     verbose: bool,
-) -> crate::commands::account::AccountQuotaEntryView {
-    crate::commands::account::AccountQuotaEntryView {
+) -> AccountQuotaEntryView {
+    AccountQuotaEntryView {
         account: account.to_string(),
         active,
         mode: "oauth".to_owned(),
         fetched_at_unix: meta.fetched_at_unix,
         ttl_secs: meta.ttl_secs,
         error: None,
-        five_hour: Some(crate::commands::account::AccountQuotaWindowView {
+        five_hour: Some(AccountQuotaWindowView {
             percent_left: quota.five_hour.percent_left,
             reset_at_unix: quota.five_hour.reset_at_unix,
         }),
-        weekly: Some(crate::commands::account::AccountQuotaWindowView {
+        weekly: Some(AccountQuotaWindowView {
             percent_left: quota.weekly.percent_left,
             reset_at_unix: quota.weekly.reset_at_unix,
         }),
@@ -310,5 +354,115 @@ fn quota_sort_key(
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => left.account.cmp(&right.account),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::aggregate_windows;
+    use crate::commands::account::{AccountQuotaEntryView, AccountQuotaWindowView};
+
+    fn entry(mode: &str, fh: Option<f64>, wk: Option<f64>) -> AccountQuotaEntryView {
+        AccountQuotaEntryView {
+            account: mode.to_owned(),
+            active: false,
+            mode: mode.to_owned(),
+            fetched_at_unix: 0,
+            ttl_secs: 0,
+            error: None,
+            five_hour: fh.map(|percent_left| AccountQuotaWindowView {
+                percent_left,
+                reset_at_unix: 0,
+            }),
+            weekly: wk.map(|percent_left| AccountQuotaWindowView {
+                percent_left,
+                reset_at_unix: 0,
+            }),
+            score: None,
+            rank: None,
+            status_label: String::new(),
+            scoring: None,
+        }
+    }
+
+    #[test]
+    fn aggregates_two_oauth_entries() {
+        let aggregate = aggregate_windows(&[
+            entry("oauth", Some(60.0), Some(40.0)),
+            entry("oauth", Some(80.0), Some(70.0)),
+        ]);
+
+        assert_eq!(aggregate.as_ref().map(|agg| agg.accounts_counted), Some(2));
+        assert!(
+            aggregate
+                .as_ref()
+                .and_then(|agg| agg.five_hour.as_ref())
+                .is_some_and(|window| (window.percent_left - 70.0).abs() < 1e-9)
+        );
+        assert!(
+            aggregate
+                .as_ref()
+                .and_then(|agg| agg.weekly.as_ref())
+                .is_some_and(|window| (window.percent_left - 55.0).abs() < 1e-9)
+        );
+    }
+
+    #[test]
+    fn ignores_single_oauth_entry() {
+        assert!(aggregate_windows(&[entry("oauth", Some(60.0), Some(40.0))]).is_none());
+    }
+
+    #[test]
+    fn counts_only_oauth_entries() {
+        let aggregate = aggregate_windows(&[
+            entry("oauth", Some(60.0), Some(40.0)),
+            entry("oauth", Some(80.0), Some(70.0)),
+            entry("api-key", None, None),
+            entry("error", None, None),
+        ]);
+
+        assert_eq!(aggregate.as_ref().map(|agg| agg.accounts_counted), Some(2));
+        assert!(
+            aggregate
+                .as_ref()
+                .and_then(|agg| agg.five_hour.as_ref())
+                .is_some_and(|window| (window.percent_left - 70.0).abs() < 1e-9)
+        );
+        assert!(
+            aggregate
+                .as_ref()
+                .and_then(|agg| agg.weekly.as_ref())
+                .is_some_and(|window| (window.percent_left - 55.0).abs() < 1e-9)
+        );
+    }
+
+    #[test]
+    fn aggregates_windows_independently() {
+        let aggregate = aggregate_windows(&[
+            entry("oauth", Some(60.0), Some(40.0)),
+            entry("oauth", Some(80.0), None),
+            entry("oauth", Some(100.0), Some(70.0)),
+        ]);
+
+        assert_eq!(aggregate.as_ref().map(|agg| agg.accounts_counted), Some(3));
+        assert!(
+            aggregate
+                .as_ref()
+                .and_then(|agg| agg.five_hour.as_ref())
+                .is_some_and(|window| (window.percent_left - 80.0).abs() < 1e-9)
+        );
+        assert!(
+            aggregate
+                .as_ref()
+                .and_then(|agg| agg.weekly.as_ref())
+                .is_some_and(|window| (window.percent_left - 55.0).abs() < 1e-9)
+        );
+    }
+
+    #[test]
+    fn returns_none_when_all_oauth_windows_are_missing() {
+        assert!(
+            aggregate_windows(&[entry("oauth", None, None), entry("oauth", None, None),]).is_none()
+        );
     }
 }

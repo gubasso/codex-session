@@ -133,3 +133,7 @@ When all rounds are done:
 # Fill in completion timestamps in the execution order table
 mv .plan/01-todo/prex-sandbox-fix-tmpdir-migration .plan/02-done/prex-sandbox-fix-tmpdir-migration
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- This plan is ~95% cross-repo. Only round 01's F15 entry in `docs/upstream-codex.md` is in-repo and verified; rounds 02-03 (prex/skills/dctl, conventions docs) live in `~/.claude/skills`, `~/.dotfiles`, `~/DocsNNotes` and are not verifiable from this repository. Their status is audited by plan `done-plans-fidelity-cleanup` round 02.

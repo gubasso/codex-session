@@ -19,6 +19,11 @@ use std::future::Future;
 /// exercises these sync bridges must use `#[tokio::test(flavor = "multi_thread")]`.
 pub(crate) fn block_on<F: Future>(fut: F) -> F::Output {
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        debug_assert_eq!(
+            handle.runtime_flavor(),
+            tokio::runtime::RuntimeFlavor::MultiThread,
+            "runtime::block_on requires Tokio's multi-thread runtime"
+        );
         tokio::task::block_in_place(|| handle.block_on(fut))
     } else {
         #[expect(
@@ -30,5 +35,20 @@ pub(crate) fn block_on<F: Future>(fut: F) -> F::Output {
             .build()
             .expect("failed to build fallback current-thread runtime");
         runtime.block_on(fut)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn block_on_runs_future_from_within_multi_thread_runtime() {
+        // Calling the sync bridge from inside a multi-thread runtime must work
+        // (nested block_in_place). A regression to a current-thread runtime would
+        // panic here, catching the footgun documented on `block_on`.
+        let out = tokio::task::spawn_blocking(|| super::block_on(async { 21 * 2 }))
+            .await
+            .unwrap();
+        assert_eq!(out, 42);
     }
 }

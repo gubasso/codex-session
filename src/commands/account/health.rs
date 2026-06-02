@@ -449,11 +449,11 @@ fn read_quota_from_cache(
             Some((
                 quota::QuotaResult::Ok(quota::Quota {
                     five_hour: quota::Window {
-                        percent_left: fh.get("percent_left")?.as_f64()?,
+                        percent_left: fh.get("percent_left")?.as_f64()?.clamp(0.0, 100.0),
                         reset_at_unix: fh.get("reset_at_unix")?.as_u64()?,
                     },
                     weekly: quota::Window {
-                        percent_left: wk.get("percent_left")?.as_f64()?,
+                        percent_left: wk.get("percent_left")?.as_f64()?.clamp(0.0, 100.0),
                         reset_at_unix: wk.get("reset_at_unix")?.as_u64()?,
                     },
                 }),

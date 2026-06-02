@@ -662,7 +662,7 @@ impl Ui {
                     }
                 }
                 // If the resolved active account is not one of the listed rows
-                // (e.g. a pinned/env/LRU name that is not registered), no row
+                // (e.g. a pinned or env name that is not registered), no row
                 // carried the `▸` marker. Surface the selection explicitly so
                 // `account list` never silently hides which account is active.
                 if !current_rendered && let Some(active) = view.active.as_ref() {

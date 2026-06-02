@@ -218,3 +218,10 @@ When all rounds are done:
 # README header status set to "done" and completion timestamps filled in the table above.
 mv .plan/01-todo/configs-rename-split-profiles .plan/02-done/configs-rename-split-profiles
 ```
+
+## Implementation Notes / Divergences (added 2026-06-02)
+
+- `FileConfigRecipeConfig.profiles_dir` uses snake_case (Figment consistency), not the plan's `#[serde(rename = "profiles-dir")]`.
+- The enum variant is spelled `Unparseable` (vs the plan's `Unparsable`); behavior/exit code unchanged.
+- `cache_config_target` returns `cache_dir.join("configs.toml")` - `cache_dir` already includes the app segment, so the plan's `codex-session/configs.toml` literal was stale.
+- Round 05 is cross-repo (dotfiles); only its on-disk end-state is verifiable from this repo. Some `upstream-codex.md` per-section "Last verified" stamps were not bumped with the file header.

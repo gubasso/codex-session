@@ -6,7 +6,7 @@ rounds:
     prompt: /prex -ar .plan/done-plans-fidelity-cleanup/in-repo-fidelity-fixes.md
     notes: In-repo code/test/doc fixes + divergence addenda on done plans.
   - item: cross-repo-verification
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar .plan/done-plans-fidelity-cleanup/cross-repo-verification.md
     notes: Read-only audit of dotfiles / skills / DocsNNotes claims.

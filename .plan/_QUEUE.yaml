@@ -14,7 +14,7 @@
 plans:
   # ---- active ----
   - item: done-plans-fidelity-cleanup
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar @.plan/done-plans-fidelity-cleanup/
     notes: >-

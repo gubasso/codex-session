@@ -1,7 +1,7 @@
 # Rounds for this plan, in execution order. status: backlog | todo | doing | done
 rounds:
   - item: display-percent-helper
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar .plan/account-quota-percent-display/display-percent-helper.md
     notes: Display helper so freshly-reset windows read 100% left.

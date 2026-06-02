@@ -1403,6 +1403,25 @@ fn percent_style(pct: f64) -> anstyle::Style {
     }
 }
 
+/// Map the faithful `percent_left` (== `100 - used_percent`, where the backend's
+/// `used_percent` is a coarse integer) to the whole-number value shown to the user.
+///
+/// The backend reports a near-empty window as `used_percent: 1`, so any
+/// `percent_left >= 99.0` is presented as a full `100`. All other values round to
+/// the nearest whole number. Result is clamped to `0..=100`.
+fn display_percent_left(percent_left: f64) -> u32 {
+    if percent_left >= 99.0 {
+        return 100;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "value is clamped to 0..=100 before the cast"
+    )]
+    let rounded = percent_left.round().clamp(0.0, 100.0) as u32;
+    rounded
+}
+
 fn quota_bar(pct: f64, width: usize, use_color: bool) -> String {
     #[allow(
         clippy::cast_possible_truncation,
@@ -1513,25 +1532,27 @@ fn write_quota_entry_text(
         "oauth" => {
             write_quota_oauth_header(stdout, view, use_color)?;
             if let Some(ref fh) = view.five_hour {
-                let ps = percent_style(fh.percent_left);
+                let shown = display_percent_left(fh.percent_left);
+                let ps = percent_style(f64::from(shown));
                 writeln!(
                     stdout,
-                    "  Five-hour   {}  {}{:.1}%{} left   resets in {}",
-                    quota_bar(fh.percent_left, 20, use_color),
+                    "  Five-hour   {}  {}{}%{} left   resets in {}",
+                    quota_bar(f64::from(shown), 20, use_color),
                     style_open(ps, use_color),
-                    fh.percent_left,
+                    shown,
                     style_close(ps, use_color),
                     human_duration_until(fh.reset_at_unix),
                 )?;
             }
             if let Some(ref wk) = view.weekly {
-                let ps = percent_style(wk.percent_left);
+                let shown = display_percent_left(wk.percent_left);
+                let ps = percent_style(f64::from(shown));
                 writeln!(
                     stdout,
-                    "  Weekly      {}  {}{:.1}%{} left   resets in {}",
-                    quota_bar(wk.percent_left, 20, use_color),
+                    "  Weekly      {}  {}{}%{} left   resets in {}",
+                    quota_bar(f64::from(shown), 20, use_color),
                     style_open(ps, use_color),
-                    wk.percent_left,
+                    shown,
                     style_close(ps, use_color),
                     human_duration_until(wk.reset_at_unix),
                 )?;
@@ -1611,5 +1632,25 @@ fn human_duration_secs(secs: u64) -> String {
         format!("{minutes}m {seconds}s")
     } else {
         format!("{seconds} s")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_percent_left_maps_used_percent_to_shown() {
+        // percent_left == 100 - used_percent
+        assert_eq!(display_percent_left(100.0), 100); // used 0
+        assert_eq!(display_percent_left(99.0), 100); // used 1  -> top bucket
+        assert_eq!(display_percent_left(98.9), 99); // just under bucket -> rounds
+        assert_eq!(display_percent_left(98.0), 98); // used 2
+        assert_eq!(display_percent_left(87.0), 87); // used 13
+        assert_eq!(display_percent_left(65.0), 65); // used 35
+        assert_eq!(display_percent_left(0.0), 0); // used 100
+        // robustness / clamping
+        assert_eq!(display_percent_left(105.0), 100);
+        assert_eq!(display_percent_left(-3.0), 0);
     }
 }

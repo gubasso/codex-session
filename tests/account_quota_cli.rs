@@ -68,6 +68,33 @@ async fn account_quota_text_and_json_modes_work() {
 }
 
 #[tokio::test]
+async fn account_quota_text_shows_full_for_near_empty_window() {
+    let env = TestEnv::new();
+    add_account(&env, "work", "acct-work");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(
+            // A freshly-reset five-hour window comes back as used_percent: 1,
+            // i.e. percent_left == 99.0; the human-facing text must read 100% left.
+            ResponseTemplate::new(200).set_body_raw(payload(99.0, 65.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    env.cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["--account", "work", "account", "quota"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("100% left"))
+        // The old behavior rendered this near-empty window as "99.0% left";
+        // guard against that regression returning.
+        .stdout(predicate::str::contains("99.0%").not());
+}
+
+#[tokio::test]
 async fn account_quota_live_and_named_account_work() {
     let env = TestEnv::new();
     add_account(&env, "work", "acct-work");

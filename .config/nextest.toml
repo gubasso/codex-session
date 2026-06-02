@@ -44,8 +44,9 @@ failure-output = "immediate-final"
 # binary against a stubbed child is integration, not E2E.
 #
 # Live tests (tests/*_live.rs) are explicitly subtracted via
-# `binary(/live/)` — they hit real endpoints and belong in a separate
-# tier invoked manually via `just test-live`.
+# `binary(/live/)` from this integration pre-push lane. They hit real
+# endpoints and run in the separate `live` profile via the dedicated
+# `cargo-nextest-live` pre-push hook (and `just test-live`).
 #
 # `fail-fast` is off so a single failure does not hide other regressions.
 [profile.pre-push]
@@ -82,9 +83,10 @@ final-status-level = "fail"
 success-output = "never"
 failure-output = "immediate-final"
 
-# Live API tests: hit real endpoints (WHAM usage, etc.). Selected by
-# binary name convention: any test binary matching /live/. Never runs
-# in git hooks — the pre-push profile explicitly subtracts binary(/live/).
+# Live API tests: hit real endpoints (WHAM usage, exec JSON schema, etc.).
+# Selected by binary name convention: any test binary matching /live/.
+# This profile is selected by the dedicated `cargo-nextest-live`
+# pre-push hook and by `just test-live`.
 #
 # Requires: real OAuth credentials in the account registry + network.
 # Invoke: CODEX_SESSION_LIVE_TESTS=1 just test-live

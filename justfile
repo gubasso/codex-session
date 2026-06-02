@@ -83,13 +83,10 @@ test-integration:
 # require real credentials + network; run `just test-live` separately.
 test: test-unit test-integration
 
-# Live API tests — hit real endpoints (WHAM usage). Requires real OAuth
-# credentials + network. NOT a git hook — binary(/live/) is explicitly
-# excluded from the pre-push nextest profile. Calls cargo nextest directly
-# (no pre-commit hook exists for this tier).
-# See: .config/nextest.toml [profile.live], docs/wham-usage-api-spec.md §7.
+# Live API tests — hit real endpoints. Requires real OAuth credentials +
+# network. Delegates to the SoT pre-commit hook (pre-push stage).
 test-live:
-    CODEX_SESSION_LIVE_TESTS=1 cargo nextest run --profile live --all-features
+    pre-commit run --all-files --hook-stage pre-push cargo-nextest-live
 
 # Aggregate gate: lint + all tests. What contributors run before pushing.
 check: lint test

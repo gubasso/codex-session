@@ -1,0 +1,7 @@
+# Rounds for this plan, in execution order. status: backlog | todo | doing | done
+rounds:
+  - item: soft-gate-and-quota-messaging
+    status: done
+    depends_on: []
+    prompt: /prex -ar .plan/quota-soft-gate-and-messaging/soft-gate-and-quota-messaging.md
+    notes: Soft-penalty selection + exhaustion messaging.

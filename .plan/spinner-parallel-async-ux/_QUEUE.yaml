@@ -1,0 +1,22 @@
+# Rounds for this plan, in execution order. status: backlog | todo | doing | done
+rounds:
+  - item: async-runtime-migration
+    status: done
+    depends_on: []
+    prompt: /prex -ar .plan/spinner-parallel-async-ux/async-runtime-migration.md
+    notes: tokio runtime + runtime::block_on sync->async bridge.
+  - item: spinner-parallel-health-quota
+    status: done
+    depends_on: [async-runtime-migration]
+    prompt: /prex -ar .plan/spinner-parallel-async-ux/spinner-parallel-health-quota.md
+    notes: indicatif spinners + parallel health/quota.
+  - item: doctor-refresh-add-polish
+    status: done
+    depends_on: [spinner-parallel-health-quota]
+    prompt: /prex -ar .plan/spinner-parallel-async-ux/doctor-refresh-add-polish.md
+    notes: doctor / account refresh / account add spinner polish.
+  - item: health-probe-auth-source-authority
+    status: done
+    depends_on: [doctor-refresh-add-polish]
+    prompt: /prex -ar .plan/spinner-parallel-async-ux/health-probe-auth-source-authority.md
+    notes: Probe quota-resolved auth; fix stale-seed false negative.

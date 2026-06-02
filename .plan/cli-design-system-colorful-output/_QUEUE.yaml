@@ -1,0 +1,17 @@
+# Rounds for this plan, in execution order. status: backlog | todo | doing | done
+rounds:
+  - item: design-system-spec
+    status: done
+    depends_on: []
+    prompt: /prex -ar .plan/cli-design-system-colorful-output/design-system-spec.md
+    notes: CLI design-system spec (source of truth for renderers).
+  - item: foundations-and-account-commands
+    status: done
+    depends_on: [design-system-spec]
+    prompt: /prex -ar .plan/cli-design-system-colorful-output/foundations-and-account-commands.md
+    notes: Ui foundations + account command renderers.
+  - item: doctor-config-config_recipe-errors
+    status: done
+    depends_on: [foundations-and-account-commands]
+    prompt: /prex -ar .plan/cli-design-system-colorful-output/doctor-config-config_recipe-errors.md
+    notes: doctor/config/config_recipe + error rendering.

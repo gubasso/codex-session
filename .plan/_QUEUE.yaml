@@ -1,0 +1,90 @@
+# Source of truth for the .plan/ queue. Status & order live HERE, not in paths.
+#
+# Each entry:
+#   item       dir name (multi-round plan) OR "<slug>.md" (single-file plan)
+#   status     backlog | todo | doing | done
+#   depends_on list of other `item`s that must be `done` first ([] = none)
+#   prompt     exact command to execute this plan
+#   notes      free-form context
+#
+# Order: active items appear first, by execution priority; done items last.
+# Multi-round plans run via their inner _QUEUE.yaml — `@.plan/<slug>/` makes the
+# executor read that inner queue and run the first `todo` round, then stop.
+
+plans:
+  # ---- active ----
+  - item: done-plans-fidelity-cleanup
+    status: todo
+    depends_on: []
+    prompt: /prex -ar @.plan/done-plans-fidelity-cleanup/
+    notes: >-
+      NEXT to execute. Round 01 closes in-repo fidelity gaps found reviewing the
+      done plans; round 02 is a read-only cross-repo audit. Touches the other
+      plans' _README.md files (divergence addenda).
+  - item: account-quota-percent-display
+    status: todo
+    depends_on: []
+    prompt: /prex -ar @.plan/account-quota-percent-display/
+    notes: Display-layer fix so freshly-reset quota windows read 100% left.
+  - item: account-quota-aggregate-totals
+    status: todo
+    depends_on: []
+    prompt: /prex -ar @.plan/account-quota-aggregate-totals/
+    notes: >-
+      Pool-wide TOTAL panel + 5-hour label rename + JSON wrapper. Shares the
+      `account quota` render surface (src/ui/mod.rs) with
+      account-quota-percent-display; no hard ordering, but expect to reconcile.
+  - item: interactive-tui-passthrough-stdio
+    status: todo
+    depends_on: []
+    prompt: /prex -ar @.plan/interactive-tui-passthrough-stdio/
+    notes: Inherit stdio for interactive codex TUI passthrough (auto + resume).
+
+  # ---- backlog (single-file notes, not yet round-split) ----
+  - item: full-prex-review-against-canonical.md
+    status: backlog
+    depends_on: []
+    prompt: /prex -ar .plan/full-prex-review-against-canonical.md
+    notes: Loose note — full review of the repo against canonical CLI/Rust specs.
+  - item: cli-user-guide.md
+    status: backlog
+    depends_on: []
+    prompt: /prex -ar .plan/cli-user-guide.md
+    notes: Multi-file user guide under docs/guide/. Not yet round-split.
+
+  # ---- done ----
+  - item: account-auto-default-selection
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/account-auto-default-selection/
+    notes: Quota-aware auto-selection engine + cleanup + docs sweep.
+  - item: cli-design-system-colorful-output
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/cli-design-system-colorful-output/
+    notes: CLI design system + colorful output across commands.
+  - item: spinner-parallel-async-ux
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/spinner-parallel-async-ux/
+    notes: Async runtime, indicatif spinners, parallel health/quota.
+  - item: quota-soft-gate-and-messaging
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/quota-soft-gate-and-messaging/
+    notes: Soft-penalty selection + exhaustion messaging.
+  - item: doctor-refactor-completeness-ux
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/doctor-refactor-completeness-ux/
+    notes: Doctor checks/report model + grouped rendering.
+  - item: configs-rename-split-profiles
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/configs-rename-split-profiles/
+    notes: settings->configs rename, sibling profiles/, codex compat.
+  - item: prex-sandbox-fix-tmpdir-migration
+    status: done
+    depends_on: []
+    prompt: /prex -ar @.plan/prex-sandbox-fix-tmpdir-migration/
+    notes: prex sandbox fix + tmpdir migration (mostly cross-repo).

@@ -13,3 +13,7 @@ a738da8a2a8a7c4f15e3d2e4a7778d2c38d95dee:src/services/account/selector.rs:jwt:58
 4780a9f1109b6165df274929a3eac0a5ae6a5fb6:tests/account_selector_expired_token.rs:jwt:41
 4780a9f1109b6165df274929a3eac0a5ae6a5fb6:tests/account_selector_expired_token.rs:jwt:45
 37b7cc06e51d735d73015dfe4033c5ace3065300:tests/account_health_cli.rs:jwt:10
+cacbe20d537fb980e76693d926657cbe43458e8d:tests/account_health_refresh_race.rs:jwt:15
+055840895ec67b3d386356cf7ce11828d57ad9bb:tests/support/mod.rs:jwt:18
+fa16368f664165714f9e26c3bd8c73407b0090e3:tests/account_health_refresh_race.rs:jwt:12
+fa16368f664165714f9e26c3bd8c73407b0090e3:tests/account_health_refresh_race.rs:jwt:13

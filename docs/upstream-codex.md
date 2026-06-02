@@ -141,9 +141,8 @@ catalog default.
   `Last verified`: 2026-05-28.
 - **Implementation note (round-04 contract):**
   The heartbeat probe in `src/services/account/gate.rs` calls codex with
-  `--profile ping` and an isolated `CODEX_HOME`. As of round 03 of the
-  `configs-rename-split-profiles` plan, the probe `CODEX_HOME` contains a
-  base `config.toml` plus a sibling `ping.config.toml` copied 1:1 from
+  `--profile ping` and an isolated `CODEX_HOME`. The probe `CODEX_HOME` contains
+  a base `config.toml` plus a sibling `ping.config.toml` copied 1:1 from
   `profiles/ping.config.toml`. codex-session itself never injects `--profile`
   for user-facing exec calls.
 

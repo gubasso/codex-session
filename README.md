@@ -96,10 +96,7 @@ layered on top, never instead of:
 
 - The emitted `config.toml` matches upstream codex's expected base config —
   it MUST contain no legacy `profile = "..."` selector and no `[profiles.*]`
-  tables (rejected by codex v0.134+). The composer enforcement that
-  guarantees this lands in the later rounds of
-  `.plan/configs-rename-split-profiles/`; the first round codifies the
-  contract.
+  tables (rejected by codex v0.134+). The composer enforces this guarantee.
 - Profile overrides emit as sibling `<name>.config.toml` files, selected by
   `codex --profile <name>` at invocation time.
 - The wrapper never injects `--profile` for user-facing pass-through calls.

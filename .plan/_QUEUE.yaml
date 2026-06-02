@@ -13,14 +13,6 @@
 
 plans:
   # ---- active ----
-  - item: done-plans-fidelity-cleanup
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/done-plans-fidelity-cleanup/
-    notes: >-
-      NEXT to execute. Round 01 closes in-repo fidelity gaps found reviewing the
-      done plans; round 02 is a read-only cross-repo audit. Touches the other
-      plans' _README.md files (divergence addenda).
   - item: account-quota-percent-display
     status: todo
     depends_on: []
@@ -51,40 +43,3 @@ plans:
     depends_on: []
     prompt: /prex -ar .plan/cli-user-guide.md
     notes: Multi-file user guide under docs/guide/. Not yet round-split.
-
-  # ---- done ----
-  - item: account-auto-default-selection
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/account-auto-default-selection/
-    notes: Quota-aware auto-selection engine + cleanup + docs sweep.
-  - item: cli-design-system-colorful-output
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/cli-design-system-colorful-output/
-    notes: CLI design system + colorful output across commands.
-  - item: spinner-parallel-async-ux
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/spinner-parallel-async-ux/
-    notes: Async runtime, indicatif spinners, parallel health/quota.
-  - item: quota-soft-gate-and-messaging
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/quota-soft-gate-and-messaging/
-    notes: Soft-penalty selection + exhaustion messaging.
-  - item: doctor-refactor-completeness-ux
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/doctor-refactor-completeness-ux/
-    notes: Doctor checks/report model + grouped rendering.
-  - item: configs-rename-split-profiles
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/configs-rename-split-profiles/
-    notes: settings->configs rename, sibling profiles/, codex compat.
-  - item: prex-sandbox-fix-tmpdir-migration
-    status: done
-    depends_on: []
-    prompt: /prex -ar @.plan/prex-sandbox-fix-tmpdir-migration/
-    notes: prex sandbox fix + tmpdir migration (mostly cross-repo).

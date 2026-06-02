@@ -14,7 +14,7 @@
 plans:
   # ---- active ----
   - item: account-quota-aggregate-totals
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar @.plan/account-quota-aggregate-totals/
     notes: >-
@@ -33,6 +33,18 @@ plans:
       exhaustion), and add a general verbose+log handler for unmodeled errors.
       3 rounds (live-test+gate-wiring → reader/classification → behavior).
       Touches the failover/cooldown engine in src/services/account/.
+  - item: resume-account-mismatch-guidance
+    status: todo
+    depends_on: [codex-error-classification-cooldown]
+    prompt: /prex -ar @.plan/resume-account-mismatch-guidance/
+    notes: >-
+      Fix the opaque `-32600 no rollout found` on `resume <ID>` index misses:
+      discover the owning account on disk + auto-pin and warn (resume just
+      works), emit a ResumeOwnerMissing error with recent-thread candidates when
+      truly missing, and classify a post-exec -32600 (sandbox-mismatch vs
+      deleted rollout). Updates docs/upstream-codex.md F14/F16 and the prex
+      skill (~/.dotfiles) to pin --account across stages. 1 round (M). Runs
+      after codex-error-classification-cooldown (reuses its general error UX).
   - item: interactive-tui-passthrough-stdio
     status: todo
     depends_on: []

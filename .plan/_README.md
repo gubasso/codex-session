@@ -22,16 +22,19 @@ number prefixes**. A plan's lifecycle state is its `status` field, not its path.
 
 ## The queues are the source of truth
 
-- **`.plan/_QUEUE.yaml`** lists every plan (full ledger, including completed
-  ones). Each entry has: `item`, `status`, `depends_on`, `prompt`, `notes`.
+- **`.plan/_QUEUE.yaml`** lists every active and recently-completed plan. Each
+  entry has: `item`, `status`, `depends_on`, `prompt`, `notes`. It is not a
+  permanent ledger: a `done` plan stays only until its post-completion review
+  passes, then it is pruned (see "Retiring done plans" below).
 - Each multi-round plan dir has its own **`_QUEUE.yaml`** listing its `rounds`
   in execution order, with the same fields.
 
 `status` is one of: `backlog | todo | doing | done`.
 
 Order in `_QUEUE.yaml` reflects execution priority: active items first
-(`doing`/`todo`), then `backlog`, then `done`. Re-order entries freely to
-re-prioritize — there are no filenames to rename.
+(`doing`/`todo`), then `backlog`. Re-order entries freely to re-prioritize —
+there are no filenames to rename. (`done` plans awaiting their review pass sit
+last, until retired per "Retiring done plans".)
 
 ## Executing a plan
 
@@ -46,8 +49,22 @@ Each entry carries a `prompt` — the exact command to run it:
 
 When a round finishes, set that round's `status: done` in the plan's inner
 `_QUEUE.yaml`. When all rounds are done, set the plan's `status: done` in the
-top-level `.plan/_QUEUE.yaml`. Nothing moves on disk — the plan dir stays put;
-only the `status` fields change.
+top-level `.plan/_QUEUE.yaml`. Nothing moves on disk yet — the plan dir stays
+put; only the `status` fields change.
+
+## Retiring done plans
+
+A `done` plan is **kept on disk** (dir + queue entry) so it can be audited. It
+is retired only after a review round confirms the implementation actually landed
+correctly — i.e. a verification pass over the done tasks. Once that review
+passes:
+
+1. Delete the plan's directory (or, for a single-file plan, its `.md`).
+2. Remove its entry from `.plan/_QUEUE.yaml`.
+
+After retirement the queue holds only active (`doing`/`todo`) and `backlog`
+plans; there is no lingering `done` block. Reorder the remaining entries so the
+next `todo` sits at the top.
 
 ## Authoring new plans
 

@@ -1,7 +1,7 @@
 # Doctor Refactor: Full Completeness & Beautiful UX
 
 > Complexity: L (override) | Rounds: 2 | Generated: 2026-05-27 | Updated: 2026-06-02 |
-> Executor: prex (EF 1.5) | Repo: /workspaces/codex-session | Status: todo
+> Executor: prex (EF 1.5) | Repo: /workspaces/codex-session | Status: done
 
 ## Hard Dependencies — SATISFIED
 
@@ -65,10 +65,10 @@ The work splits into two rounds along a data→presentation seam:
 
 ## Execution Order
 
-| Round | File                              | Topic                             | Status | Completed |
-| ----- | --------------------------------- | --------------------------------- | ------ | --------- |
-| 01    | `01-checks-and-report-model.md`   | New checks + grouped report model | todo   | --        |
-| 02    | `02-beautiful-rendering-tests.md` | UX rendering + full test suite    | todo   | --        |
+| Round | File                              | Topic                             | Status | Completed  |
+| ----- | --------------------------------- | --------------------------------- | ------ | ---------- |
+| 01    | `01-checks-and-report-model.md`   | New checks + grouped report model | done   | 2026-06-02 |
+| 02    | `02-beautiful-rendering-tests.md` | UX rendering + full test suite    | done   | 2026-06-02 |
 
 ## Execution Commands
 

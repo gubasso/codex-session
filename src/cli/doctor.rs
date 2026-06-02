@@ -15,4 +15,9 @@ pub(crate) struct DoctorArgs {
     /// key suffix: `*_TOKEN`, `*_SECRET`, `*_KEY`, `*_PASSWORD`).
     #[arg(long)]
     pub(crate) show_env: bool,
+
+    /// Run network-dependent checks (token probe, quota connectivity) in parallel.
+    /// Without this flag, doctor performs only fast local checks.
+    #[arg(long)]
+    pub(crate) online: bool,
 }

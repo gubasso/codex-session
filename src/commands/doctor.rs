@@ -33,6 +33,20 @@ pub(crate) struct CheckResult {
     pub(crate) detail: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct CheckGroup {
+    pub(crate) name: String,
+    pub(crate) checks: Vec<CheckResult>,
+}
+
+const GROUP_ENVIRONMENT: &str = "environment";
+const GROUP_ACCOUNTS: &str = "accounts";
+const GROUP_CONFIG_RECIPE: &str = "config-recipe";
+const GROUP_SESSION: &str = "session";
+const GROUP_AUTH: &str = "auth";
+const GROUP_ONLINE: &str = "online";
+
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) struct CheckSummary {
@@ -52,7 +66,7 @@ pub(crate) struct DoctorReport {
     pub(crate) codex_home: Utf8PathBuf,
     pub(crate) accounts: Vec<DoctorAccountEntry>,
     pub(crate) active_account: DoctorActiveAccount,
-    pub(crate) checks: Vec<CheckResult>,
+    pub(crate) groups: Vec<CheckGroup>,
     pub(crate) summary: CheckSummary,
     pub(crate) next_steps: Vec<String>,
     /// Per-config-recipe merged env, keyed by config-recipe name. Empty unless
@@ -104,7 +118,12 @@ fn build_report(
     args: crate::cli::doctor::DoctorArgs,
     progress: Option<&SpinnerHandle>,
 ) -> DoctorReport {
-    let mut checks: Vec<CheckResult> = Vec::new();
+    let mut environment_checks: Vec<CheckResult> = Vec::new();
+    let mut account_checks: Vec<CheckResult> = Vec::new();
+    let mut config_recipe_checks: Vec<CheckResult> = Vec::new();
+    let mut session_checks: Vec<CheckResult> = Vec::new();
+    let mut auth_checks: Vec<CheckResult> = Vec::new();
+    let mut online_checks: Vec<CheckResult> = Vec::new();
     let mut next_steps: Vec<String> = Vec::new();
     let mut env_dump: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     set_progress(progress, "Inspecting session root...");
@@ -116,7 +135,7 @@ fn build_report(
     set_progress(progress, "Resolving account...");
     let display_account_result = crate::services::account::resolver::resolve_for_display(ctx);
     if let Err(err) = &display_account_result {
-        checks.push(fail("session.account", err.to_string()));
+        session_checks.push(fail("session.account", err.to_string()));
     }
     let (resolved_account, account_name, account_source) = display_account_result.map_or_else(
         |_| (None, "(unresolved)".to_owned(), "error".to_owned()),
@@ -177,7 +196,7 @@ fn build_report(
             Utf8PathBuf::new(),
         ),
         (Err(err), _, _) => {
-            checks.push(fail("session.group_id", err.to_string()));
+            session_checks.push(fail("session.group_id", err.to_string()));
             (
                 "(unresolved)".to_owned(),
                 "error".to_owned(),
@@ -199,7 +218,7 @@ fn build_report(
                 let cd = match crate::services::account::cooldown::read(&entry.dir) {
                     Ok(cd) => cd,
                     Err(err) => {
-                        checks.push(warn(
+                        account_checks.push(warn(
                             format!("account.{}.cooldown.read", entry.id),
                             err.to_string(),
                         ));
@@ -226,24 +245,24 @@ fn build_report(
             accs
         }
         Err(err) => {
-            checks.push(fail("accounts.registry", err.to_string()));
+            account_checks.push(fail("accounts.registry", err.to_string()));
             Vec::new()
         }
     };
     let active_name = resolved_account.as_ref().map(|a| a.id.as_str());
-    checks.extend(check_account_health(&accounts, active_name));
+    account_checks.extend(check_account_health(&accounts, active_name));
 
     // 1. Active config-recipe resolution + source.
     set_progress(progress, "Checking active config recipe...");
     let active = ctx.config.config_recipe.active.clone();
-    checks.push(check_active_config_recipe(ctx, active.as_deref()));
+    config_recipe_checks.push(check_active_config_recipe(ctx, active.as_deref()));
 
     // 2-8. Per-config-recipe checks: manifest, layers, composition, env extraction.
     set_progress(progress, "Checking config recipes...");
     if args.all_config_recipes {
         match discover_recipes(&ctx.config.config_recipe.recipes_dir) {
             DiscoveredRecipes::Found(recipes) if recipes.is_empty() => {
-                checks.push(warn(
+                config_recipe_checks.push(warn(
                     "config-recipes.all",
                     format!(
                         "no config-recipe manifests found in {}",
@@ -257,11 +276,17 @@ fn build_report(
             }
             DiscoveredRecipes::Found(recipes) => {
                 for name in &recipes {
-                    check_one_recipe(ctx, name, &mut checks, &mut env_dump, args.show_env);
+                    check_one_recipe(
+                        ctx,
+                        name,
+                        &mut config_recipe_checks,
+                        &mut env_dump,
+                        args.show_env,
+                    );
                 }
             }
             DiscoveredRecipes::NotFound => {
-                checks.push(warn(
+                config_recipe_checks.push(warn(
                     "config-recipes.all",
                     format!(
                         "config-recipes directory does not exist: {}",
@@ -274,7 +299,7 @@ fn build_report(
                 ));
             }
             DiscoveredRecipes::Unreadable(reason) => {
-                checks.push(fail(
+                config_recipe_checks.push(fail(
                     "config-recipes.all",
                     format!(
                         "could not read config-recipes directory {}: {reason}",
@@ -284,46 +309,78 @@ fn build_report(
             }
         }
     } else if let Some(name) = active.as_deref() {
-        check_one_recipe(ctx, name, &mut checks, &mut env_dump, args.show_env);
+        check_one_recipe(
+            ctx,
+            name,
+            &mut config_recipe_checks,
+            &mut env_dump,
+            args.show_env,
+        );
     } else {
         next_steps.push(format!(
             "create a manifest at {}/default.yaml or pass --config-recipe NAME",
             ctx.config.config_recipe.recipes_dir
         ));
     }
+    config_recipe_checks.push(check_ping_config(ctx));
 
     // 9. Orphan config layers.
     set_progress(progress, "Checking config layers...");
-    checks.push(check_orphan_layers(ctx));
+    config_recipe_checks.push(check_orphan_layers(ctx));
     set_progress(progress, "Checking legacy profile forms...");
-    checks.extend(check_legacy_profile_forms(ctx));
+    config_recipe_checks.extend(check_legacy_profile_forms(ctx));
 
     // 11. XDG paths.
     set_progress(progress, "Checking XDG paths...");
-    checks.push(check_xdg_paths());
+    environment_checks.push(check_xdg_paths());
 
     // 12. Session root.
     set_progress(progress, "Checking session root...");
-    checks.push(check_session_root(ctx));
+    session_checks.push(check_session_root(ctx));
+    set_progress(progress, "Checking trust cache...");
+    session_checks.push(check_trust_cache(ctx));
+    set_progress(progress, "Checking session permissions...");
+    session_checks.push(check_session_permissions(ctx));
 
     // 13. Child binary.
     set_progress(progress, "Checking codex binary...");
-    checks.push(check_child_binary(ctx));
+    environment_checks.push(check_child_binary(ctx));
     set_progress(progress, "Checking codex version...");
-    checks.push(check_codex_version_minimum(ctx));
+    environment_checks.push(check_codex_version_minimum(ctx));
 
     // 14. Session sidecar inventory.
     set_progress(progress, "Checking session inventory...");
-    checks.push(check_session_inventory(ctx));
+    session_checks.push(check_session_inventory(ctx));
 
     // 15. Native auth bridge health.
     set_progress(progress, "Checking native auth...");
-    checks.push(check_auth_native(ctx));
+    auth_checks.push(check_auth_native(ctx));
+
+    if args.online
+        && let Some(account) = resolved_account.as_ref()
+    {
+        set_progress(progress, "Probing token + quota (parallel)...");
+        let [token_check, quota_check] =
+            crate::runtime::block_on(run_online_checks(ctx, &account.id));
+        online_checks.push(token_check);
+        online_checks.push(quota_check);
+    }
 
     set_progress(progress, "Summarizing checks...");
-    populate_next_steps(&checks, &mut next_steps);
+    let mut groups = Vec::new();
+    push_group(&mut groups, GROUP_ENVIRONMENT, environment_checks);
+    push_group(&mut groups, GROUP_ACCOUNTS, account_checks);
+    push_group(&mut groups, GROUP_CONFIG_RECIPE, config_recipe_checks);
+    push_group(&mut groups, GROUP_SESSION, session_checks);
+    push_group(&mut groups, GROUP_AUTH, auth_checks);
+    push_group(&mut groups, GROUP_ONLINE, online_checks);
 
-    let summary = summarize(&checks);
+    populate_next_steps(
+        groups.iter().flat_map(|group| group.checks.iter()),
+        &mut next_steps,
+    );
+
+    let summary = summarize(groups.iter().flat_map(|group| group.checks.iter()));
     DoctorReport {
         config_recipe: active,
         account: account_name.clone(),
@@ -336,10 +393,19 @@ fn build_report(
             name: account_name,
             source: account_source,
         },
-        checks,
+        groups,
         summary,
         next_steps,
         env: env_dump,
+    }
+}
+
+fn push_group(groups: &mut Vec<CheckGroup>, name: &str, checks: Vec<CheckResult>) {
+    if !checks.is_empty() {
+        groups.push(CheckGroup {
+            name: name.to_owned(),
+            checks,
+        });
     }
 }
 
@@ -510,6 +576,19 @@ fn check_active_config_recipe(
     };
     let source = active_config_recipe_source(ctx, name);
     ok("config-recipe.active", format!("{name} (source: {source})"))
+}
+
+fn check_ping_config(ctx: &crate::context::AppContext) -> CheckResult {
+    match crate::services::account::gate::validate_ping_config_recipe(ctx) {
+        Ok(()) => ok(
+            "config-recipe.ping-profile",
+            "ping profile composes (token probe enabled)",
+        ),
+        Err(err) => warn(
+            "config-recipe.ping-profile",
+            format!("ping profile unavailable: {err}"),
+        ),
+    }
 }
 
 fn active_config_recipe_source(ctx: &crate::context::AppContext, name: &str) -> &'static str {
@@ -886,6 +965,123 @@ fn check_session_root(ctx: &crate::context::AppContext) -> CheckResult {
     }
 }
 
+fn check_trust_cache(ctx: &crate::context::AppContext) -> CheckResult {
+    let cache_path = ctx.config.paths.cache_dir.join("configs.toml");
+    let lock_path = ctx.config.paths.cache_dir.join(".configs.toml.lock");
+
+    match std::fs::symlink_metadata(cache_path.as_std_path()) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return ok("session.trust-cache", "no cache yet (fresh install)");
+        }
+        Err(err) => {
+            return fail(
+                "session.trust-cache",
+                format!("cannot stat {cache_path}: {err}"),
+            );
+        }
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return fail("session.trust-cache", format!("{cache_path} is a symlink"));
+        }
+        Ok(meta) if !meta.is_file() => {
+            return fail(
+                "session.trust-cache",
+                format!("{cache_path} is not a regular file"),
+            );
+        }
+        Ok(_) => {}
+    }
+    match std::fs::read_to_string(cache_path.as_std_path()) {
+        Err(err) => {
+            return fail(
+                "session.trust-cache",
+                format!("cannot read {cache_path}: {err}"),
+            );
+        }
+        Ok(contents) if contents.parse::<toml::Table>().is_err() => {
+            return fail(
+                "session.trust-cache",
+                format!("{cache_path} is not valid TOML"),
+            );
+        }
+        Ok(_) => {}
+    }
+    if let Ok(lock_meta) = std::fs::metadata(lock_path.as_std_path())
+        && let Ok(modified) = lock_meta.modified()
+        && let Ok(age) = std::time::SystemTime::now().duration_since(modified)
+        && age > std::time::Duration::from_secs(60)
+    {
+        return warn(
+            "session.trust-cache",
+            format!("{lock_path} is stale ({}s old)", age.as_secs()),
+        );
+    }
+    ok("session.trust-cache", format!("{cache_path} OK"))
+}
+
+fn check_session_permissions(ctx: &crate::context::AppContext) -> CheckResult {
+    let Ok(inspected) = crate::services::session::dir::inspect_session_root(
+        ctx.config.paths.runtime_dir.as_deref(),
+        &ctx.config.paths.state_dir,
+    ) else {
+        return ok("session.permissions", "session root unresolved — skipped");
+    };
+    if inspected.root_missing {
+        return ok(
+            "session.permissions",
+            "session root not yet initialized — skipped",
+        );
+    }
+    let mut problems: Vec<String> = Vec::new();
+    check_dir_mode(&inspected.root.path, &mut problems);
+    let accounts_dir = inspected.root.path.join("accounts");
+    if accounts_dir.is_dir() {
+        check_dir_mode(&accounts_dir, &mut problems);
+    }
+    if problems.is_empty() {
+        ok(
+            "session.permissions",
+            "session directories have correct ownership and mode",
+        )
+    } else {
+        warn("session.permissions", problems.join("; "))
+    }
+}
+
+fn check_dir_mode(path: &camino::Utf8Path, problems: &mut Vec<String>) {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let meta = match std::fs::symlink_metadata(path.as_std_path()) {
+        Ok(meta) => meta,
+        Err(err) => {
+            problems.push(format!("{path}: cannot stat ({err})"));
+            return;
+        }
+    };
+    if meta.file_type().is_symlink() {
+        problems.push(format!("{path} is a symlink"));
+        return;
+    }
+    if !meta.is_dir() {
+        problems.push(format!("{path} is not a directory"));
+        return;
+    }
+    if meta.uid() != current_uid() {
+        problems.push(format!(
+            "{path} owned by uid {}, expected {}",
+            meta.uid(),
+            current_uid(),
+        ));
+    }
+    let mode = meta.permissions().mode() & 0o777;
+    if mode != 0o700 {
+        problems.push(format!("{path} mode is {mode:#o}, expected 0o700"));
+    }
+}
+
+fn current_uid() -> u32 {
+    rustix::process::getuid().as_raw()
+}
+
 const fn group_id_source_label(
     source: crate::services::session::group_id::GroupIdSource,
 ) -> &'static str {
@@ -1132,6 +1328,49 @@ fn check_auth_native(ctx: &crate::context::AppContext) -> CheckResult {
     }
 }
 
+async fn run_online_checks(
+    ctx: &crate::context::AppContext,
+    account: &crate::services::account::id::AccountId,
+) -> [CheckResult; 2] {
+    // Concurrent probe + quota refresh, sharing `account health`'s single-use
+    // refresh-token race mitigation (see services::account::online_probe): the
+    // seed is refreshed once up-front when expired, and the probe is re-run
+    // against the quota-rotated auth file if quota's live refresh rotated the
+    // token. This matters because the probe itself DOES persist a rotation
+    // (gate::heartbeat_probe → persist_probe_rotation), so without the mitigation
+    // doctor --online could re-orphan a single-use refresh token.
+    let (probe, quota) =
+        crate::services::account::online_probe::probe_and_quota(ctx, account).await;
+
+    let token_check = match probe {
+        Ok((Some(true), detail)) => ok("online.token-probe", format!("token valid: {detail}")),
+        Ok((Some(false), detail)) => fail(
+            "online.token-probe",
+            format!("token rejected (401): {detail}"),
+        ),
+        Ok((None, detail)) => warn(
+            "online.token-probe",
+            format!("probe inconclusive: {detail}"),
+        ),
+        Err(err) => warn("online.token-probe", format!("probe failed: {err}")),
+    };
+    let quota_check = match quota {
+        Ok(crate::services::account::quota::QuotaResult::Ok(_)) => {
+            ok("online.quota-api", "quota API reachable")
+        }
+        // API-key auth skips the WHAM request entirely (quota::refresh returns
+        // ApiKeyMode without contacting the endpoint), so we cannot claim the
+        // quota API was reached — report it as not applicable instead of a
+        // false-positive "reachable".
+        Ok(crate::services::account::quota::QuotaResult::ApiKeyMode) => warn(
+            "online.quota-api",
+            "quota unavailable in API-key mode (no quota request made)",
+        ),
+        Err(err) => warn("online.quota-api", format!("quota fetch failed: {err}")),
+    };
+    [token_check, quota_check]
+}
+
 fn dir_size(path: &std::path::Path) -> u64 {
     let mut total: u64 = 0;
     let Ok(entries) = std::fs::read_dir(path) else {
@@ -1197,12 +1436,24 @@ fn cache_config_path(ctx: &crate::context::AppContext) -> Option<Utf8PathBuf> {
     path.is_file().then_some(path)
 }
 
-fn populate_next_steps(checks: &[CheckResult], next_steps: &mut Vec<String>) {
-    for check in checks.iter().filter(|c| c.status == CheckStatus::Fail) {
+fn populate_next_steps<'a>(
+    checks: impl IntoIterator<Item = &'a CheckResult>,
+    next_steps: &mut Vec<String>,
+) {
+    let checks: Vec<&CheckResult> = checks.into_iter().collect();
+    for check in checks
+        .iter()
+        .copied()
+        .filter(|c| c.status == CheckStatus::Fail)
+    {
         let hint = hint_for(&check.name);
         next_steps.push(format!("{}: {}", check.name, hint));
     }
-    for check in checks.iter().filter(|c| c.status == CheckStatus::Warn) {
+    for check in checks
+        .iter()
+        .copied()
+        .filter(|c| c.status == CheckStatus::Warn)
+    {
         if is_actionable_warn(&check.name) {
             let hint = hint_for(&check.name);
             next_steps.push(format!("{}: {}", check.name, hint));
@@ -1211,7 +1462,13 @@ fn populate_next_steps(checks: &[CheckResult], next_steps: &mut Vec<String>) {
 }
 
 fn is_actionable_warn(name: &str) -> bool {
-    name == "account.cooldowns"
+    matches!(
+        name,
+        "account.cooldowns"
+            | "config-recipe.ping-profile"
+            | "session.trust-cache"
+            | "online.quota-api"
+    )
 }
 
 fn hint_for(name: &str) -> &'static str {
@@ -1245,6 +1502,16 @@ fn hint_for(name: &str) -> &'static str {
         "wait for cooldown to expire or run `codex-session account cooldown clear --all`"
     } else if name == "session.account" {
         "run `codex-session account add <name>` to register an account, or pass `--account <name>`"
+    } else if name == "config-recipe.ping-profile" {
+        "add a ping profile (profiles/ping.config.toml) to enable token probing"
+    } else if name == "online.token-probe" {
+        "run `codex-session account refresh` to re-authenticate"
+    } else if name == "online.quota-api" {
+        "check network connectivity or API status"
+    } else if name == "session.trust-cache" {
+        "delete the stale lock file or fix the corrupt cache"
+    } else if name == "session.permissions" {
+        "fix directory ownership/permissions: chmod 700"
     } else {
         "see check detail"
     }
@@ -1282,7 +1549,7 @@ fn check_account_health(
     out
 }
 
-fn summarize(checks: &[CheckResult]) -> CheckSummary {
+fn summarize<'a>(checks: impl IntoIterator<Item = &'a CheckResult>) -> CheckSummary {
     let mut summary = CheckSummary::default();
     for c in checks {
         match c.status {

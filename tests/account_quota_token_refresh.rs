@@ -123,7 +123,8 @@ async fn quota_retries_on_401_after_successful_refresh() {
         .clone();
 
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["mode"], "oauth");
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["mode"], "oauth");
 
     let requests = server.received_requests().await.unwrap();
     // 1 WHAM (401) + 1 token refresh + 1 WHAM (200) = 3 total

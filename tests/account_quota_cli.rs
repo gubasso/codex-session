@@ -52,7 +52,8 @@ async fn account_quota_text_and_json_modes_work() {
         .success()
         .stdout(predicate::str::contains("work"))
         .stdout(predicate::str::contains("(active)"))
-        .stdout(predicate::str::contains("Five-hour"));
+        .stdout(predicate::str::contains("5-hour"))
+        .stdout(predicate::str::contains("TOTAL").not());
 
     let output = env
         .cmd()
@@ -64,7 +65,9 @@ async fn account_quota_text_and_json_modes_work() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["account"], "work");
+    assert_eq!(value["entries"][0]["account"], "work");
+    assert_eq!(value["entries"].as_array().unwrap().len(), 1);
+    assert!(value["aggregate"].is_null());
 }
 
 #[tokio::test]
@@ -156,12 +159,13 @@ async fn account_quota_all_orders_real_quota_before_api_key() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    let items = value.as_array().unwrap();
+    let items = value["entries"].as_array().unwrap();
     assert_eq!(items.len(), 3);
     assert_eq!(items[0]["account"], "high");
     assert_eq!(items[0]["mode"], "oauth");
     assert_eq!(items[1]["account"], "mid");
     assert_eq!(items[2]["mode"], "api-key");
+    assert_eq!(value["aggregate"]["accounts-counted"], 2);
 }
 
 #[tokio::test]
@@ -217,6 +221,178 @@ async fn account_quota_default_shows_all_accounts_text() {
         .success()
         .stdout(predicate::str::contains("alpha"))
         .stdout(predicate::str::contains("beta"))
-        .stdout(predicate::str::contains("Five-hour"))
-        .stdout(predicate::str::contains("Weekly"));
+        .stdout(predicate::str::contains("5-hour"))
+        .stdout(predicate::str::contains("Weekly"))
+        .stdout(predicate::str::contains("TOTAL (avg across 2 accounts)"));
+}
+
+#[tokio::test]
+async fn account_quota_multi_text_shows_total_panel() {
+    let env = TestEnv::new_empty();
+    add_account(&env, "alpha", "acct-alpha");
+    add_account(&env, "beta", "acct-beta");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-alpha"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(80.0, 95.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-beta"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(30.0, 70.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    env.cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TOTAL (avg across 2 accounts)"))
+        .stdout(predicate::str::contains("  5-hour      "))
+        .stdout(predicate::str::contains("  Weekly      "));
+}
+
+#[tokio::test]
+async fn account_quota_multi_json_wraps_entries_and_aggregate() {
+    let env = TestEnv::new_empty();
+    add_account(&env, "alpha", "acct-alpha");
+    add_account(&env, "beta", "acct-beta");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-alpha"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(80.0, 95.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-beta"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(30.0, 70.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(value["aggregate"]["accounts-counted"], 2);
+    let mean = value["aggregate"]["five-hour"]["percent-left"]
+        .as_f64()
+        .unwrap();
+    assert!((mean - 55.0).abs() < 1e-6);
+}
+
+#[tokio::test]
+async fn account_quota_single_json_has_null_aggregate() {
+    let env = TestEnv::new();
+    add_account(&env, "work", "acct-work");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(73.4, 87.1), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["--account", "work", "account", "quota", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["entries"].as_array().unwrap().len(), 1);
+    assert!(value["aggregate"].is_null());
+}
+
+#[tokio::test]
+async fn account_quota_all_api_key_pool_has_no_aggregate() {
+    let env = TestEnv::new_empty();
+    env.seed_account("alpha", r#"{"OPENAI_API_KEY":"sk-alpha"}"#);
+    env.seed_account("beta", r#"{"OPENAI_API_KEY":"sk-beta"}"#);
+
+    let json_output = env
+        .cmd()
+        .args(["account", "quota", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&json_output).unwrap();
+    assert!(value["aggregate"].is_null());
+
+    env.cmd()
+        .args(["account", "quota"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TOTAL").not());
+}
+
+#[tokio::test]
+async fn account_quota_aggregate_counts_only_oauth_entries() {
+    let env = TestEnv::new_empty();
+    add_account(&env, "alpha", "acct-alpha");
+    add_account(&env, "beta", "acct-beta");
+    add_account(&env, "broken", "acct-broken");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-alpha"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(80.0, 95.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .and(header("ChatGPT-Account-Id", "acct-beta"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(payload(30.0, 70.0), "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["entries"].as_array().unwrap().len(), 3);
+    assert_eq!(value["aggregate"]["accounts-counted"], 2);
+    let mean = value["aggregate"]["weekly"]["percent-left"]
+        .as_f64()
+        .unwrap();
+    assert!((mean - 82.5).abs() < 1e-6);
 }

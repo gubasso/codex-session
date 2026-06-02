@@ -424,8 +424,8 @@ OAuth quota output:
 
 ```text
 #1 12.50 cwnt (active)
-Five-hour   ███████████████░░░░░  75.0% left   resets in 1h 23m
-Weekly      ██████████░░░░░░░░░░  50.0% left   resets in 2d 4h
+5-hour      ███████████████░░░░░  75% left   resets in 1h 23m
+Weekly      ██████████░░░░░░░░░░  50% left   resets in 2d 4h
 2m ago, live
 ```
 
@@ -448,6 +448,30 @@ Error: failed to fetch quota
 Account names use `BOLD`. Rank and score metadata use `DIM`. Active markers use
 `BOLD_CYAN`. Progress bars use the quota thresholds from Section 9. Error text
 uses `RED`.
+
+Pool totals:
+
+```text
+#1 12.50 cwnt (active)
+5-hour      ███████████████░░░░░  75% left   resets in 1h 23m
+Weekly      ██████████░░░░░░░░░░  50% left   resets in 2d 4h
+2m ago, live
+
+#2 11.20 alice
+5-hour      ████████████████░░░░  80% left   resets in 4h 12m
+Weekly      ██████████░░░░░░░░░░  50% left   resets in 2d 4h
+2m ago, live
+
+TOTAL (avg across 2 accounts)
+5-hour      ███████████████░░░░░  78%
+Weekly      ██████████░░░░░░░░░░  50%
+```
+
+The TOTAL panel renders only when at least 2 OAuth accounts contributed. Reset
+countdowns are omitted on aggregate rows by design because resets are
+per-account. The TOTAL header uses `DIM`, and aggregate bars use the same
+`percent_style` thresholds from Section 9 as the per-account rows. Percentages
+render as whole numbers to match the per-account quota rows.
 
 ### `account health`
 

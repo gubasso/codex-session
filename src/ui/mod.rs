@@ -751,7 +751,13 @@ impl Ui {
                     style_close(styles::DIM, c),
                 )
             }
-            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, view),
+            crate::cli::OutputFormat::Json => {
+                let payload = crate::commands::account::AccountQuotaListView {
+                    entries: vec![view.clone()],
+                    aggregate: None,
+                };
+                write_json_line(&mut stdout, &payload)
+            }
         }
     }
 
@@ -759,6 +765,7 @@ impl Ui {
     pub(crate) fn write_account_quota_many(
         &self,
         views: &[crate::commands::account::AccountQuotaEntryView],
+        aggregate: Option<&crate::commands::account::AccountQuotaAggregateView>,
         format: crate::cli::OutputFormat,
         verbose: bool,
     ) -> std::io::Result<()> {
@@ -783,9 +790,19 @@ impl Ui {
                         style_close(styles::DIM, c),
                     )?;
                 }
+                if !verbose && let Some(agg) = aggregate {
+                    writeln!(stdout)?;
+                    write_quota_aggregate_text(&mut stdout, agg, c)?;
+                }
                 Ok(())
             }
-            crate::cli::OutputFormat::Json => write_json_line(&mut stdout, views),
+            crate::cli::OutputFormat::Json => {
+                let payload = crate::commands::account::AccountQuotaListView {
+                    entries: views.to_vec(),
+                    aggregate: aggregate.cloned(),
+                };
+                write_json_line(&mut stdout, &payload)
+            }
         }
     }
 
@@ -1536,7 +1553,7 @@ fn write_quota_entry_text(
                 let ps = percent_style(f64::from(shown));
                 writeln!(
                     stdout,
-                    "  Five-hour   {}  {}{}%{} left   resets in {}",
+                    "  5-hour      {}  {}{}%{} left   resets in {}",
                     quota_bar(f64::from(shown), 20, use_color),
                     style_open(ps, use_color),
                     shown,
@@ -1595,6 +1612,45 @@ fn write_quota_entry_text(
                 style_close(styles::RED, use_color),
             )?;
         }
+    }
+    Ok(())
+}
+
+fn write_quota_aggregate_text(
+    stdout: &mut impl std::io::Write,
+    agg: &crate::commands::account::AccountQuotaAggregateView,
+    use_color: bool,
+) -> std::io::Result<()> {
+    writeln!(
+        stdout,
+        "{}TOTAL (avg across {} accounts){}",
+        style_open(styles::DIM, use_color),
+        agg.accounts_counted,
+        style_close(styles::DIM, use_color),
+    )?;
+    if let Some(ref fh) = agg.five_hour {
+        let shown = display_percent_left(fh.percent_left);
+        let ps = percent_style(f64::from(shown));
+        writeln!(
+            stdout,
+            "  5-hour      {}  {}{}%{}",
+            quota_bar(f64::from(shown), 20, use_color),
+            style_open(ps, use_color),
+            shown,
+            style_close(ps, use_color),
+        )?;
+    }
+    if let Some(ref wk) = agg.weekly {
+        let shown = display_percent_left(wk.percent_left);
+        let ps = percent_style(f64::from(shown));
+        writeln!(
+            stdout,
+            "  Weekly      {}  {}{}%{}",
+            quota_bar(f64::from(shown), 20, use_color),
+            style_open(ps, use_color),
+            shown,
+            style_close(ps, use_color),
+        )?;
     }
     Ok(())
 }

@@ -87,6 +87,27 @@ pub(crate) struct AccountQuotaEntryView {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountQuotaAggregateWindowView {
+    pub(crate) percent_left: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountQuotaAggregateView {
+    pub(crate) accounts_counted: usize,
+    pub(crate) five_hour: Option<AccountQuotaAggregateWindowView>,
+    pub(crate) weekly: Option<AccountQuotaAggregateWindowView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) struct AccountQuotaListView {
+    pub(crate) entries: Vec<AccountQuotaEntryView>,
+    pub(crate) aggregate: Option<AccountQuotaAggregateView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) struct AccountHealthEntryView {
     pub(crate) account: String,
     pub(crate) token: String,

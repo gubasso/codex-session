@@ -50,9 +50,10 @@ async fn parses_rate_limit_shape() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["mode"], "oauth");
-    assert_eq!(value["five-hour"]["percent-left"], 73.4);
-    assert_eq!(value["weekly"]["percent-left"], 87.1);
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["mode"], "oauth");
+    assert_eq!(value["entries"][0]["five-hour"]["percent-left"], 73.4);
+    assert_eq!(value["entries"][0]["weekly"]["percent-left"], 87.1);
 }
 
 #[tokio::test]
@@ -85,8 +86,9 @@ async fn parses_rate_limits_plural_shape() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["five-hour"]["percent-left"], 60.0);
-    assert_eq!(value["weekly"]["percent-left"], 88.0);
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["five-hour"]["percent-left"], 60.0);
+    assert_eq!(value["entries"][0]["weekly"]["percent-left"], 88.0);
 }
 
 #[tokio::test]
@@ -119,8 +121,9 @@ async fn parses_primary_secondary_aliases() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["five-hour"]["percent-left"], 91.0);
-    assert_eq!(value["weekly"]["percent-left"], 42.0);
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["five-hour"]["percent-left"], 91.0);
+    assert_eq!(value["entries"][0]["weekly"]["percent-left"], 42.0);
 }
 
 #[tokio::test]
@@ -161,8 +164,15 @@ async fn prefers_reset_time_ms_over_reset_at() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["five-hour"]["reset-at-unix"], 1_716_393_600u64);
-    assert_eq!(value["weekly"]["reset-at-unix"], 1_716_998_400u64);
+    assert!(value["aggregate"].is_null());
+    assert_eq!(
+        value["entries"][0]["five-hour"]["reset-at-unix"],
+        1_716_393_600u64
+    );
+    assert_eq!(
+        value["entries"][0]["weekly"]["reset-at-unix"],
+        1_716_998_400u64
+    );
 }
 
 #[tokio::test]
@@ -205,16 +215,27 @@ async fn parses_real_api_shape_with_used_percent_and_reset_at_integer() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["mode"], "oauth");
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["mode"], "oauth");
 
-    let five_hour_pct = value["five-hour"]["percent-left"].as_f64().unwrap();
+    let five_hour_pct = value["entries"][0]["five-hour"]["percent-left"]
+        .as_f64()
+        .unwrap();
     assert!((five_hour_pct - 99.0).abs() < 0.01);
 
-    let weekly_pct = value["weekly"]["percent-left"].as_f64().unwrap();
+    let weekly_pct = value["entries"][0]["weekly"]["percent-left"]
+        .as_f64()
+        .unwrap();
     assert!((weekly_pct - 100.0).abs() < 0.01);
 
-    assert_eq!(value["five-hour"]["reset-at-unix"], 1_779_813_200u64);
-    assert_eq!(value["weekly"]["reset-at-unix"], 1_780_400_000u64);
+    assert_eq!(
+        value["entries"][0]["five-hour"]["reset-at-unix"],
+        1_779_813_200u64
+    );
+    assert_eq!(
+        value["entries"][0]["weekly"]["reset-at-unix"],
+        1_780_400_000u64
+    );
 }
 
 #[tokio::test]
@@ -247,14 +268,25 @@ async fn parses_new_primary_secondary_shape() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["mode"], "oauth");
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["mode"], "oauth");
 
-    let five_hour_pct = value["five-hour"]["percent-left"].as_f64().unwrap();
+    let five_hour_pct = value["entries"][0]["five-hour"]["percent-left"]
+        .as_f64()
+        .unwrap();
     assert!((five_hour_pct - 73.4).abs() < 0.01);
 
-    let weekly_pct = value["weekly"]["percent-left"].as_f64().unwrap();
+    let weekly_pct = value["entries"][0]["weekly"]["percent-left"]
+        .as_f64()
+        .unwrap();
     assert!((weekly_pct - 87.1).abs() < 0.01);
 
-    assert_eq!(value["five-hour"]["reset-at-unix"], 1_716_393_600u64);
-    assert_eq!(value["weekly"]["reset-at-unix"], 1_716_998_400u64);
+    assert_eq!(
+        value["entries"][0]["five-hour"]["reset-at-unix"],
+        1_716_393_600u64
+    );
+    assert_eq!(
+        value["entries"][0]["weekly"]["reset-at-unix"],
+        1_716_998_400u64
+    );
 }

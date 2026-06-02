@@ -60,9 +60,15 @@ async fn parses_iso_reset_at_and_tolerates_unknown_keys() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["five-hour"]["percent-left"], 75.0);
-    assert_eq!(value["weekly"]["percent-left"], 65.0);
-    assert!(value["five-hour"]["reset-at-unix"].as_u64().unwrap() > 0);
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["five-hour"]["percent-left"], 75.0);
+    assert_eq!(value["entries"][0]["weekly"]["percent-left"], 65.0);
+    assert!(
+        value["entries"][0]["five-hour"]["reset-at-unix"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
 }
 
 #[tokio::test]
@@ -184,7 +190,10 @@ async fn new_shape_tolerates_extra_fields() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    let five_hour_pct = value["five-hour"]["percent-left"].as_f64().unwrap();
+    assert!(value["aggregate"].is_null());
+    let five_hour_pct = value["entries"][0]["five-hour"]["percent-left"]
+        .as_f64()
+        .unwrap();
     assert!((five_hour_pct - 70.0).abs() < 0.01);
 }
 

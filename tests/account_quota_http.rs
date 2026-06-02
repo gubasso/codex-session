@@ -60,8 +60,9 @@ async fn retries_once_on_5xx_then_success() {
         .clone();
 
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(value["mode"], "oauth");
-    assert_eq!(value["five-hour"]["percent-left"], 73.4);
+    assert!(value["aggregate"].is_null());
+    assert_eq!(value["entries"][0]["mode"], "oauth");
+    assert_eq!(value["entries"][0]["five-hour"]["percent-left"], 73.4);
     assert_eq!(server.received_requests().await.unwrap().len(), 2);
 }
 

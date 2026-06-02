@@ -26,15 +26,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn first_oauth_entry(value: &serde_json::Value) -> serde_json::Value {
-    value.as_array().map_or_else(
-        || value.clone(),
-        |arr| {
-            arr.iter()
-                .find(|e| e["mode"] == "oauth")
-                .expect("no oauth entry in quota array")
-                .clone()
-        },
-    )
+    let entries = value["entries"]
+        .as_array()
+        .expect("quota JSON payload missing entries array");
+    entries
+        .iter()
+        .find(|e| e["mode"] == "oauth")
+        .expect("no oauth entry in quota entries")
+        .clone()
 }
 
 fn live_tests_enabled() -> bool {

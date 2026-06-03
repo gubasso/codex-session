@@ -46,10 +46,18 @@ plans:
       skill (~/.dotfiles) to pin --account across stages. 1 round (M). Runs
       after codex-error-classification-cooldown (reuses its general error UX).
   - item: interactive-tui-passthrough-stdio
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar @.plan/interactive-tui-passthrough-stdio/
     notes: Inherit stdio for interactive codex TUI passthrough (auto + resume).
+  - item: transient-spinner-narration
+    status: todo
+    depends_on: []
+    prompt: /prex -ar @.plan/transient-spinner-narration/
+    notes: >-
+      Make spinner narration fully transient: wipe per-account ✓/✗ marker lines
+      before reports print (account quota/health), finish-and-clear single
+      spinners (doctor, account add/refresh), update style guide §9b. 1 round (S).
 
   # ---- backlog (single-file notes, not yet round-split) ----
   - item: full-prex-review-against-canonical.md

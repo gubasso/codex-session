@@ -164,10 +164,20 @@ exit: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
         eprintln!("[codex-exec-json] rate_limits snapshot: {rl}");
     }
 
+    // `token_count` is NOT guaranteed in exec mode: a successful run may
+    // carry usage only on `turn.completed.usage` and emit no `token_count`
+    // event at all (verified live on codex 0.135.0; see upstream-codex.md
+    // §F9). Accept that shape as an intact schema; only fail when the stream
+    // has none of the recognized terminal signals.
+    let turn_completed_usage = events.iter().any(|e| {
+        e.get("type").and_then(serde_json::Value::as_str) == Some("turn.completed")
+            && e.get("usage").is_some_and(serde_json::Value::is_object)
+    });
     assert!(
-        token_count.is_some() || run_rate_limited,
-        "event stream had neither a `token_count` event nor a recognized \
-rate/usage-limit signal — schema may have drifted.\n\
+        token_count.is_some() || turn_completed_usage || run_rate_limited,
+        "event stream had neither a `token_count` event, a `turn.completed` \
+event with a `usage` object, nor a recognized rate/usage-limit signal — \
+schema may have drifted.\n\
 event types: {types:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
     );
 

@@ -598,7 +598,7 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             why_line: match reason {
                 crate::services::account::error::ResumeNoRolloutReason::SandboxMismatch => {
                     format!(
-                        "owner '{owner}' has rollout locally (sandbox mismatch): {}",
+                        "owner '{owner}' still has the rollout locally (sandbox mismatch): {}",
                         first_line(snippet)
                     )
                 }

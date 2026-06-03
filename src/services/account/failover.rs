@@ -55,6 +55,7 @@ impl ResetSource {
 pub(crate) enum Category {
     RateLimit(RateLimitClass),
     AuthFailure,
+    NoRolloutFound,
     ContextWindowExceeded,
     ServerError,
     Unclassified,
@@ -245,6 +246,15 @@ pub(crate) fn classify(
     }
 
     let Some(text_match) = pick_priority(scan(stderr), scan(stdout)) else {
+        if let Some(snippet) = scan_no_rollout_text(stderr).or_else(|| scan_no_rollout_text(stdout))
+        {
+            return Some(Classification {
+                category: Category::NoRolloutFound,
+                reset_after_seconds: None,
+                reset_source: None,
+                snippet,
+            });
+        }
         if let Some(snippet) =
             scan_usage_limit_text(stderr).or_else(|| scan_usage_limit_text(stdout))
         {
@@ -358,6 +368,15 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         });
     }
 
+    if is_no_rollout_found(turn_error) {
+        return Some(Classification {
+            category: Category::NoRolloutFound,
+            reset_after_seconds,
+            reset_source,
+            snippet,
+        });
+    }
+
     Some(Classification {
         category: Category::Unclassified,
         reset_after_seconds,
@@ -446,6 +465,14 @@ fn is_server_error(turn_error: &TurnError) -> bool {
         || lower.contains("upstream error")
 }
 
+fn is_no_rollout_found(turn_error: &TurnError) -> bool {
+    contains_no_rollout_language(&turn_error.message)
+        || turn_error
+            .error_code
+            .as_deref()
+            .is_some_and(contains_no_rollout_language)
+}
+
 #[allow(dead_code)]
 fn contains_rate_limit_language(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
@@ -488,6 +515,27 @@ fn scan_usage_limit_text(buf: &[u8]) -> Option<String> {
         }
     }
     None
+}
+
+fn scan_no_rollout_text(buf: &[u8]) -> Option<String> {
+    for line in buf.split(|byte| *byte == b'\n') {
+        let line = String::from_utf8_lossy(line);
+        if contains_no_rollout_language(&line) {
+            return Some(truncate_for_debug(&line, 256));
+        }
+    }
+    None
+}
+
+fn contains_no_rollout_language(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("no rollout found")
+        || lower.contains("thread not found")
+        // `-32600` is the generic JSON-RPC "Invalid Request" code; only treat
+        // it as a no-rollout signal alongside resume/thread language so
+        // unrelated invalid-request errors keep their own classification.
+        || (lower.contains("-32600")
+            && (lower.contains("rollout") || lower.contains("thread")))
 }
 
 #[cfg(test)]
@@ -865,6 +913,53 @@ mod tests {
 
         assert_eq!(result.reset_after_seconds, Some(21));
         assert_eq!(result.reset_source, Some(ResetSource::ServerReset));
+    }
+
+    #[test]
+    fn classify_structured_no_rollout_found() {
+        let events = EventSummary {
+            turn_error: Some(TurnError {
+                message: "thread/resume failed: no rollout found for thread id abc (code -32600)"
+                    .to_owned(),
+                error_code: Some("invalid_request".to_owned()),
+                retry_after_seconds: None,
+                http_status: Some(400),
+            }),
+            ..EventSummary::default()
+        };
+
+        let result = classify(&events, b"", b"").unwrap();
+        assert_eq!(result.category, Category::NoRolloutFound);
+    }
+
+    #[test]
+    fn classify_text_thread_not_found_as_no_rollout_found() {
+        let result = classify(&EventSummary::default(), b"", b"thread not found\n").unwrap();
+        assert_eq!(result.category, Category::NoRolloutFound);
+    }
+
+    #[test]
+    fn classify_text_code_minus_32600_with_thread_language_as_no_rollout_found() {
+        let result = classify(
+            &EventSummary::default(),
+            b"",
+            b"thread/resume request failed (code -32600)\n",
+        )
+        .unwrap();
+        assert_eq!(result.category, Category::NoRolloutFound);
+    }
+
+    #[test]
+    fn classify_text_bare_minus_32600_is_not_no_rollout_found() {
+        let result = classify(
+            &EventSummary::default(),
+            b"",
+            b"request failed (code -32600)\n",
+        );
+        assert!(
+            result.is_none_or(|c| c.category != Category::NoRolloutFound),
+            "bare -32600 without rollout/thread language must not classify as NoRolloutFound"
+        );
     }
 
     #[test]

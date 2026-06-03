@@ -192,6 +192,9 @@ impl AppError {
                 crate::services::account::AccountError::NoEligible { .. }
                 | crate::services::account::AccountError::AutoExhausted { .. }
                 | crate::services::account::AccountError::ResumeBlocked { .. }
+                | crate::services::account::AccountError::ResumeOwnerMissing { .. }
+                | crate::services::account::AccountError::ResumeIndexEmpty { .. }
+                | crate::services::account::AccountError::ResumeNoRollout { .. }
                 | crate::services::account::AccountError::LoginFailed { .. }
                 | crate::services::account::AccountError::AuthMissing { .. } => 75,
                 crate::services::account::AccountError::QuotaFetch { .. } => 69,
@@ -523,6 +526,7 @@ fn auth_error_detail(err: &crate::services::auth::AuthError) -> ErrorDetail {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDetail {
     use crate::services::account::AccountError;
 
@@ -570,6 +574,42 @@ fn account_error_detail(err: &crate::services::account::AccountError) -> ErrorDe
             owner,
             others,
         } => resume_blocked_detail(thread_id, owner, others),
+        AccountError::ResumeOwnerMissing { thread_id, recent } => {
+            resume_owner_missing_detail(thread_id, recent)
+        }
+        AccountError::ResumeIndexEmpty { scope } => ErrorDetail {
+            what: "account: no recorded threads to resume".to_owned(),
+            why_line: match scope {
+                crate::services::account::error::ResumeIndexScope::CurrentGroup => {
+                    "the thread index has no entries for the current group".to_owned()
+                }
+                crate::services::account::error::ResumeIndexScope::AllGroups => {
+                    "the thread index has no entries in any group".to_owned()
+                }
+            },
+        },
+        AccountError::ResumeNoRollout {
+            thread_id,
+            owner,
+            reason,
+            snippet,
+        } => ErrorDetail {
+            what: format!("account: resume failed for thread {thread_id}"),
+            why_line: match reason {
+                crate::services::account::error::ResumeNoRolloutReason::SandboxMismatch => {
+                    format!(
+                        "owner '{owner}' has rollout locally (sandbox mismatch): {}",
+                        first_line(snippet)
+                    )
+                }
+                crate::services::account::error::ResumeNoRolloutReason::RolloutMissing => {
+                    format!(
+                        "owner '{owner}' no longer has the rollout (absent or deleted): {}",
+                        first_line(snippet)
+                    )
+                }
+            },
+        },
         AccountError::AuthMissing { name } => ErrorDetail {
             what: format!("account: '{name}' has no valid authentication"),
             why_line: format!("run `codex-session account refresh {name}` to re-authenticate"),
@@ -640,6 +680,50 @@ fn resume_blocked_detail(
         what: "account: resume blocked".to_owned(),
         why_line,
     }
+}
+
+fn resume_owner_missing_detail(
+    thread_id: &str,
+    recent: &[crate::services::account::error::ThreadCandidate],
+) -> ErrorDetail {
+    let mut why_line =
+        "not found in the thread index or any registered account's rollout store".to_owned();
+    append_thread_candidates_block(&mut why_line, recent);
+    ErrorDetail {
+        what: format!("account: no rollout for thread {thread_id}"),
+        why_line,
+    }
+}
+
+fn append_thread_candidates_block(
+    out: &mut String,
+    candidates: &[crate::services::account::error::ThreadCandidate],
+) {
+    if candidates.is_empty() {
+        return;
+    }
+    out.push_str("\n  recent threads:");
+    for candidate in candidates {
+        let _ = write!(
+            out,
+            "\n  • {} ({}, {})",
+            candidate.thread_id,
+            candidate.account,
+            candidate_age(candidate)
+        );
+    }
+}
+
+fn candidate_age(candidate: &crate::services::account::error::ThreadCandidate) -> String {
+    use time::format_description::well_known::Rfc3339;
+
+    let Ok(timestamp) = time::OffsetDateTime::parse(&candidate.created_at, &Rfc3339) else {
+        return candidate.created_at.clone();
+    };
+    let Ok(unix) = u64::try_from(timestamp.unix_timestamp()) else {
+        return candidate.created_at.clone();
+    };
+    crate::ui::human_age_since(unix)
 }
 
 fn append_account_outcome_block(
@@ -837,6 +921,27 @@ fn error_hint(err: &AppError) -> Option<Cow<'static, str>> {
             // because some other account happens to be cooling down.
             Some(account_report_hint(std::slice::from_ref(&owner)))
         }
+        AppError::Account(crate::services::account::AccountError::ResumeOwnerMissing {
+            ..
+        }) => Some(Cow::Borrowed(
+            "verify the id, or start a fresh thread: `codex-session exec …`",
+        )),
+        AppError::Account(crate::services::account::AccountError::ResumeIndexEmpty { .. }) => {
+            Some(Cow::Borrowed(
+                "start a fresh thread with `codex-session exec …`, or pass an explicit thread id",
+            ))
+        }
+        AppError::Account(crate::services::account::AccountError::ResumeNoRollout {
+            reason,
+            ..
+        }) => Some(Cow::Borrowed(match reason {
+            crate::services::account::error::ResumeNoRolloutReason::SandboxMismatch => {
+                "rerun resume with the same `--sandbox` or bypass flags used by the original run"
+            }
+            crate::services::account::error::ResumeNoRolloutReason::RolloutMissing => {
+                "the rollout is absent or deleted; start a fresh thread with `codex-session exec …`"
+            }
+        })),
         AppError::CodexUnhandled { log_glob, .. } => {
             Some(Cow::Owned(format!("full detail in {log_glob}")))
         }
@@ -985,6 +1090,9 @@ const fn static_error_hint(err: &AppError) -> Option<&'static str> {
             | crate::services::account::AccountError::RegistryIo { .. }
             | crate::services::account::AccountError::NoEligible { .. }
             | crate::services::account::AccountError::ResumeBlocked { .. }
+            | crate::services::account::AccountError::ResumeOwnerMissing { .. }
+            | crate::services::account::AccountError::ResumeIndexEmpty { .. }
+            | crate::services::account::AccountError::ResumeNoRollout { .. }
             | crate::services::account::AccountError::QuotaFetch { .. }
             | crate::services::account::AccountError::QuotaParse { .. }
             | crate::services::account::AccountError::Cooldown { .. },
@@ -1258,6 +1366,65 @@ mod tests {
         });
         assert_eq!(err.exit_code(), 75);
         assert_eq!(err.kind(), "account-no-eligible");
+    }
+
+    #[test]
+    fn account_resume_owner_missing_maps_to_tempfail() {
+        let err = AppError::Account(crate::services::account::AccountError::ResumeOwnerMissing {
+            thread_id: "thread-1".to_owned(),
+            recent: vec![crate::services::account::error::ThreadCandidate {
+                thread_id: "known-1".to_owned(),
+                account: "work".to_owned(),
+                group_id: "stable".to_owned(),
+                created_at: "2026-06-03T00:00:00Z".to_owned(),
+            }],
+        });
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "account-resume-owner-missing");
+        let detail = super::detail(&err);
+        assert!(detail.what.contains("no rollout for thread thread-1"));
+        assert!(detail.why_line.contains("known-1 (work"));
+    }
+
+    #[test]
+    fn account_resume_index_empty_maps_to_tempfail() {
+        let err = AppError::Account(crate::services::account::AccountError::ResumeIndexEmpty {
+            scope: crate::services::account::error::ResumeIndexScope::AllGroups,
+        });
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "account-resume-index-empty");
+        let detail = super::detail(&err);
+        assert!(detail.why_line.contains("any group"));
+    }
+
+    #[test]
+    fn account_resume_no_rollout_sandbox_mismatch_has_hint() {
+        let err = AppError::Account(crate::services::account::AccountError::ResumeNoRollout {
+            thread_id: "thread-1".to_owned(),
+            owner: crate::services::account::AccountId::from_unchecked("work".to_owned()),
+            reason: crate::services::account::error::ResumeNoRolloutReason::SandboxMismatch,
+            snippet: "thread/resume failed: no rollout found (code -32600)".to_owned(),
+        });
+        assert_eq!(err.exit_code(), 75);
+        assert_eq!(err.kind(), "account-resume-no-rollout");
+        let hint = super::error_hint(&err)
+            .map(std::borrow::Cow::into_owned)
+            .unwrap_or_default();
+        assert!(hint.contains("same `--sandbox`"));
+    }
+
+    #[test]
+    fn account_resume_no_rollout_missing_has_hint() {
+        let err = AppError::Account(crate::services::account::AccountError::ResumeNoRollout {
+            thread_id: "thread-1".to_owned(),
+            owner: crate::services::account::AccountId::from_unchecked("work".to_owned()),
+            reason: crate::services::account::error::ResumeNoRolloutReason::RolloutMissing,
+            snippet: "thread/resume failed: no rollout found (code -32600)".to_owned(),
+        });
+        let hint = super::error_hint(&err)
+            .map(std::borrow::Cow::into_owned)
+            .unwrap_or_default();
+        assert!(hint.contains("absent or deleted"));
     }
 
     #[test]

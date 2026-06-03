@@ -1663,15 +1663,19 @@ pub(crate) fn human_duration_until(reset_at_unix: u64) -> String {
     human_duration_secs(secs)
 }
 
+pub(crate) fn human_age_since(unix: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs());
+    let secs = now.saturating_sub(unix);
+    format!("{} ago", human_duration_secs(secs))
+}
+
 fn human_age(fetched_at_unix: u64) -> String {
     if fetched_at_unix == 0 {
         return "unknown".to_owned();
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs());
-    let secs = now.saturating_sub(fetched_at_unix);
-    format!("{} ago", human_duration_secs(secs))
+    human_age_since(fetched_at_unix)
 }
 
 fn human_duration_secs(secs: u64) -> String {

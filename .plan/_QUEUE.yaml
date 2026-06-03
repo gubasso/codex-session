@@ -34,7 +34,7 @@ plans:
       3 rounds (live-test+gate-wiring → reader/classification → behavior).
       Touches the failover/cooldown engine in src/services/account/.
   - item: resume-account-mismatch-guidance
-    status: todo
+    status: done
     depends_on: [codex-error-classification-cooldown]
     prompt: /prex -ar @.plan/resume-account-mismatch-guidance/
     notes: >-

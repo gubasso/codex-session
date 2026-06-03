@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-06-02
+- **Last verified:** 2026-06-03
 - **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -348,10 +348,16 @@ should treat the ID as an opaque string.
   this index, using the stored account and group-id to select the correct
   `CODEX_HOME` before forwarding to codex. This means `exec resume <ID>`
   works across terminals and PIDs because both account and group-id are
-  persisted in `thread-index.jsonl`. When the index has no hit, the
-  wrapper falls back to normal account resolution and forwards the resume
-  command as-is. See F15 for the constraint that sandbox flags must match
-  between original and resumed calls.
+  persisted in `thread-index.jsonl`. When the index has no hit for
+  `resume <ID>`, the wrapper now scans the registered accounts' rollout
+  stores for a matching `rollout-*.jsonl`; if it finds one, it pins the
+  resume back to that owner, emits a `warning:`, and backfills the missing
+  thread-index entry. If no registered account owns the rollout, the
+  wrapper returns a classified `ResumeOwnerMissing` error with recent-thread
+  candidates instead of auto-selecting another account. `--last` and
+  `--all` remain index-only and return `ResumeIndexEmpty` when there is no
+  recorded thread to resume. See F15 for the constraint that sandbox flags
+  must match between original and resumed calls.
 
 ## F15 — Sandbox mode mismatch on resume
 
@@ -369,8 +375,14 @@ Observed failure chain:
    existing in the local index and the local rollout file being present.
 
 The local `codex-session` wrapper correctly resolves the thread ID and
-routes to the right account/group via `thread-index.jsonl`. The failure
-is purely server-side parameter validation.
+routes to the right account/group via `thread-index.jsonl` (or a bounded
+rollout-store recovery scan on an index miss). A post-pin `-32600`
+therefore means one of two things:
+
+- the local rollout still exists, and the backend rejected the resume due
+  to a sandbox mismatch (`ResumeNoRollout` / `SandboxMismatch`);
+- or the local rollout is absent/deleted (`ResumeNoRollout` /
+  `RolloutMissing`).
 
 Workaround: use `--dangerously-bypass-approvals-and-sandbox` uniformly
 across all stages that share a thread. This flag bypasses bubblewrap
@@ -385,8 +397,11 @@ mismatch to validate.
   [issue #19661 — "exec resume fails with encrypted_content"](https://github.com/openai/codex/issues/19661),
   [issue #23875 — "Desktop drops approvals_reviewer after resume"](https://github.com/openai/codex/issues/23875).
 - **Implementation note:** `codex-session` does not intercept or translate
-  sandbox flags — they pass through to the codex binary unchanged. The
-  constraint is upstream in the OpenAI Codex backend.
+  sandbox flags — they pass through to the codex binary unchanged. What the
+  wrapper does add is post-exec classification: after a pinned resume
+  returns `-32600` / "no rollout found", it checks whether the local
+  rollout still exists and turns the raw backend failure into either a
+  sandbox-mismatch hint or a deleted-rollout hint.
 
 ## F16 — Cross-account thread resume is not possible in stock codex
 
@@ -421,15 +436,23 @@ The wrapper's job on resume is to pin back to the **owning** account, never
 to cross accounts. It uses the out-of-band `thread-index.jsonl`
 (`<state_dir>/thread-index.jsonl`) to map thread ID → originating
 account + group-id, then sets `CODEX_HOME` to that account's directory
-before forwarding to codex (see F14). Stock codex therefore always resumes
-_as the owning account, within a single `CODEX_HOME`_ and never sees a
-cross-account request. Corollary: the wrapper must keep the resume pinned to
-the index entry's account — if the resume re-resolves the account (e.g.
-`--account auto`, or a fallback path that ignores the index hit), both layers
-above will reject it.
+before forwarding to codex (see F14). If the thread-index entry is missing,
+the wrapper can recover the owner from the registered accounts' rollout
+stores (`AccountResolutionSource::RolloutScan`), but that is still an
+owner-discovery step, not cross-account resume. Stock codex therefore
+always resumes _as the owning account, within a single `CODEX_HOME`_ and
+never sees a cross-account request. Corollary: the wrapper must keep the
+resume pinned to the owner's account — if the resume re-resolves the
+account (e.g. `--account auto`, or a fallback path that ignores both the
+index hit and rollout-scan recovery), both layers above will reject it.
+For the same reason, an explicit `--account` pin that disagrees with the
+resolved owner is **overridden** on resume: the wrapper emits a `warning:`
+naming the owner and proceeds pinned to it rather than forwarding a resume
+that both layers would reject.
 
 - **Sources:** Investigation 2026-05-29 (this repo:
-  `src/commands/pass_through.rs:430-526` `resolve_resume_account`,
+  `src/commands/pass_through.rs:434-586` `resolve_resume_account`,
+  `src/commands/pass_through.rs:587-667` `run_resume`,
   `src/services/session/thread_index.rs:83-89` `lookup`; cross-refs F6, F14, F15),
   [issue #20004 — "Preserve local history visibility/continuation across providers/accounts"](https://github.com/openai/codex/issues/20004),
   [issue #15494 — "Switching model_provider hides existing local sessions from resume/fork/history"](https://github.com/openai/codex/issues/15494),

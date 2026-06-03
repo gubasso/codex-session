@@ -1,0 +1,11 @@
+---
+source: tests/session_resume_routing.rs
+assertion_line: 251
+expression: "normalize_stderr(&env, &stderr)"
+---
+codex-session: account: no rollout for thread thread-missing
+  why:   not found in the thread index or any registered account's rollout store
+  recent threads:
+  • known-2 (default, [AGE])
+  • known-1 (work, [AGE])
+  hint:  verify the id, or start a fresh thread: `codex-session exec …`

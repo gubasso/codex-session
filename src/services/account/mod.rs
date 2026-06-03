@@ -1,5 +1,6 @@
 //! Account namespace: id, registry, resolver, errors.
 
+pub(crate) mod codex_events;
 pub(crate) mod cooldown;
 pub(crate) mod error;
 pub(crate) mod failover;

@@ -11,7 +11,7 @@ rounds:
       "pre-commit is the Source of Truth" principle to CLAUDE.md. Run it to
       record the RATE_LIMITS_IN_EXEC_MODE verdict for later rounds.
   - item: event-reader-and-classification
-    status: todo
+    status: done
     depends_on: [live-harness-and-gate-wiring]
     prompt: /prex -ar .plan/codex-error-classification-cooldown/event-reader-and-classification.md
     notes: >-

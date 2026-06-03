@@ -10,6 +10,8 @@ pub(crate) struct Cooldown {
     pub reason: String,
     pub last_429_at_unix: u64,
     pub snippet_truncated: String,
+    #[serde(default)]
+    pub reset_source: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -119,6 +121,7 @@ mod tests {
             reason: "429 detected".to_owned(),
             last_429_at_unix: 4_102_444_500,
             snippet_truncated: "HTTP 429 Too Many Requests".to_owned(),
+            reset_source: Some("server-reset".to_owned()),
         }
     }
 
@@ -157,6 +160,30 @@ mod tests {
         let cooldown = sample();
         write(&account, &cooldown).unwrap();
         assert_eq!(read(&account).unwrap(), Some(cooldown));
+    }
+
+    #[test]
+    fn read_missing_reset_source_defaults_to_none() {
+        let (_temp, root) = state_root();
+        let account = ensure_account(&root, "work");
+        std::fs::write(
+            account.join("cooldown.json").as_std_path(),
+            serde_json::json!({
+                "reset_at_unix": 4_102_444_800_u64,
+                "reason": "429 detected",
+                "last_429_at_unix": 4_102_444_500_u64,
+                "snippet_truncated": "HTTP 429 Too Many Requests"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let cooldown = read(&account).unwrap().unwrap();
+        assert_eq!(cooldown.reset_source, None);
+        assert_eq!(cooldown.reset_at_unix, 4_102_444_800);
+        assert_eq!(cooldown.reason, "429 detected");
+        assert_eq!(cooldown.last_429_at_unix, 4_102_444_500);
+        assert_eq!(cooldown.snippet_truncated, "HTTP 429 Too Many Requests");
     }
 
     #[test]

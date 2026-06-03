@@ -38,6 +38,19 @@ fn latest_log_file(dir: &std::path::Path) -> std::path::PathBuf {
         .unwrap_or_else(|| unreachable!("entries was checked to be non-empty"))
 }
 
+fn read_cooldown(env: &TestEnv, account: &str) -> serde_json::Value {
+    let path = env.named_account_root(account).join("cooldown.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn marker_homes<'a>(stderr: &'a str, prefix: &str) -> Vec<&'a str> {
+    stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix(prefix))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect()
+}
+
 #[test]
 fn auto_retry_rotates_accounts_and_writes_cooldown() {
     let env = TestEnv::new_empty();
@@ -48,7 +61,10 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
 
     let assert = env
         .cmd()
-        .env("CODEX_SESSION_CHILD_BIN", fixture_path("fake-429.sh"))
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-usage-jsonl.sh"),
+        )
         .args([
             "-v",
             "--account",
@@ -63,11 +79,7 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
         .code(75);
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    let homes: Vec<_> = stderr
-        .lines()
-        .filter_map(|line| line.strip_prefix("marker:codex-session-fake-429 home="))
-        .map(ToOwned::to_owned)
-        .collect();
+    let homes = marker_homes(&stderr, "marker:codex-session-fake-429-usage home=");
     assert_eq!(
         homes.len(),
         2,
@@ -122,6 +134,198 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
 }
 
 #[test]
+fn usage_limit_rotate_uses_retry_after_cooldown() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    env.write_quota_cache("work", &quota_cache(90.0, 90.0));
+    env.write_quota_cache("personal", &quota_cache(80.0, 80.0));
+
+    let start = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    env.cmd()
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-usage-jsonl.sh"),
+        )
+        .args([
+            "--account",
+            "auto",
+            "--max-retries",
+            "2",
+            "exec",
+            "trigger 429",
+        ])
+        .assert()
+        .failure()
+        .code(75);
+
+    let cooldown = read_cooldown(&env, "work");
+    let reset_at = cooldown["reset_at_unix"].as_u64().unwrap();
+    let delta = reset_at.saturating_sub(start);
+    assert!(
+        (44..=49).contains(&delta),
+        "retry-after should drive cooldown, got delta={delta}"
+    );
+    assert_eq!(cooldown["reset_source"], "retry-after");
+}
+
+#[test]
+fn transient_then_success_retries_same_account_without_rotation() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    env.write_quota_cache("work", &quota_cache(90.0, 90.0));
+    env.write_quota_cache("personal", &quota_cache(80.0, 80.0));
+
+    let assert = env
+        .cmd()
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-transient-jsonl-then-ok.sh"),
+        )
+        .args([
+            "-v",
+            "--account",
+            "auto",
+            "--max-retries",
+            "2",
+            "exec",
+            "trigger transient 429",
+        ])
+        .assert()
+        .success();
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    let homes = marker_homes(&stderr, "marker:codex-session-transient-then-ok home=");
+    assert_eq!(
+        homes.len(),
+        2,
+        "expected transient retry on the same account"
+    );
+    assert_eq!(homes[0], homes[1], "same CODEX_HOME should be reused");
+    assert!(
+        homes[0].contains("/accounts/work/groups/"),
+        "work should remain selected, got {homes:?}"
+    );
+    assert!(
+        !env.named_account_root("work")
+            .join("cooldown.json")
+            .exists()
+    );
+    assert!(
+        !env.named_account_root("personal")
+            .join("cooldown.json")
+            .exists()
+    );
+
+    let log_file = latest_log_file(&env.state_home.join("codex-session"));
+    let logs = std::fs::read_to_string(log_file).unwrap();
+    assert!(logs.contains("\"op\":\"retry.backoff\""));
+    assert!(!logs.contains("\"op\":\"account.switch\""));
+}
+
+#[test]
+fn persistent_transient_caps_then_rotates() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    env.write_quota_cache("work", &quota_cache(90.0, 90.0));
+    env.write_quota_cache("personal", &quota_cache(80.0, 80.0));
+
+    let assert = env
+        .cmd()
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-transient-jsonl-always.sh"),
+        )
+        .args([
+            "-v",
+            "--account",
+            "auto",
+            "--max-retries",
+            "2",
+            "exec",
+            "trigger transient 429",
+        ])
+        .assert()
+        .failure()
+        .code(75);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    let homes = marker_homes(
+        &stderr,
+        "marker:codex-session-fake-429-transient-always home=",
+    );
+    assert!(
+        homes.len() >= 5,
+        "expected repeated same-account retries before rotation, got {homes:?}"
+    );
+    assert!(
+        homes[0].contains("/accounts/work/groups/"),
+        "work should be selected first, got {homes:?}"
+    );
+    assert_eq!(homes[0], homes[1]);
+    assert_eq!(homes[1], homes[2]);
+    assert_eq!(homes[2], homes[3]);
+    assert_ne!(homes[3], homes[4], "fifth attempt should rotate");
+    assert!(
+        env.named_account_root("work")
+            .join("cooldown.json")
+            .exists()
+    );
+
+    let cooldown = read_cooldown(&env, "work");
+    assert_eq!(cooldown["reset_source"], "retry-after");
+}
+
+#[test]
+fn unhandled_error_does_not_rotate_or_cool_down() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    env.write_quota_cache("work", &quota_cache(90.0, 90.0));
+    env.write_quota_cache("personal", &quota_cache(80.0, 80.0));
+
+    let assert = env
+        .cmd()
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-unhandled-jsonl.sh"),
+        )
+        .args(["-v", "--account", "auto", "exec", "trigger unhandled"])
+        .assert()
+        .failure()
+        .code(1);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    let homes = marker_homes(&stderr, "marker:codex-session-fake-unhandled home=");
+    assert_eq!(homes.len(), 1, "unhandled errors must not rotate");
+    assert!(stderr.contains("codex returned an unhandled error"));
+    assert!(stderr.contains("context-window-exceeded: context window exceeded for request"));
+    assert!(stderr.contains("codex-session.log"));
+    assert!(
+        !env.named_account_root("work")
+            .join("cooldown.json")
+            .exists()
+    );
+    assert!(
+        !env.named_account_root("personal")
+            .join("cooldown.json")
+            .exists()
+    );
+
+    let log_file = latest_log_file(&env.state_home.join("codex-session"));
+    let logs = std::fs::read_to_string(log_file).unwrap();
+    assert!(logs.contains("\"op\":\"codex.error.unhandled\""));
+    assert!(logs.contains("context window exceeded for request"));
+    assert!(!logs.contains("\"op\":\"account.switch\""));
+}
+
+#[test]
 fn auto_failover_never_recycles_across_three_accounts() {
     let env = TestEnv::new_empty();
     env.seed_account("alpha", "{\"token\":\"test\"}\n");
@@ -133,7 +337,10 @@ fn auto_failover_never_recycles_across_three_accounts() {
 
     let assert = env
         .cmd()
-        .env("CODEX_SESSION_CHILD_BIN", fixture_path("fake-429.sh"))
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-usage-jsonl.sh"),
+        )
         .args([
             "-v",
             "--account",
@@ -148,18 +355,14 @@ fn auto_failover_never_recycles_across_three_accounts() {
         .code(75);
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    let homes: Vec<_> = stderr
-        .lines()
-        .filter_map(|line| line.strip_prefix("marker:codex-session-fake-429 home="))
-        .map(ToOwned::to_owned)
-        .collect();
+    let homes = marker_homes(&stderr, "marker:codex-session-fake-429-usage home=");
 
     assert_eq!(
         homes.len(),
         3,
         "expected three child attempts, got {homes:?}"
     );
-    let unique: HashSet<&String> = homes.iter().collect();
+    let unique: HashSet<&&str> = homes.iter().collect();
     assert_eq!(unique.len(), 3, "no account may be recycled, got {homes:?}");
     assert_ne!(homes[0], homes[1]);
     assert_ne!(homes[1], homes[2]);

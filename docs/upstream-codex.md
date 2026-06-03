@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-05-29
+- **Last verified:** 2026-06-02
 - **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -199,6 +199,44 @@ deleted directory, network share offline), codex hangs during startup.
   command should walk the cache layer's `[projects.*]` table and remove
   entries whose path is no longer accessible. Until then, accumulated
   stale entries are a known operational hazard.
+
+## F9 — codex 0.135.0 `exec --json` JSONL schema
+
+Verified against the `codex` binary reported by `codex-session --version`
+(`codex 0.135.0` at the time of capture). The `exec --json` stream is JSONL
+with one event per line. The wrapper logic in `src/services/account/codex_events.rs`
+and `src/services/account/failover.rs` currently depends on these facts:
+
+- Event types observed in exec mode: `thread.started`, `turn.started`,
+  `turn.completed`, `turn.failed`, `item.*`, and `token_count`.
+- `turn.failed` may also be represented by a top-level `error` object in the
+  line payload; the wrapper should keep tolerating both shapes.
+- `token_count.rate_limits` maps cleanly onto the wrapper's
+  `RateLimitSnapshot` / `RateLimitWindow` model. Observed fields:
+  `primary`, `secondary`, `used_percent`, `window_minutes`,
+  `resets_in_seconds`, `resets_at`, `plan_type`, and
+  `rate_limit_reached_type`.
+- The rate-limit classifier currently consumes three reset sources, in this
+  order: `turn.failed.error.retry_after`, the relevant
+  `token_count.rate_limits.*.resets_in_seconds` window, then free text like
+  `try again in N`.
+- Error discriminants observed and depended on today:
+  `usage_limit_reached`, `usage_limit_exceeded`, and
+  `context_window_exceeded`.
+- Bare `429` failures still happen without a `usage_limit_*` code. In that
+  case the wrapper must inspect the snapshot: high `used_percent` means
+  window exhaustion; healthy headroom means a transient limit.
+
+Open question: [`openai/codex#14728`](https://github.com/openai/codex/issues/14728)
+tracks whether `rate_limits` is always populated in exec mode. Round 1's live
+capture test in [tests/codex_exec_json_live.rs](../tests/codex_exec_json_live.rs)
+does not assert this either way — it records a verdict of `populated` / `null` /
+`absent-from-token_count` / `no-token_count-event` and tolerates all of them
+(including a rate-limited run that emits no events). So exec-mode `rate_limits`
+population is observed-and-recorded, not guaranteed. Because of that the
+classifier never relies on the snapshot alone: it falls back to `retry_after`
+and `"try again in N"` text parsing when the snapshot is missing or null. F9
+must be re-verified before changing the policy.
 
 ## codex-session-specific notes
 

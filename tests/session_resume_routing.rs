@@ -303,19 +303,67 @@ fn resume_live_429_converts_to_resume_blocked() {
     let assert = env
         .cmd()
         .env("CODEX_SESSION_GROUP", "stable-test")
-        .env("CODEX_SESSION_CHILD_BIN", fixture_path("fake-429.sh"))
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-usage-jsonl.sh"),
+        )
         .args(["exec", "resume", thread_id])
         .assert()
         .failure()
         .code(75);
 
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
-    assert!(stderr.contains("marker:codex-session-fake-429"));
+    assert!(stderr.contains("marker:codex-session-fake-429-usage"));
     assert!(stderr.contains("account: resume blocked"));
     assert!(stderr.contains("• work  rate limited (429)"));
     assert!(
         env.named_account_root("work")
             .join("cooldown.json")
             .exists()
+    );
+    let cooldown: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(env.named_account_root("work").join("cooldown.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(cooldown["reset_source"], "retry-after");
+}
+
+#[test]
+fn resume_unhandled_error_surfaces_styled_message_without_cooldown() {
+    // The resume path is account-bound and never rotates, but an unhandled
+    // codex error (context-window/server/unclassified) must still get the same
+    // styled stderr + log-pointer UX that `run_auto` emits — not a silent
+    // pass-through of codex's raw output. It must not write a cooldown and must
+    // preserve codex's own exit code.
+    let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"work\"}\n");
+    let thread_id = "thread-live-unhandled";
+
+    write_thread_index_entry(&env, thread_id, "work", "stable-test");
+    write_rollout_for(&env, "work", "stable-test", thread_id);
+
+    let assert = env
+        .cmd()
+        .env("CODEX_SESSION_GROUP", "stable-test")
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-unhandled-jsonl.sh"),
+        )
+        .args(["exec", "resume", thread_id])
+        .assert()
+        .failure()
+        .code(1);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains("marker:codex-session-fake-unhandled"));
+    assert!(stderr.contains("codex returned an unhandled error"));
+    assert!(stderr.contains("context-window-exceeded: context window exceeded for request"));
+    assert!(stderr.contains("codex-session.log"));
+    assert!(!stderr.contains("account: resume blocked"));
+    assert!(
+        !env.named_account_root("work")
+            .join("cooldown.json")
+            .exists(),
+        "unhandled resume errors must not write a cooldown"
     );
 }

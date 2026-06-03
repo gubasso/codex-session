@@ -48,6 +48,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
     let mut tried = HashSet::new();
     let mut ran_report = Vec::new();
     let mut force_same: Option<ResolvedAccount> = None;
+    let mut transient_attempts: HashMap<AccountId, u8> = HashMap::new();
 
     loop {
         if tried.len() >= cap && force_same.is_none() {
@@ -81,9 +82,8 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
             None,
         )?;
 
-        let matched =
-            failover::pick_priority(failover::scan(&stderr_buf), failover::scan(&stdout_buf));
-        let Some(matched) = matched else {
+        let events = super::codex_events::scan_events(&stdout_buf);
+        let Some(classification) = failover::classify(&events, &stdout_buf, &stderr_buf) else {
             // The child has already run and forwarded its stdout/stderr. Updating
             // `state/last-account` is best-effort bookkeeping (it only drives the
             // selector recency penalty) — a write failure here must not convert a
@@ -98,19 +98,17 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
             return Ok(exit_code);
         };
 
-        let pattern = failover::pattern_name(&matched);
         tracing::info!(
             op = "failover.match",
             account = %resolved.id,
-            snippet = %matched.snippet,
-            line_no = matched.line_no,
-            pattern_index = matched.pattern_index,
-            pattern,
-            kind = ?matched.kind,
+            snippet = %classification.snippet,
+            category = ?classification.category,
+            reset_after_seconds = classification.reset_after_seconds,
+            reset_source = classification.reset_source.map(failover::ResetSource::as_str),
         );
 
-        let (kind_label, state, outcome) = match matched.kind {
-            failover::MatchKind::AuthFailure => {
+        let (kind_label, state, outcome) = match &classification.category {
+            failover::Category::AuthFailure => {
                 if first_use && try_refresh(ctx, &resolved.id) {
                     tracing::info!(
                         op = "token_refresh.ok",
@@ -120,20 +118,72 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
                     force_same = Some(resolved.clone());
                     continue;
                 }
-                write_cooldown(&registry, &resolved.id, "401", &matched)?;
+                write_cooldown(
+                    &registry,
+                    &resolved.id,
+                    "401",
+                    &classification.snippet,
+                    None,
+                    None,
+                )?;
                 (
                     "401",
                     OutcomeState::AuthFailed401,
-                    format!("401 auth failed: {}", matched.snippet),
+                    format!("401 auth failed: {}", classification.snippet),
                 )
             }
-            failover::MatchKind::RateLimit => {
-                write_cooldown(&registry, &resolved.id, "429", &matched)?;
+            failover::Category::RateLimit(failover::RateLimitClass::Transient) => {
+                let attempts = transient_attempts.entry(resolved.id.clone()).or_insert(0);
+                *attempts += 1;
+                if *attempts <= 3 {
+                    let delay = classification.reset_after_seconds.unwrap_or(5).min(60);
+                    tracing::info!(
+                        op = "retry.backoff",
+                        account = %resolved.id,
+                        delay_secs = delay,
+                        attempt = *attempts
+                    );
+                    ctx.ui.write_warning(&format!(
+                        "warning: account '{}' rate limited (transient); backing off {delay}s…",
+                        resolved.id
+                    ))?;
+                    std::thread::sleep(std::time::Duration::from_secs(delay));
+                    force_same = Some(resolved.clone());
+                    continue;
+                }
+                write_cooldown(
+                    &registry,
+                    &resolved.id,
+                    "429",
+                    &classification.snippet,
+                    classification.reset_after_seconds,
+                    classification.reset_source,
+                )?;
                 (
                     "429",
                     OutcomeState::RateLimited429,
-                    format!("429 rate limit: {}", matched.snippet),
+                    format!("429 rate limit: {}", classification.snippet),
                 )
+            }
+            failover::Category::RateLimit(failover::RateLimitClass::UsageLimitExhausted) => {
+                write_cooldown(
+                    &registry,
+                    &resolved.id,
+                    "429",
+                    &classification.snippet,
+                    classification.reset_after_seconds,
+                    classification.reset_source,
+                )?;
+                (
+                    "429",
+                    OutcomeState::RateLimited429,
+                    format!("429 rate limit: {}", classification.snippet),
+                )
+            }
+            failover::Category::ContextWindowExceeded
+            | failover::Category::ServerError
+            | failover::Category::Unclassified => {
+                return Err(codex_unhandled_error(ctx, &classification, exit_code));
             }
         };
 
@@ -152,7 +202,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
         );
         if tried.len() < cap {
             ctx.ui.write_warning(&format!(
-                "account '{}' hit {kind_label}; rotating to next account…",
+                "warning: account '{}' hit {kind_label}; rotating to next account…",
                 resolved.id
             ))?;
         }
@@ -209,14 +259,23 @@ pub(crate) fn write_cooldown(
     registry: &Registry,
     account: &AccountId,
     reason: &str,
-    matched: &failover::Match,
+    snippet: &str,
+    reset_after_seconds: Option<u64>,
+    reset_source: Option<failover::ResetSource>,
 ) -> Result<(), AppError> {
     let now_unix = now_unix();
+    // Clamp to <= 6h against absurd server values, and to >= 1s so a genuine
+    // cooldown (e.g. a server `retry_after: 0`) is never already-expired the
+    // instant it is written, which would let a just-rotated account be reused
+    // on the next invocation.
+    let reset = reset_after_seconds.unwrap_or(300).clamp(1, 6 * 60 * 60);
+    let reset_source = reset_source.map_or("fallback-300s", failover::ResetSource::as_str);
     let cd = cooldown::Cooldown {
-        reset_at_unix: now_unix + 300,
-        reason: format!("{reason} detected: {:?}", matched.snippet),
+        reset_at_unix: now_unix + reset,
+        reason: format!("{reason} detected: {snippet:?}"),
         last_429_at_unix: now_unix,
-        snippet_truncated: matched.snippet.chars().take(256).collect(),
+        snippet_truncated: snippet.chars().take(256).collect(),
+        reset_source: Some(reset_source.to_owned()),
     };
     let account_root = registry.account_dir(account);
     cooldown::write(&account_root, &cd).map_err(AccountError::from)?;
@@ -224,9 +283,41 @@ pub(crate) fn write_cooldown(
         op = "cooldown.write",
         account = %account,
         reset_at_unix = cd.reset_at_unix,
-        reason = %cd.reason
+        reason = %cd.reason,
+        reset_after_secs = reset,
+        reset_source,
     );
     Ok(())
+}
+
+pub(crate) fn codex_unhandled_error(
+    ctx: &AppContext,
+    classification: &failover::Classification,
+    exit_code: i32,
+) -> AppError {
+    let class = match classification.category {
+        failover::Category::ContextWindowExceeded => "context-window-exceeded",
+        failover::Category::ServerError => "server-error",
+        failover::Category::Unclassified => "unclassified",
+        failover::Category::RateLimit(_) | failover::Category::AuthFailure => {
+            unreachable!("codex_unhandled_error only accepts unhandled categories")
+        }
+    };
+    let log_glob = format!(
+        "{}/codex-session.log*",
+        crate::logging::log_dir_from_config(&ctx.config)
+    );
+    tracing::warn!(
+        op = "codex.error.unhandled",
+        class,
+        snippet = %classification.snippet
+    );
+    AppError::CodexUnhandled {
+        class,
+        snippet: classification.snippet.clone(),
+        log_glob,
+        exit_code: u8::try_from(exit_code).unwrap_or(u8::MAX),
+    }
 }
 
 pub(crate) fn account_outcome_line(

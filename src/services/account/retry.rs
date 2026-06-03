@@ -180,6 +180,29 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
                     format!("429 rate limit: {}", classification.snippet),
                 )
             }
+            failover::Category::CreditExhausted => {
+                // Rotation is correct here: credits are a workspace-level
+                // overflow pool, but the block is per-account window
+                // exhaustion — another account in the same workspace whose
+                // window still has headroom keeps working (verified live, see
+                // docs/upstream-codex.md §F9). The cooldown is reset-aware:
+                // `credit_cooldown` derives it from the account's own usage
+                // windows since the error itself carries no reset.
+                let (reset, source) = credit_cooldown(ctx, &resolved.id);
+                write_cooldown(
+                    &registry,
+                    &resolved.id,
+                    "credits",
+                    &classification.snippet,
+                    reset,
+                    source,
+                )?;
+                (
+                    "credits",
+                    OutcomeState::CreditExhausted,
+                    format!("out of credits: {}", classification.snippet),
+                )
+            }
             failover::Category::ContextWindowExceeded
             | failover::Category::NoRolloutFound
             | failover::Category::ServerError
@@ -291,6 +314,47 @@ pub(crate) fn write_cooldown(
     Ok(())
 }
 
+/// Cooldown reset for a credit-exhausted account.
+///
+/// Codex reports "out of credits" when a plan window (5h/weekly) is fully
+/// used AND the workspace has no purchased credits to overflow into; the
+/// account recovers at the window reset *without* a top-up. Verified live
+/// against `wham/usage` (`rate_limit_reached_type:
+/// "workspace_owner_credits_depleted"` with `primary_window.used_percent:
+/// 100`, while a same-workspace account with window headroom stayed
+/// `allowed: true`), and corroborated by openai/codex#19830 whose error text
+/// offers "purchase more credits OR try again at [reset time]". Full schema
+/// facts live in docs/upstream-codex.md §F9.
+///
+/// So: cool down until the earliest reset among exhausted quota windows,
+/// taken from the account's own usage data. A cached quota read is fine —
+/// `reset_at_unix` is absolute, so staleness within the TTL doesn't skew the
+/// duration. `None` (quota unavailable, API-key mode, or no exhausted window —
+/// upstream has a known transient desync where credit state reads 0/absent)
+/// falls back to `write_cooldown`'s 300s default: a short re-probe
+/// self-corrects.
+pub(crate) fn credit_cooldown(
+    ctx: &AppContext,
+    account: &AccountId,
+) -> (Option<u64>, Option<failover::ResetSource>) {
+    let ttl = std::time::Duration::from_secs(ctx.config.account.quota_ttl_secs);
+    let Ok(quota::QuotaResult::Ok(quota)) = quota::get(ctx, account, ttl) else {
+        return (None, None);
+    };
+    let reset_at = if quota.five_hour.percent_left <= 0.0 {
+        quota.five_hour.reset_at_unix
+    } else if quota.weekly.percent_left <= 0.0 {
+        quota.weekly.reset_at_unix
+    } else {
+        return (None, None);
+    };
+    let seconds = reset_at.saturating_sub(now_unix());
+    if seconds == 0 {
+        return (None, None);
+    }
+    (Some(seconds), Some(failover::ResetSource::ServerReset))
+}
+
 pub(crate) fn codex_unhandled_error(
     ctx: &AppContext,
     classification: &failover::Classification,
@@ -301,7 +365,9 @@ pub(crate) fn codex_unhandled_error(
         failover::Category::NoRolloutFound => "no-rollout-found",
         failover::Category::ServerError => "server-error",
         failover::Category::Unclassified => "unclassified",
-        failover::Category::RateLimit(_) | failover::Category::AuthFailure => {
+        failover::Category::RateLimit(_)
+        | failover::Category::AuthFailure
+        | failover::Category::CreditExhausted => {
             unreachable!("codex_unhandled_error only accepts unhandled categories")
         }
     };
@@ -421,6 +487,7 @@ fn apply_quota(
         line.state,
         OutcomeState::RateLimited429
             | OutcomeState::AuthFailed401
+            | OutcomeState::CreditExhausted
             | OutcomeState::Cooldown
             | OutcomeState::NoAuth
             | OutcomeState::TokenExpired
@@ -449,6 +516,7 @@ fn apply_quota(
         line.state,
         OutcomeState::RateLimited429
             | OutcomeState::AuthFailed401
+            | OutcomeState::CreditExhausted
             | OutcomeState::Cooldown
             | OutcomeState::FiveHourExhausted
             | OutcomeState::WeeklyExhausted
@@ -480,10 +548,15 @@ fn apply_cooldown(registry: &Registry, account: &AccountId, line: &mut AccountOu
     if !cooldown::is_active(&cd, now_unix()) {
         return;
     }
+    // `CreditExhausted` is protected here for the same reason as the 429/401
+    // states: the credit arm itself writes a cooldown, and letting this read
+    // relabel the line would downgrade the specific "out of credits" outcome
+    // to a generic "cooldown active" one.
     if !matches!(
         line.state,
         OutcomeState::RateLimited429
             | OutcomeState::AuthFailed401
+            | OutcomeState::CreditExhausted
             | OutcomeState::FiveHourExhausted
             | OutcomeState::WeeklyExhausted
     ) {

@@ -55,6 +55,10 @@ impl ResetSource {
 pub(crate) enum Category {
     RateLimit(RateLimitClass),
     AuthFailure,
+    /// Workspace credits depleted while the plan window is exhausted (see
+    /// `is_credit_exhausted`). Handled like a usage-limit exhaustion: cool the
+    /// account down until its window reset and rotate — NOT an unhandled error.
+    CreditExhausted,
     NoRolloutFound,
     ContextWindowExceeded,
     ServerError,
@@ -324,6 +328,20 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         });
     }
 
+    // Checked before the bare rate-limit signal so a future credit message
+    // that also happens to contain rate-limit language keeps the more specific
+    // classification. The observed shape carries no reset information; the
+    // handlers derive the cooldown from the account's own usage data instead
+    // (see `retry::credit_cooldown`).
+    if is_credit_exhausted(turn_error) {
+        return Some(Classification {
+            category: Category::CreditExhausted,
+            reset_after_seconds,
+            reset_source,
+            snippet,
+        });
+    }
+
     if is_rate_limit_signal(turn_error, events.last_rate_limits.as_ref()) {
         // A bare rate-limit signal (no explicit usage-limit code) is treated as
         // `Transient` — back off the same account — UNLESS the snapshot proves
@@ -383,6 +401,21 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         reset_source,
         snippet,
     })
+}
+
+/// Credit exhaustion, observed live on codex 0.135.0 (2026-06-03) as an
+/// `error` + `turn.failed` pair carrying ONLY a message — "Your workspace is
+/// out of credits. Add credits to continue." — with no `error_code` and no
+/// `http_status_code` (see docs/upstream-codex.md §F9). Upstream's
+/// `RateLimitReachedType` (`codex-rs/protocol/src/protocol.rs`) has both
+/// `WorkspaceOwnerCreditsDepleted` and `WorkspaceMemberCreditsDepleted`
+/// variants, so the plain "out of credits" substring is matched deliberately
+/// to cover both phrasings.
+fn is_credit_exhausted(turn_error: &TurnError) -> bool {
+    turn_error
+        .message
+        .to_ascii_lowercase()
+        .contains("out of credits")
 }
 
 fn is_auth_failure(turn_error: &TurnError) -> bool {
@@ -1045,6 +1078,65 @@ mod tests {
         );
         assert_eq!(result.reset_after_seconds, Some(120));
         assert_eq!(result.reset_source, Some(ResetSource::ServerReset));
+    }
+
+    #[test]
+    fn classify_structured_out_of_credits_is_credit_exhausted() {
+        // The live shape (docs/upstream-codex.md §F9): `turn.failed` carrying
+        // only a message — no error_code, no http_status, no retry_after.
+        let events = EventSummary {
+            last_rate_limits: None,
+            turn_error: Some(TurnError {
+                message: "Your workspace is out of credits. Add credits to continue.".to_owned(),
+                error_code: None,
+                retry_after_seconds: None,
+                http_status: None,
+            }),
+        };
+
+        let result = classify(&events, b"", b"").unwrap();
+
+        assert_eq!(result.category, Category::CreditExhausted);
+        assert_eq!(result.reset_after_seconds, None);
+        assert_eq!(result.reset_source, None);
+        assert_eq!(
+            result.snippet,
+            "Your workspace is out of credits. Add credits to continue."
+        );
+    }
+
+    #[test]
+    fn classify_out_of_credits_is_case_insensitive() {
+        let events = EventSummary {
+            last_rate_limits: None,
+            turn_error: Some(TurnError {
+                message: "OUT OF CREDITS".to_owned(),
+                error_code: None,
+                retry_after_seconds: None,
+                http_status: None,
+            }),
+        };
+
+        let result = classify(&events, b"", b"").unwrap();
+        assert_eq!(result.category, Category::CreditExhausted);
+    }
+
+    #[test]
+    fn classify_unrelated_credits_mention_is_not_credit_exhausted() {
+        // Only the "out of credits" phrase classifies; a stray "credits"
+        // mention must not.
+        let events = EventSummary {
+            last_rate_limits: None,
+            turn_error: Some(TurnError {
+                message: "credits to the team for this failure".to_owned(),
+                error_code: None,
+                retry_after_seconds: None,
+                http_status: None,
+            }),
+        };
+
+        let result = classify(&events, b"", b"").unwrap();
+        assert_eq!(result.category, Category::Unclassified);
     }
 
     #[test]

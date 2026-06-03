@@ -757,6 +757,7 @@ fn account_state_phrase(line: &crate::services::account::error::AccountOutcomeLi
     match line.state {
         OutcomeState::FiveHourExhausted => format!("five-hour quota exhausted{quota}"),
         OutcomeState::WeeklyExhausted => format!("weekly quota exhausted{quota}"),
+        OutcomeState::CreditExhausted => format!("out of credits{quota}"),
         OutcomeState::RateLimited429 => format!("rate limited (429){quota}"),
         OutcomeState::AuthFailed401 => "auth failed (401)".to_owned(),
         OutcomeState::Cooldown => "cooldown active".to_owned(),
@@ -971,13 +972,22 @@ fn account_report_hint(
     // of quota, `apply_quota` keeps `state == Cooldown` but still records
     // `five_hour_left`/`weekly_left` at 0%, so a state-only check would miss it
     // and wrongly recommend clearing cooldowns.
-    let has_window_exhaustion = report.iter().any(|line| {
-        matches!(
-            line.state,
-            OutcomeState::FiveHourExhausted | OutcomeState::WeeklyExhausted
-        ) || line.five_hour_left.is_some_and(|left| left <= 0.0)
-            || line.weekly_left.is_some_and(|left| left <= 0.0)
-    });
+    // Credit exhaustion belongs to the window-exhaustion group, not the
+    // cooldown group: clearing the cooldown does not add credits — the window
+    // reset is the real unblock, and the credit cooldown is written to expire
+    // exactly then (see `retry::credit_cooldown`). Offering
+    // `cooldown clear --all` here would retry straight into the same failure.
+    let has_credit_exhaustion = report
+        .iter()
+        .any(|line| matches!(line.state, OutcomeState::CreditExhausted));
+    let has_window_exhaustion = has_credit_exhaustion
+        || report.iter().any(|line| {
+            matches!(
+                line.state,
+                OutcomeState::FiveHourExhausted | OutcomeState::WeeklyExhausted
+            ) || line.five_hour_left.is_some_and(|left| left <= 0.0)
+                || line.weekly_left.is_some_and(|left| left <= 0.0)
+        });
     if has_cooldown && !has_window_exhaustion {
         return Cow::Borrowed(
             "run `codex-session account health` for details, or clear cooldowns with\
@@ -985,6 +995,16 @@ fn account_report_hint(
         );
     }
     if let Some(earliest) = earliest_available(report.iter().copied()) {
+        // The window reset unblocks a credit-exhausted account on its own; a
+        // top-up merely skips the wait (openai/codex#19830 offers the same two
+        // remediations — see docs/upstream-codex.md §F9).
+        if has_credit_exhaustion {
+            return Cow::Owned(format!(
+                "wait until the earliest reset shown ({}) and retry, or add \
+                credits to the workspace to continue sooner",
+                availability_phrase(Some(earliest))
+            ));
+        }
         return Cow::Owned(format!(
             "wait until the earliest reset shown ({}) and retry",
             availability_phrase(Some(earliest))

@@ -229,6 +229,13 @@ and `src/services/account/failover.rs` currently depends on these facts:
 - Error discriminants observed and depended on today:
   `usage_limit_reached`, `usage_limit_exceeded`, and
   `context_window_exceeded`.
+- Credit exhaustion has its own shape (observed live 2026-06-03 on
+  codex 0.135.0): an `error` event followed by `turn.failed` whose
+  `error` object carries only a `message` ("Your workspace is out of
+  credits. Add credits to continue.") — no `error_code`, no
+  `http_status_code`. The wrapper currently classifies this as
+  Unclassified (unhandled error); the failover classifier does not yet
+  have a credit-exhaustion category.
 - Bare `429` failures still happen without a `usage_limit_*` code. In that
   case the wrapper must inspect the snapshot: high `used_percent` means
   window exhaustion; healthy headroom means a transient limit.

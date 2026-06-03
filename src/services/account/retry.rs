@@ -181,6 +181,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
                 )
             }
             failover::Category::ContextWindowExceeded
+            | failover::Category::NoRolloutFound
             | failover::Category::ServerError
             | failover::Category::Unclassified => {
                 return Err(codex_unhandled_error(ctx, &classification, exit_code));
@@ -297,6 +298,7 @@ pub(crate) fn codex_unhandled_error(
 ) -> AppError {
     let class = match classification.category {
         failover::Category::ContextWindowExceeded => "context-window-exceeded",
+        failover::Category::NoRolloutFound => "no-rollout-found",
         failover::Category::ServerError => "server-error",
         failover::Category::Unclassified => "unclassified",
         failover::Category::RateLimit(_) | failover::Category::AuthFailure => {

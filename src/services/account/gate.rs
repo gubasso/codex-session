@@ -93,15 +93,6 @@ pub(crate) enum GateOutcome {
     AutoDeferred,
 }
 
-impl GateOutcome {
-    pub(crate) const fn resolved_or_none(&self) -> Option<&ResolvedAccount> {
-        match self {
-            Self::Resolved(resolved) => Some(resolved),
-            Self::AutoDeferred => None,
-        }
-    }
-}
-
 pub(crate) fn ensure(ctx: &AppContext) -> Result<GateOutcome, AppError> {
     let state = assess(ctx)?;
     let interactive = std::io::stdin().is_terminal();

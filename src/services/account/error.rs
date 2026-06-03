@@ -44,6 +44,28 @@ pub(crate) struct AccountOutcomeLine {
     pub(crate) available_at_unix: Option<u64>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub(crate) struct ThreadCandidate {
+    pub(crate) thread_id: String,
+    pub(crate) account: String,
+    pub(crate) group_id: String,
+    pub(crate) created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ResumeIndexScope {
+    CurrentGroup,
+    AllGroups,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ResumeNoRolloutReason {
+    SandboxMismatch,
+    RolloutMissing,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AccountError {
@@ -91,6 +113,23 @@ pub(crate) enum AccountError {
         others: Vec<AccountOutcomeLine>,
     },
 
+    #[error("resume owner missing for thread {thread_id}")]
+    ResumeOwnerMissing {
+        thread_id: String,
+        recent: Vec<ThreadCandidate>,
+    },
+
+    #[error("no recorded threads to resume")]
+    ResumeIndexEmpty { scope: ResumeIndexScope },
+
+    #[error("resume failed for thread {thread_id}")]
+    ResumeNoRollout {
+        thread_id: String,
+        owner: AccountId,
+        reason: ResumeNoRolloutReason,
+        snippet: String,
+    },
+
     #[error(
         "account `{name}` has no valid authentication; run `codex-session account refresh {name}`"
     )]
@@ -127,6 +166,9 @@ impl AccountError {
             Self::NativeAuthMissing => "account-native-auth-missing",
             Self::AutoExhausted { .. } => "account-auto-exhausted",
             Self::ResumeBlocked { .. } => "account-resume-blocked",
+            Self::ResumeOwnerMissing { .. } => "account-resume-owner-missing",
+            Self::ResumeIndexEmpty { .. } => "account-resume-index-empty",
+            Self::ResumeNoRollout { .. } => "account-resume-no-rollout",
             Self::AuthMissing { .. } => "account-auth-missing",
             Self::NoAccounts => "account-no-accounts",
             Self::NoneSelected => "account-none-selected",
@@ -160,6 +202,9 @@ impl AccountError {
             | Self::NativeAuthMissing
             | Self::AutoExhausted { .. }
             | Self::ResumeBlocked { .. }
+            | Self::ResumeOwnerMissing { .. }
+            | Self::ResumeIndexEmpty { .. }
+            | Self::ResumeNoRollout { .. }
             | Self::AuthMissing { .. }
             | Self::NoAccounts
             | Self::NoneSelected

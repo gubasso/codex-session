@@ -101,6 +101,16 @@ pub(crate) fn last_any(state_dir: &Utf8Path) -> std::io::Result<Option<ThreadEnt
     Ok(entries.into_iter().last())
 }
 
+pub(crate) fn recent_entries(
+    state_dir: &Utf8Path,
+    limit: usize,
+) -> std::io::Result<Vec<ThreadEntry>> {
+    let mut entries = read_entries(state_dir)?;
+    entries.reverse();
+    entries.truncate(limit);
+    Ok(entries)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -240,6 +250,19 @@ mod tests {
 
         let last = last_any(&dir).expect("last_any").expect("entry");
         assert_eq!(last.thread_id, "t2");
+    }
+
+    #[test]
+    fn recent_entries_returns_newest_first_limited() {
+        let (_tmp, dir) = state_dir();
+        append(&dir, &make_entry("t1", "acc1", "g1")).expect("append 1");
+        append(&dir, &make_entry("t2", "acc2", "g2")).expect("append 2");
+        append(&dir, &make_entry("t3", "acc3", "g3")).expect("append 3");
+
+        let recent = recent_entries(&dir, 2).expect("recent");
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].thread_id, "t3");
+        assert_eq!(recent[1].thread_id, "t2");
     }
 
     #[test]

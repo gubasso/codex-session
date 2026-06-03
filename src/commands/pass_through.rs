@@ -50,11 +50,11 @@ pub(crate) fn run(
         _ => {}
     }
 
-    let outcome = crate::services::account::gate::ensure(ctx)?;
-
     if let Some(intent) = detect_resume(argv) {
-        return run_resume(ctx, argv, &intent, outcome.resolved_or_none());
+        return run_resume(ctx, argv, &intent);
     }
+
+    let outcome = crate::services::account::gate::ensure(ctx)?;
 
     if ctx.global.dry_run {
         let resolved = match &outcome {
@@ -405,25 +405,6 @@ fn has_json_flag(argv: &[std::ffi::OsString]) -> bool {
     argv.iter().any(|arg| arg.to_str() == Some("--json"))
 }
 
-/// Strip codex-session-only resume flags (`--all-groups`) from argv before
-/// forwarding to codex on the fallback path. `--all` is a real codex flag
-/// and must be preserved. Returns `None` if no stripping was needed
-/// (original argv is clean).
-fn strip_wrapper_resume_flags(argv: &[std::ffi::OsString]) -> Option<Vec<std::ffi::OsString>> {
-    let has_wrapper_flags = argv
-        .iter()
-        .any(|a| matches!(a.to_str(), Some("--all-groups")));
-    if !has_wrapper_flags {
-        return None;
-    }
-    Some(
-        argv.iter()
-            .filter(|a| !matches!(a.to_str(), Some("--all-groups")))
-            .cloned()
-            .collect(),
-    )
-}
-
 fn rewrite_last_to_id(argv: &[std::ffi::OsString], thread_id: &str) -> Vec<std::ffi::OsString> {
     let mut result = Vec::with_capacity(argv.len());
     let mut replaced = false;
@@ -442,207 +423,316 @@ fn rewrite_last_to_id(argv: &[std::ffi::OsString], thread_id: &str) -> Vec<std::
     result
 }
 
+struct ResumeResolution {
+    resolved: crate::services::account::resolver::ResolvedAccount,
+    thread_id: String,
+    group_id: String,
+    recovered_from_scan: bool,
+    /// When the owner was recovered via rollout scan (index miss), the entry to
+    /// backfill into the thread index. Persisted only on the real execution
+    /// path — never under `--dry-run`, which must not mutate on-disk state.
+    recovered_entry: Option<crate::services::session::thread_index::ThreadEntry>,
+}
+
+#[allow(clippy::too_many_lines)]
 fn resolve_resume_account(
     ctx: &crate::context::AppContext,
     intent: &ResumeIntent,
-) -> Option<(
-    crate::services::account::resolver::ResolvedAccount,
-    String,
-    String,
-)> {
+) -> Result<ResumeResolution, crate::error::AppError> {
     let state_dir = &ctx.config.paths.state_dir;
 
-    let entry = match intent {
+    match intent {
         ResumeIntent::ById(id) => {
-            match crate::services::session::thread_index::lookup(state_dir, id) {
-                Ok(opt) => opt,
-                Err(err) => {
-                    tracing::warn!(
-                        op = "resume.resolve", thread_id = %id,
-                        err = %err, "thread index lookup failed",
-                    );
-                    return None;
-                }
+            if let Some(entry) = crate::services::session::thread_index::lookup(state_dir, id)? {
+                let account_id: crate::services::account::AccountId =
+                    entry.account.parse().map_err(|reason| {
+                        anyhow::anyhow!(
+                            "thread index entry for `{}` contains malformed account `{}`: {}",
+                            entry.thread_id,
+                            entry.account,
+                            reason
+                        )
+                    })?;
+                tracing::info!(
+                    op = "resume.resolve",
+                    thread_id = %entry.thread_id,
+                    account = %account_id,
+                    group_id = %entry.group_id,
+                    source = "thread-index",
+                );
+                return Ok(ResumeResolution {
+                    resolved: crate::services::account::resolver::ResolvedAccount {
+                        id: account_id,
+                        source:
+                            crate::services::account::resolver::AccountResolutionSource::ThreadIndex,
+                    },
+                    thread_id: entry.thread_id,
+                    group_id: entry.group_id,
+                    recovered_from_scan: false,
+                    recovered_entry: None,
+                });
             }
+
+            let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+            let accounts = registry.list()?;
+            let account_ids: Vec<_> = accounts.into_iter().map(|entry| entry.id).collect();
+            let inspected = crate::services::session::dir::inspect_session_root(
+                ctx.config.paths.runtime_dir.as_deref(),
+                &ctx.config.paths.state_dir,
+            )?;
+            if !inspected.root_missing
+                && !inspected.accounts_subdir_missing
+                && let Some(owner) = crate::services::session::rollout_scan::find_owner(
+                    &inspected.root.path,
+                    &account_ids,
+                    id,
+                )
+            {
+                tracing::warn!(
+                    op = "resume.resolve",
+                    thread_id = %id,
+                    account = %owner.account,
+                    group_id = %owner.group_id,
+                    session_dir = %owner.session_dir,
+                    rollout_path = %owner.rollout_path,
+                    "recovered owner from rollout scan"
+                );
+                // Defer the user-facing warning and the index backfill to the
+                // real execution path in `run_resume`: under `--dry-run` we must
+                // not emit a "pinned resume" notice or mutate `thread-index.jsonl`.
+                let recovered_entry = crate::services::session::thread_index::ThreadEntry {
+                    thread_id: id.clone(),
+                    account: owner.account.to_string(),
+                    group_id: owner.group_id.clone(),
+                    cwd: current_cwd()?,
+                    created_at: crate::services::session::thread_index::utc_now_rfc3339(),
+                };
+                return Ok(ResumeResolution {
+                    resolved: crate::services::account::resolver::ResolvedAccount {
+                        id: owner.account,
+                        source:
+                            crate::services::account::resolver::AccountResolutionSource::RolloutScan,
+                    },
+                    thread_id: id.clone(),
+                    group_id: owner.group_id,
+                    recovered_from_scan: true,
+                    recovered_entry: Some(recovered_entry),
+                });
+            }
+
+            let recent = crate::services::session::thread_index::recent_entries(state_dir, 5)?
+                .into_iter()
+                .map(|entry| crate::services::account::error::ThreadCandidate {
+                    thread_id: entry.thread_id,
+                    account: entry.account,
+                    group_id: entry.group_id,
+                    created_at: entry.created_at,
+                })
+                .collect();
+            Err(crate::services::account::AccountError::ResumeOwnerMissing {
+                thread_id: id.clone(),
+                recent,
+            }
+            .into())
         }
         ResumeIntent::Last { all_groups } => {
-            if *all_groups {
-                match crate::services::session::thread_index::last_any(state_dir) {
-                    Ok(opt) => opt,
-                    Err(err) => {
-                        tracing::warn!(
-                            op = "resume.resolve",
-                            err = %err, "thread index last_any failed",
-                        );
-                        return None;
-                    }
-                }
+            let entry = if *all_groups {
+                crate::services::session::thread_index::last_any(state_dir)?
             } else {
-                let group = match crate::services::session::group_id::current(ctx) {
-                    Ok(g) => g,
-                    Err(err) => {
-                        tracing::warn!(
-                            op = "resume.resolve",
-                            err = %err, "group_id resolution failed",
-                        );
-                        return None;
-                    }
-                };
-                match crate::services::session::thread_index::last_for_group(
+                let group = crate::services::session::group_id::current(ctx)?;
+                crate::services::session::thread_index::last_for_group(
                     state_dir,
                     group.id.as_str(),
-                ) {
-                    Ok(opt) => opt,
-                    Err(err) => {
-                        tracing::warn!(
-                            op = "resume.resolve",
-                            group_id = %group.id.as_str(),
-                            err = %err,
-                            "thread index last_for_group failed",
-                        );
-                        return None;
-                    }
+                )?
+            };
+            let Some(entry) = entry else {
+                return Err(crate::services::account::AccountError::ResumeIndexEmpty {
+                    scope: if *all_groups {
+                        crate::services::account::error::ResumeIndexScope::AllGroups
+                    } else {
+                        crate::services::account::error::ResumeIndexScope::CurrentGroup
+                    },
                 }
-            }
+                .into());
+            };
+            let account_id: crate::services::account::AccountId =
+                entry.account.parse().map_err(|reason| {
+                    anyhow::anyhow!(
+                        "thread index entry for `{}` contains malformed account `{}`: {}",
+                        entry.thread_id,
+                        entry.account,
+                        reason
+                    )
+                })?;
+            Ok(ResumeResolution {
+                resolved: crate::services::account::resolver::ResolvedAccount {
+                    id: account_id,
+                    source:
+                        crate::services::account::resolver::AccountResolutionSource::ThreadIndex,
+                },
+                thread_id: entry.thread_id,
+                group_id: entry.group_id,
+                recovered_from_scan: false,
+                recovered_entry: None,
+            })
         }
-    };
-
-    let entry = entry?;
-    let account_id: crate::services::account::AccountId = match entry.account.parse() {
-        Ok(id) => id,
-        Err(reason) => {
-            tracing::warn!(
-                op = "resume.resolve",
-                thread_id = %entry.thread_id,
-                account = %entry.account,
-                reason = %reason,
-                "malformed account in thread index; falling back",
-            );
-            return None;
-        }
-    };
-
-    tracing::info!(
-        op = "resume.resolve",
-        thread_id = %entry.thread_id,
-        account = %account_id,
-        group_id = %entry.group_id,
-        "thread index hit",
-    );
-
-    Some((
-        crate::services::account::resolver::ResolvedAccount {
-            id: account_id,
-            source: crate::services::account::resolver::AccountResolutionSource::ThreadIndex,
-        },
-        entry.thread_id,
-        entry.group_id,
-    ))
+    }
 }
 
 fn run_resume(
     ctx: &crate::context::AppContext,
     argv: &[std::ffi::OsString],
     intent: &ResumeIntent,
-    fallback: Option<&crate::services::account::resolver::ResolvedAccount>,
 ) -> Result<i32, crate::error::AppError> {
     tracing::info!(op = "resume", status = "start", ?intent);
 
-    if let Some((resolved, thread_id, original_group_id)) = resolve_resume_account(ctx, intent) {
-        let effective_argv = match intent {
-            ResumeIntent::Last { .. } => rewrite_last_to_id(argv, &thread_id),
-            ResumeIntent::ById(_) => argv.to_vec(),
+    let ResumeResolution {
+        resolved,
+        thread_id,
+        group_id: original_group_id,
+        recovered_from_scan,
+        recovered_entry,
+    } = resolve_resume_account(ctx, intent)?;
+
+    // Resume is owner-bound (F16): an explicit `--account`/env pin cannot move
+    // a thread to another account, so a disagreeing pin is overridden. Say so
+    // instead of silently dropping the flag.
+    if let crate::services::account::resolver::AccountIntent::Pinned { id: pinned, .. } =
+        crate::services::account::resolver::intent(ctx)?
+        && pinned != resolved.id
+    {
+        ctx.ui.write_warning(&format!(
+            "--account '{pinned}' ignored; thread {thread_id} owned by {} \
+            (resume always pins to owner)",
+            resolved.id
+        ))?;
+        tracing::warn!(
+            op = "resume",
+            pinned = %pinned,
+            owner = %resolved.id,
+            "explicit account pin overridden by thread owner"
+        );
+    }
+
+    let effective_argv = match intent {
+        ResumeIntent::Last { .. } => rewrite_last_to_id(argv, &thread_id),
+        ResumeIntent::ById(_) => argv.to_vec(),
+    };
+    let gid_override = Some(original_group_id.as_str());
+
+    let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
+
+    // The resume path bypasses `gate::ensure`, so mirror its auth assessment
+    // here (see `gate::assess`): first confirm the owner account still exists
+    // (stale index / rollout data can resolve to a removed account → `NotFound`
+    // with a real remediation), then check the auth seed. A bare seed
+    // `.exists()` check alone would misreport a deleted account as `AuthMissing`
+    // and hint `account refresh <name>` for an account that no longer exists.
+    registry.expect_account_dir(&resolved.id)?;
+    let seed = registry.group_auth_seed_path(&resolved.id);
+    if !seed.as_std_path().exists() {
+        return Err(
+            crate::services::account::AccountError::AuthMissing { name: resolved.id }.into(),
+        );
+    }
+
+    if let Some(owner) = resume_preflight_block(ctx, &registry, &resolved)? {
+        return Err(crate::services::account::AccountError::ResumeBlocked {
+            thread_id,
+            owner,
+            others: resume_other_lines(ctx, &registry, &resolved.id)?,
+        }
+        .into());
+    }
+
+    if ctx.global.dry_run {
+        let prepared = prepare_invocation(ctx, &effective_argv, &resolved, gid_override)?;
+        let dry_ctx = crate::domain::child_invocation::DryRunContext {
+            account: resolved.id.to_string(),
+            account_source: crate::services::account::resolver::source_label(resolved.source)
+                .to_owned(),
         };
-
-        let gid_override = Some(original_group_id.as_str());
-
-        // Pre-flight the owner BEFORE the dry-run branch so `--dry-run` reports
-        // `ResumeBlocked` consistently with a real run: a thread owned by a
-        // cooldown- or quota-blocked account must not be presented as runnable.
-        let registry = crate::services::account::registry::Registry::from_config(&ctx.config);
-        if let Some(owner) = resume_preflight_block(ctx, &registry, &resolved)? {
-            return Err(crate::services::account::AccountError::ResumeBlocked {
-                thread_id,
-                owner,
-                others: resume_other_lines(ctx, &registry, &resolved.id)?,
-            }
-            .into());
-        }
-
-        if ctx.global.dry_run {
-            let prepared = prepare_invocation(ctx, &effective_argv, &resolved, gid_override)?;
-            let dry_ctx = crate::domain::child_invocation::DryRunContext {
-                account: resolved.id.to_string(),
-                account_source: crate::services::account::resolver::source_label(resolved.source)
-                    .to_owned(),
-            };
-            ctx.ui.write_dry_run(
-                &crate::domain::child_invocation::dry_run_report_with_context(
-                    &prepared.invocation,
-                    Some(&dry_ctx),
-                ),
-            )?;
-            tracing::info!(op = "resume", status = "ok", outcome = "dry-run");
-            return Ok(0);
-        }
-
-        let session = SignalSession::install()?;
-        let (exit_code, stdout, stderr) = run_once(
-            ctx,
-            &effective_argv,
-            &resolved,
-            &session,
-            true,
-            gid_override,
+        ctx.ui.write_dry_run(
+            &crate::domain::child_invocation::dry_run_report_with_context(
+                &prepared.invocation,
+                Some(&dry_ctx),
+            ),
         )?;
-        if let Some(err) = resume_blocked_from_live_rate_limit(
-            ctx, &registry, &resolved, &thread_id, exit_code, &stdout, &stderr,
-        )? {
-            return Err(err.into());
-        }
-        Ok(exit_code)
-    } else {
         tracing::info!(
             op = "resume",
-            status = "fallback",
-            "no thread index hit; falling back to normal resolution"
+            status = "ok",
+            outcome = if recovered_from_scan {
+                "dry-run-scan-recovery"
+            } else {
+                "dry-run"
+            }
         );
-        let sanitized = strip_wrapper_resume_flags(argv);
-        let fallback_argv = sanitized.as_deref().unwrap_or(argv);
-        if ctx.global.dry_run {
-            let resolved = fallback.cloned().map_or_else(
-                || crate::services::account::resolver::resolve_for_exec(ctx, &HashSet::new()),
-                Ok,
-            )?;
-            let prepared = prepare_invocation(ctx, fallback_argv, &resolved, None)?;
-            let dry_ctx = crate::domain::child_invocation::DryRunContext {
-                account: resolved.id.to_string(),
-                account_source: crate::services::account::resolver::source_label(resolved.source)
-                    .to_owned(),
-            };
-            ctx.ui.write_dry_run(
-                &crate::domain::child_invocation::dry_run_report_with_context(
-                    &prepared.invocation,
-                    Some(&dry_ctx),
-                ),
-            )?;
-            tracing::info!(op = "resume", status = "ok", outcome = "dry-run-fallback");
-            return Ok(0);
-        }
-        fallback.map_or_else(
-            || crate::services::account::retry::run_auto(ctx, fallback_argv),
-            |resolved| {
-                crate::services::account::retry::single_attempt(ctx, fallback_argv, resolved)
-            },
-        )
+        return Ok(0);
     }
+
+    // Real execution only (never under `--dry-run`): announce the rollout-scan
+    // recovery and backfill the thread index so the next resume is a clean hit.
+    if let Some(entry) = recovered_entry {
+        announce_and_backfill_recovery(ctx, &thread_id, &resolved.id, &entry)?;
+    }
+
+    let session = SignalSession::install()?;
+    let (exit_code, stdout, stderr) = run_once(
+        ctx,
+        &effective_argv,
+        &resolved,
+        &session,
+        true,
+        gid_override,
+    )?;
+    if let Some(err) = resume_blocked_from_live_rate_limit(
+        ctx,
+        &registry,
+        &resolved,
+        &thread_id,
+        &original_group_id,
+        exit_code,
+        &stdout,
+        &stderr,
+    )? {
+        return Err(err.into());
+    }
+    Ok(exit_code)
 }
 
+/// On the real (non-dry-run) execution path, emit the rollout-scan recovery
+/// warning and backfill the thread index so the next resume is a clean index
+/// hit. A failed append is non-fatal (logged, not surfaced).
+fn announce_and_backfill_recovery(
+    ctx: &crate::context::AppContext,
+    _thread_id: &str,
+    owner: &crate::services::account::AccountId,
+    entry: &crate::services::session::thread_index::ThreadEntry,
+) -> Result<(), crate::error::AppError> {
+    ctx.ui.write_warning(&format!(
+        "recovered owner '{owner}' from rollout store (index miss); pinned \
+        resume to it"
+    ))?;
+    if let Err(err) =
+        crate::services::session::thread_index::append(&ctx.config.paths.state_dir, entry)
+    {
+        tracing::warn!(
+            op = "thread_index.append",
+            thread_id = %entry.thread_id,
+            err = %err,
+            "failed to append recovered thread index entry"
+        );
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn resume_blocked_from_live_rate_limit(
     ctx: &crate::context::AppContext,
     registry: &crate::services::account::registry::Registry,
     resolved: &crate::services::account::resolver::ResolvedAccount,
     thread_id: &str,
+    group_id: &str,
     exit_code: i32,
     stdout: &[u8],
     stderr: &[u8],
@@ -660,6 +750,32 @@ fn resume_blocked_from_live_rate_limit(
     // stand silently. Auth failures keep the existing pass-through behavior.
     match &classification.category {
         crate::services::account::failover::Category::RateLimit(_) => {}
+        crate::services::account::failover::Category::NoRolloutFound => {
+            let inspected = crate::services::session::dir::inspect_session_root(
+                ctx.config.paths.runtime_dir.as_deref(),
+                &ctx.config.paths.state_dir,
+            )?;
+            let has_local_rollout = !inspected.root_missing
+                && !inspected.accounts_subdir_missing
+                && crate::services::session::rollout_scan::owner_has_thread(
+                    &inspected.root.path,
+                    &resolved.id,
+                    group_id,
+                    thread_id,
+                );
+            return Ok(Some(
+                crate::services::account::AccountError::ResumeNoRollout {
+                    thread_id: thread_id.to_owned(),
+                    owner: resolved.id.clone(),
+                    reason: if has_local_rollout {
+                        crate::services::account::error::ResumeNoRolloutReason::SandboxMismatch
+                    } else {
+                        crate::services::account::error::ResumeNoRolloutReason::RolloutMissing
+                    },
+                    snippet: classification.snippet.clone(),
+                },
+            ));
+        }
         crate::services::account::failover::Category::ContextWindowExceeded
         | crate::services::account::failover::Category::ServerError
         | crate::services::account::failover::Category::Unclassified => {
@@ -776,31 +892,67 @@ pub(crate) enum ResumeIntent {
 
 pub(crate) fn detect_resume(argv: &[std::ffi::OsString]) -> Option<ResumeIntent> {
     let strs: Vec<Option<&str>> = argv.iter().map(|a| a.to_str()).collect();
-    match strs.as_slice() {
-        // exec resume <SESSION_ID> [...]
-        [Some("exec"), Some("resume"), Some(id), ..] | [Some("resume"), Some(id), ..]
-            if !id.starts_with('-') =>
-        {
-            Some(ResumeIntent::ById((*id).to_owned()))
+
+    // Locate the `resume` subcommand and the tokens that follow it.
+    //
+    // Two accepted argv shapes:
+    //   * `resume <...>` — bare resume (first token).
+    //   * `exec [exec-opts...] resume <...>` — resume nested under `exec`,
+    //     with optional `exec`-level options (e.g. `--profile implementation`)
+    //     between `exec` and `resume`. The `prex` stage-3 invocation uses this
+    //     shape, so it must reach the owner-pinning resume router rather than
+    //     falling through to normal pass-through.
+    //
+    // Tokens between `exec` and `resume` are only allowed to be option flags
+    // (or their values); a bare positional there means this is not a resume we
+    // own (e.g. `exec status resume`).
+    let rest: &[Option<&str>] = match strs.first().copied().flatten() {
+        Some("resume") => &strs[1..],
+        Some("exec") => {
+            let resume_idx = strs[1..].iter().position(|t| *t == Some("resume"))? + 1;
+            if !exec_opts_only(&strs[1..resume_idx]) {
+                return None;
+            }
+            &strs[resume_idx + 1..]
         }
-        // exec resume --last --all-groups [...]
-        [
-            Some("exec"),
-            Some("resume"),
-            Some("--last"),
-            Some("--all-groups"),
-            ..,
-        ]
-        | [Some("exec"), Some("resume"), Some("--all"), ..]
-        | [Some("resume"), Some("--all"), ..] => Some(ResumeIntent::Last { all_groups: true }),
-        // exec resume --last [...]
-        [Some("exec"), Some("resume"), Some("--last"), ..] => {
-            Some(ResumeIntent::Last { all_groups: false })
+        _ => return None,
+    };
+
+    match rest {
+        // resume --last --all-groups [...] | resume --all [...]
+        [Some("--last"), Some("--all-groups"), ..] | [Some("--all"), ..] => {
+            Some(ResumeIntent::Last { all_groups: true })
         }
         // resume --last [...]
-        [Some("resume"), Some("--last"), ..] => Some(ResumeIntent::Last { all_groups: false }),
+        [Some("--last"), ..] => Some(ResumeIntent::Last { all_groups: false }),
+        // resume <SESSION_ID> [...]
+        [Some(id), ..] if !id.starts_with('-') => Some(ResumeIntent::ById((*id).to_owned())),
         _ => None,
     }
+}
+
+/// Returns `true` if every token between `exec` and `resume` is an option
+/// flag or an option value (i.e. no bare positional). A leading non-flag
+/// token (other than a flag's value) means the argv is not an `exec … resume`
+/// we should intercept.
+fn exec_opts_only(between: &[Option<&str>]) -> bool {
+    let mut prev_was_flag_expecting_value = false;
+    for tok in between {
+        match tok {
+            Some(t) if t.starts_with('-') => {
+                // `--flag=value` carries its own value; a bare `--flag` may
+                // consume the next token as its value.
+                prev_was_flag_expecting_value = !t.contains('=');
+            }
+            // A value immediately following a flag is allowed.
+            _ if prev_was_flag_expecting_value => {
+                prev_was_flag_expecting_value = false;
+            }
+            // A bare positional that is not a flag value: not our resume.
+            _ => return false,
+        }
+    }
+    true
 }
 
 fn map_child_err(err: &crate::adapters::spawner::SpawnerError) -> crate::error::AppError {
@@ -958,6 +1110,65 @@ mod tests {
     #[test]
     fn detect_resume_non_resume_returns_none() {
         let argv = vec![OsString::from("exec"), OsString::from("status")];
+        assert_eq!(detect_resume(&argv), None);
+    }
+
+    #[test]
+    fn detect_resume_exec_profile_resume_by_id() {
+        // The prex stage-3 shape: `exec --profile implementation resume <id>`.
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("--profile"),
+            OsString::from("implementation"),
+            OsString::from("resume"),
+            OsString::from("abc123"),
+            OsString::from("--json"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::ById("abc123".into()))
+        );
+    }
+
+    #[test]
+    fn detect_resume_exec_profile_eq_resume_last() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("--profile=implementation"),
+            OsString::from("resume"),
+            OsString::from("--last"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: false })
+        );
+    }
+
+    #[test]
+    fn detect_resume_exec_profile_resume_all_groups() {
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("--profile"),
+            OsString::from("implementation"),
+            OsString::from("resume"),
+            OsString::from("--last"),
+            OsString::from("--all-groups"),
+        ];
+        assert_eq!(
+            detect_resume(&argv),
+            Some(ResumeIntent::Last { all_groups: true })
+        );
+    }
+
+    #[test]
+    fn detect_resume_exec_positional_then_resume_returns_none() {
+        // A bare positional between `exec` and `resume` is not our resume.
+        let argv = vec![
+            OsString::from("exec"),
+            OsString::from("status"),
+            OsString::from("resume"),
+            OsString::from("abc123"),
+        ];
         assert_eq!(detect_resume(&argv), None);
     }
 

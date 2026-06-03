@@ -12,6 +12,7 @@ pub(crate) enum AccountResolutionSource {
     Auto,
     Interactive,
     ThreadIndex,
+    RolloutScan,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +48,7 @@ pub(crate) const fn source_label(source: AccountResolutionSource) -> &'static st
         AccountResolutionSource::Auto => "auto",
         AccountResolutionSource::Interactive => "interactive",
         AccountResolutionSource::ThreadIndex => "thread-index",
+        AccountResolutionSource::RolloutScan => "rollout-scan",
     }
 }
 

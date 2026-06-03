@@ -209,6 +209,12 @@ and `src/services/account/failover.rs` currently depends on these facts:
 
 - Event types observed in exec mode: `thread.started`, `turn.started`,
   `turn.completed`, `turn.failed`, `item.*`, and `token_count`.
+- `token_count` is **not guaranteed**: a successful exec run may emit no
+  `token_count` event at all, with usage carried only on
+  `turn.completed.usage` (`input_tokens`, `cached_input_tokens`,
+  `output_tokens`, `reasoning_output_tokens`). Verified live on
+  codex 0.135.0 (2026-06-03). The live schema test accepts a
+  `turn.completed`-with-`usage` stream as intact.
 - `turn.failed` may also be represented by a top-level `error` object in the
   line payload; the wrapper should keep tolerating both shapes.
 - `token_count.rate_limits` maps cleanly onto the wrapper's

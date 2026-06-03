@@ -349,8 +349,7 @@ fn pinned_resume_sandbox_mismatch_is_classified() {
     );
     let script = format!(
         "#!/usr/bin/env bash\nif [ \"${{1:-}}\" = \"--version\" ]; then\n  \
-        exit 0\nfi\nprintf '{}\\n'\nexit 2\n",
-        err_json
+        exit 0\nfi\nprintf '{err_json}\\n'\nexit 2\n"
     );
     let child_dir = env.make_fake_codex_in_dir("resume-no-rollout-structured", &script);
 

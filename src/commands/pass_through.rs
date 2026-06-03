@@ -439,6 +439,8 @@ fn resolve_resume_account(
     ctx: &crate::context::AppContext,
     intent: &ResumeIntent,
 ) -> Result<ResumeResolution, crate::error::AppError> {
+    use crate::services::account::resolver::{AccountResolutionSource, ResolvedAccount};
+
     let state_dir = &ctx.config.paths.state_dir;
 
     match intent {
@@ -461,10 +463,9 @@ fn resolve_resume_account(
                     source = "thread-index",
                 );
                 return Ok(ResumeResolution {
-                    resolved: crate::services::account::resolver::ResolvedAccount {
+                    resolved: ResolvedAccount {
                         id: account_id,
-                        source:
-                            crate::services::account::resolver::AccountResolutionSource::ThreadIndex,
+                        source: AccountResolutionSource::ThreadIndex,
                     },
                     thread_id: entry.thread_id,
                     group_id: entry.group_id,
@@ -508,10 +509,9 @@ fn resolve_resume_account(
                     created_at: crate::services::session::thread_index::utc_now_rfc3339(),
                 };
                 return Ok(ResumeResolution {
-                    resolved: crate::services::account::resolver::ResolvedAccount {
+                    resolved: ResolvedAccount {
                         id: owner.account,
-                        source:
-                            crate::services::account::resolver::AccountResolutionSource::RolloutScan,
+                        source: AccountResolutionSource::RolloutScan,
                     },
                     thread_id: id.clone(),
                     group_id: owner.group_id,
@@ -705,13 +705,13 @@ fn run_resume(
 /// hit. A failed append is non-fatal (logged, not surfaced).
 fn announce_and_backfill_recovery(
     ctx: &crate::context::AppContext,
-    _thread_id: &str,
+    thread_id: &str,
     owner: &crate::services::account::AccountId,
     entry: &crate::services::session::thread_index::ThreadEntry,
 ) -> Result<(), crate::error::AppError> {
     ctx.ui.write_warning(&format!(
-        "recovered owner '{owner}' from rollout store (index miss); pinned \
-        resume to it"
+        "warning: thread index had no entry for thread {thread_id}; \
+        recovered owner '{owner}' from rollout store; pinned resume to it"
     ))?;
     if let Err(err) =
         crate::services::session::thread_index::append(&ctx.config.paths.state_dir, entry)

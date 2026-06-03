@@ -20,7 +20,7 @@ rounds:
       cap, and the RateLimitClass/Category/Classification layer in failover.rs
       (structured-first, text fallback). Unit tests. No behavior change yet.
   - item: cooldown-backoff-and-error-ux
-    status: todo
+    status: done
     depends_on: [event-reader-and-classification]
     prompt: /prex -ar .plan/codex-error-classification-cooldown/cooldown-backoff-and-error-ux.md
     notes: >-

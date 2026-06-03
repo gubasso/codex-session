@@ -22,7 +22,7 @@ plans:
       `account quota` render surface (src/ui/mod.rs) with
       account-quota-percent-display; no hard ordering, but expect to reconcile.
   - item: codex-error-classification-cooldown
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar @.plan/codex-error-classification-cooldown/
     notes: >-

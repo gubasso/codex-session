@@ -26,7 +26,10 @@ fn cooldown_honors_custom_registry_dir() {
 
     env.cmd()
         .env("CODEX_SESSION_ACCOUNT_REGISTRY_DIR", &custom_registry)
-        .env("CODEX_SESSION_CHILD_BIN", fixture_path("fake-429.sh"))
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-usage-jsonl.sh"),
+        )
         .args([
             "--account",
             "auto",

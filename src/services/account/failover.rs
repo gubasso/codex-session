@@ -33,6 +33,23 @@ pub(crate) enum RateLimitClass {
     Transient,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResetSource {
+    RetryAfter,
+    ServerReset,
+    ParsedText,
+}
+
+impl ResetSource {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::RetryAfter => "retry-after",
+            Self::ServerReset => "server-reset",
+            Self::ParsedText => "try-again-text",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum Category {
@@ -48,6 +65,7 @@ pub(crate) enum Category {
 pub(crate) struct Classification {
     pub category: Category,
     pub reset_after_seconds: Option<u64>,
+    pub reset_source: Option<ResetSource>,
     pub snippet: String,
 }
 
@@ -70,6 +88,7 @@ static RATE_LIMIT_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new(RATE_LIMIT_PATTERNS_RAW).expect("static regex set must compile")
 });
 
+#[allow(dead_code)]
 pub(crate) const RATE_LIMIT_PATTERN_NAMES: [&str; 6] = [
     "rate-limit",
     "quota-exceeded",
@@ -108,6 +127,7 @@ static TRY_AGAIN_IN: LazyLock<Regex> = LazyLock::new(|| {
         .expect("static regex must compile")
 });
 
+#[allow(dead_code)]
 pub(crate) const AUTH_FAILURE_PATTERN_NAMES: [&str; 7] = [
     "401",
     "unauthorized",
@@ -189,6 +209,7 @@ pub(crate) fn pick_priority(stderr: Option<Match>, stdout: Option<Match>) -> Opt
     }
 }
 
+#[allow(dead_code)]
 pub(crate) const fn pattern_name(matched: &Match) -> &'static str {
     match matched.kind {
         MatchKind::RateLimit => RATE_LIMIT_PATTERN_NAMES[matched.pattern_index],
@@ -230,6 +251,7 @@ pub(crate) fn classify(
             return Some(Classification {
                 category: Category::RateLimit(RateLimitClass::UsageLimitExhausted),
                 reset_after_seconds: parse_reset_after_seconds(&snippet),
+                reset_source: parse_reset_after_seconds(&snippet).map(|_| ResetSource::ParsedText),
                 snippet,
             });
         }
@@ -251,6 +273,8 @@ pub(crate) fn classify(
     Some(Classification {
         category,
         reset_after_seconds: parse_reset_after_seconds(&text_match.snippet),
+        reset_source: parse_reset_after_seconds(&text_match.snippet)
+            .map(|_| ResetSource::ParsedText),
         snippet: text_match.snippet,
     })
 }
@@ -263,8 +287,11 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
     } else {
         turn_error.message.clone()
     };
-    let reset_after_seconds =
-        select_reset_after_seconds(turn_error, events.last_rate_limits.as_ref());
+    let (reset_after_seconds, reset_source) =
+        select_reset_after_seconds(turn_error, events.last_rate_limits.as_ref())
+            .map_or((None, None), |(seconds, source)| {
+                (Some(seconds), Some(source))
+            });
 
     if matches!(
         turn_error.error_code.as_deref(),
@@ -273,6 +300,7 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         return Some(Classification {
             category: Category::RateLimit(RateLimitClass::UsageLimitExhausted),
             reset_after_seconds,
+            reset_source,
             snippet,
         });
     }
@@ -281,6 +309,7 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         return Some(Classification {
             category: Category::ContextWindowExceeded,
             reset_after_seconds,
+            reset_source,
             snippet,
         });
     }
@@ -301,6 +330,21 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         return Some(Classification {
             category: Category::RateLimit(class),
             reset_after_seconds,
+            reset_source,
+            snippet,
+        });
+    }
+
+    if is_auth_failure(turn_error) {
+        // A structured `401` (or known auth code/message) must route to the
+        // refresh-then-rotate AuthFailure path, not the unhandled fallback.
+        // Without this branch a `turn.failed` carrying `http_status_code: 401`
+        // whose text representation lacks a recognizable `401`/`unauthorized`
+        // token would fall through to `Unclassified` and skip the token refresh.
+        return Some(Classification {
+            category: Category::AuthFailure,
+            reset_after_seconds,
+            reset_source,
             snippet,
         });
     }
@@ -309,6 +353,7 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
         return Some(Classification {
             category: Category::ServerError,
             reset_after_seconds,
+            reset_source,
             snippet,
         });
     }
@@ -316,19 +361,40 @@ fn classify_structured(events: &EventSummary) -> Option<Classification> {
     Some(Classification {
         category: Category::Unclassified,
         reset_after_seconds,
+        reset_source,
         snippet,
     })
+}
+
+fn is_auth_failure(turn_error: &TurnError) -> bool {
+    if turn_error.http_status == Some(401) {
+        return true;
+    }
+    let lower = turn_error.message.to_ascii_lowercase();
+    lower.contains("unauthorized")
+        || lower.contains("invalid auth")
+        || lower.contains("invalid_grant")
+        || lower.contains("token exchange")
+        || lower.contains("insufficient permissions")
 }
 
 #[allow(dead_code)]
 fn select_reset_after_seconds(
     turn_error: &TurnError,
     snapshot: Option<&RateLimitSnapshot>,
-) -> Option<u64> {
+) -> Option<(u64, ResetSource)> {
     turn_error
         .retry_after_seconds
-        .or_else(|| relevant_window(snapshot).and_then(|window| window.resets_in_seconds))
-        .or_else(|| parse_reset_after_seconds(&turn_error.message))
+        .map(|seconds| (seconds, ResetSource::RetryAfter))
+        .or_else(|| {
+            relevant_window(snapshot)
+                .and_then(|window| window.resets_in_seconds)
+                .map(|seconds| (seconds, ResetSource::ServerReset))
+        })
+        .or_else(|| {
+            parse_reset_after_seconds(&turn_error.message)
+                .map(|seconds| (seconds, ResetSource::ParsedText))
+        })
 }
 
 #[allow(dead_code)]
@@ -428,7 +494,8 @@ fn scan_usage_limit_text(buf: &[u8]) -> Option<String> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::{
-        Category, Match, MatchKind, RateLimitClass, classify, pattern_name, pick_priority, scan,
+        Category, Match, MatchKind, RateLimitClass, ResetSource, classify, pattern_name,
+        pick_priority, scan,
     };
     use crate::services::account::codex_events::{
         EventSummary, RateLimitSnapshot, RateLimitWindow, TurnError, scan_events,
@@ -771,6 +838,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::UsageLimitExhausted)
         );
         assert_eq!(result.reset_after_seconds, Some(44));
+        assert_eq!(result.reset_source, Some(ResetSource::RetryAfter));
     }
 
     #[test]
@@ -796,6 +864,7 @@ mod tests {
         let result = classify(&events, b"", b"").unwrap();
 
         assert_eq!(result.reset_after_seconds, Some(21));
+        assert_eq!(result.reset_source, Some(ResetSource::ServerReset));
     }
 
     #[test]
@@ -817,6 +886,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::Transient)
         );
         assert_eq!(result.reset_after_seconds, Some(9));
+        assert_eq!(result.reset_source, Some(ResetSource::RetryAfter));
     }
 
     #[test]
@@ -846,6 +916,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::Transient)
         );
         assert_eq!(result.reset_after_seconds, Some(12));
+        assert_eq!(result.reset_source, Some(ResetSource::ServerReset));
     }
 
     #[test]
@@ -878,6 +949,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::UsageLimitExhausted)
         );
         assert_eq!(result.reset_after_seconds, Some(120));
+        assert_eq!(result.reset_source, Some(ResetSource::ServerReset));
     }
 
     #[test]
@@ -895,6 +967,7 @@ mod tests {
         let result = classify(&events, b"", b"").unwrap();
 
         assert_eq!(result.category, Category::ContextWindowExceeded);
+        assert_eq!(result.reset_source, None);
     }
 
     #[test]
@@ -912,12 +985,35 @@ mod tests {
         let result = classify(&events, b"", b"").unwrap();
 
         assert_eq!(result.category, Category::ServerError);
+        assert_eq!(result.reset_source, None);
+    }
+
+    #[test]
+    fn classify_structured_401_without_text_token_is_auth_failure() {
+        // A structured `turn.failed` carrying `http_status_code: 401` whose
+        // message lacks a recognizable `401`/`unauthorized` token must still
+        // route to AuthFailure (refresh-then-rotate), not the unhandled path.
+        let events = EventSummary {
+            last_rate_limits: None,
+            turn_error: Some(TurnError {
+                message: "authentication failed".to_owned(),
+                error_code: None,
+                retry_after_seconds: None,
+                http_status: Some(401),
+            }),
+        };
+
+        let result = classify(&events, b"", b"").unwrap();
+
+        assert_eq!(result.category, Category::AuthFailure);
+        assert_eq!(result.snippet, "authentication failed");
     }
 
     #[test]
     fn classify_text_fallback_auth_and_generic_429() {
         let auth = classify(&EventSummary::default(), b"", b"HTTP 401 Unauthorized\n").unwrap();
         assert_eq!(auth.category, Category::AuthFailure);
+        assert_eq!(auth.reset_source, None);
 
         let rate = classify(
             &EventSummary::default(),
@@ -929,6 +1025,7 @@ mod tests {
             rate.category,
             Category::RateLimit(RateLimitClass::Transient)
         );
+        assert_eq!(rate.reset_source, None);
     }
 
     #[test]
@@ -945,6 +1042,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::UsageLimitExhausted)
         );
         assert_eq!(result.reset_after_seconds, Some(12));
+        assert_eq!(result.reset_source, Some(ResetSource::ParsedText));
     }
 
     #[test]
@@ -961,6 +1059,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::Transient)
         );
         assert_eq!(result.reset_after_seconds, Some(12));
+        assert_eq!(result.reset_source, Some(ResetSource::ParsedText));
     }
 
     #[test]
@@ -980,6 +1079,7 @@ mod tests {
         let result = classify(&events, b"all quiet here\n", b"").unwrap();
 
         assert_eq!(result.category, Category::Unclassified);
+        assert_eq!(result.reset_source, None);
         assert_eq!(result.snippet, "weird failure");
     }
 
@@ -1045,6 +1145,7 @@ mod tests {
             Category::RateLimit(RateLimitClass::UsageLimitExhausted)
         );
         assert_eq!(result.reset_after_seconds, Some(12));
+        assert_eq!(result.reset_source, Some(ResetSource::ParsedText));
     }
 
     #[test]

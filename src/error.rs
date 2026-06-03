@@ -95,6 +95,15 @@ pub(crate) enum AppError {
     /// Opaque application-edge failure.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+
+    /// codex returned a structured error the wrapper does not yet model.
+    #[error("codex returned an unhandled error")]
+    CodexUnhandled {
+        class: &'static str,
+        snippet: String,
+        log_glob: String,
+        exit_code: u8,
+    },
 }
 
 impl From<crate::adapters::spawner::SpawnerError> for AppError {
@@ -147,6 +156,7 @@ impl AppError {
             Self::ChildRecursion { .. } => "child-recursion",
             Self::Auth(err) => err.kind(),
             Self::Account(err) => err.kind(),
+            Self::CodexUnhandled { .. } => "codex-unhandled",
             Self::Io(err) if err.kind() == std::io::ErrorKind::NotFound => "io-not-found",
             Self::Io(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
                 "io-permission-denied"
@@ -170,6 +180,7 @@ impl AppError {
                 .signal()
                 .and_then(|signal| u8::try_from(128 + signal).ok())
                 .unwrap_or(70),
+            Self::CodexUnhandled { exit_code, .. } => *exit_code,
             Self::Account(err) => match err {
                 crate::services::account::AccountError::InvalidName { .. }
                 | crate::services::account::AccountError::NonInteractive { .. }
@@ -379,6 +390,10 @@ fn detail(err: &AppError) -> ErrorDetail {
         },
         AppError::Auth(auth_err) => auth_error_detail(auth_err),
         AppError::Account(account_err) => account_error_detail(account_err),
+        AppError::CodexUnhandled { class, snippet, .. } => ErrorDetail {
+            what: "codex returned an unhandled error".to_owned(),
+            why_line: format!("{class}: {}", first_line(snippet)),
+        },
         AppError::Io(source) => ErrorDetail {
             what: "unexpected I/O failure".to_owned(),
             why_line: source.to_string(),
@@ -703,6 +718,10 @@ fn earliest_available<'a>(
         .min()
 }
 
+fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or(text)
+}
+
 fn account_error_outcome_lines(
     err: &AppError,
 ) -> Vec<&crate::services::account::error::AccountOutcomeLine> {
@@ -721,6 +740,9 @@ fn account_error_outcome_lines(
 }
 
 fn format_where_line(err: &AppError) -> Option<String> {
+    if matches!(err, AppError::CodexUnhandled { .. }) {
+        return None;
+    }
     let path = error_path(err)?;
     match error_line(err) {
         Some(line) => Some(format!("{path} (line {line})")),
@@ -749,7 +771,8 @@ fn error_path(err: &AppError) -> Option<String> {
         AppError::ChildNotExecutable { path } => Some(path.display().to_string()),
         AppError::Auth(auth_err) => Some(auth_err.path().to_string()),
         AppError::Account(account_err) => account_err.path().map(ToString::to_string),
-        AppError::Usage(_)
+        AppError::CodexUnhandled { .. }
+        | AppError::Usage(_)
         | AppError::ChildExec(_)
         | AppError::ChildVersionTooOld { .. }
         | AppError::ChildVersionUnparseable { .. }
@@ -813,6 +836,9 @@ fn error_hint(err: &AppError) -> Option<Cow<'static, str>> {
             // hint is gated on the owner alone — never suggest clearing cooldowns
             // because some other account happens to be cooling down.
             Some(account_report_hint(std::slice::from_ref(&owner)))
+        }
+        AppError::CodexUnhandled { log_glob, .. } => {
+            Some(Cow::Owned(format!("full detail in {log_glob}")))
         }
         _ => static_error_hint(err).map(Cow::Borrowed),
     }
@@ -967,6 +993,7 @@ const fn static_error_hint(err: &AppError) -> Option<&'static str> {
         | AppError::ChildExec(_)
         | AppError::ChildExitNonZero(_)
         | AppError::ChildSignaled(_)
+        | AppError::CodexUnhandled { .. }
         | AppError::Io(_)
         | AppError::Other(_) => None,
     }

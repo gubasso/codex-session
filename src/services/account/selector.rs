@@ -736,6 +736,7 @@ mod tests {
                 reason: "429 detected".to_owned(),
                 last_429_at_unix: 4_102_444_500,
                 snippet_truncated: "HTTP 429 Too Many Requests".to_owned(),
+                reset_source: None,
             },
         )
         .unwrap();

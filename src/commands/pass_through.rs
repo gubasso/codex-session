@@ -596,7 +596,7 @@ fn run_resume(
             gid_override,
         )?;
         if let Some(err) = resume_blocked_from_live_rate_limit(
-            ctx, &registry, &resolved, &thread_id, &stdout, &stderr,
+            ctx, &registry, &resolved, &thread_id, exit_code, &stdout, &stderr,
         )? {
             return Err(err.into());
         }
@@ -643,26 +643,49 @@ fn resume_blocked_from_live_rate_limit(
     registry: &crate::services::account::registry::Registry,
     resolved: &crate::services::account::resolver::ResolvedAccount,
     thread_id: &str,
+    exit_code: i32,
     stdout: &[u8],
     stderr: &[u8],
 ) -> Result<Option<crate::services::account::AccountError>, crate::error::AppError> {
-    let Some(matched) = crate::services::account::failover::pick_priority(
-        crate::services::account::failover::scan(stderr),
-        crate::services::account::failover::scan(stdout),
-    ) else {
+    let events = crate::services::account::codex_events::scan_events(stdout);
+    let Some(classification) =
+        crate::services::account::failover::classify(&events, stdout, stderr)
+    else {
         return Ok(None);
     };
-    if matched.kind != crate::services::account::failover::MatchKind::RateLimit {
-        return Ok(None);
+    // The resume path is account-bound and cannot rotate, so only a rate limit
+    // blocks the resume (-> `ResumeBlocked`). The unhandled categories that
+    // `run_auto` surfaces via `codex_unhandled_error` get the same styled
+    // stderr + log-pointer UX here too, instead of letting codex's raw output
+    // stand silently. Auth failures keep the existing pass-through behavior.
+    match &classification.category {
+        crate::services::account::failover::Category::RateLimit(_) => {}
+        crate::services::account::failover::Category::ContextWindowExceeded
+        | crate::services::account::failover::Category::ServerError
+        | crate::services::account::failover::Category::Unclassified => {
+            return Err(crate::services::account::retry::codex_unhandled_error(
+                ctx,
+                &classification,
+                exit_code,
+            ));
+        }
+        crate::services::account::failover::Category::AuthFailure => return Ok(None),
     }
 
-    crate::services::account::retry::write_cooldown(registry, &resolved.id, "429", &matched)?;
+    crate::services::account::retry::write_cooldown(
+        registry,
+        &resolved.id,
+        "429",
+        &classification.snippet,
+        classification.reset_after_seconds,
+        classification.reset_source,
+    )?;
     let owner = crate::services::account::retry::account_outcome_line(
         ctx,
         registry,
         &resolved.id,
         crate::services::account::error::OutcomeState::RateLimited429,
-        format!("429 rate limit: {}", matched.snippet),
+        format!("429 rate limit: {}", classification.snippet),
     );
     Ok(Some(
         crate::services::account::AccountError::ResumeBlocked {

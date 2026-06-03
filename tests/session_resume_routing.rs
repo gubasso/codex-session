@@ -368,6 +368,79 @@ fn pinned_resume_sandbox_mismatch_is_classified() {
 }
 
 #[test]
+fn pinned_resume_out_of_credits_is_blocked() {
+    let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"work\"}\n");
+    let thread_id = "thread-out-of-credits";
+    write_thread_index_entry(&env, thread_id, "work", "stable-test");
+    write_rollout_for(&env, "work", "stable-test", thread_id);
+
+    // No quota cache seeded (and the auth seed is API-key shaped), so
+    // `credit_cooldown` finds no exhausted window and falls back to the 300s
+    // default — the test pins that fallback path; the reset-aware path is
+    // covered in account_failover_retry.rs.
+    let assert = env
+        .cmd()
+        .env("CODEX_SESSION_GROUP", "stable-test")
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-credits-jsonl.sh"),
+        )
+        .args(["exec", "resume", thread_id])
+        .assert()
+        .failure()
+        .code(75);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains("marker:codex-session-fake-credits"));
+    assert!(stderr.contains("account: resume blocked"));
+    assert!(stderr.contains("• work  out of credits"));
+    let cooldown: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(env.named_account_root("work").join("cooldown.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        cooldown["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("credits detected:")
+    );
+    assert_eq!(cooldown["reset_source"], "fallback-300s");
+}
+
+#[test]
+fn resume_pin_override_emits_styled_warning() {
+    let env = TestEnv::new();
+    env.seed_account("work", "{\"token\":\"work\"}\n");
+    env.seed_account("personal", "{\"token\":\"personal\"}\n");
+    let thread_id = "thread-pin-override";
+    write_thread_index_entry(&env, thread_id, "work", "stable-test");
+    write_rollout_for(&env, "work", "stable-test", thread_id);
+
+    let assert = env
+        .cmd()
+        .env("CODEX_SESSION_GROUP", "stable-test")
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-codex-resume.sh"),
+        )
+        .args(["--account", "personal", "exec", "resume", thread_id])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("resumed:{thread_id}")));
+
+    // The override notice must carry the literal `warning:` prefix —
+    // `Ui::write_warning` only applies the BOLD_YELLOW style when the body
+    // starts with it (cli-style-guide §11), so a missing prefix renders the
+    // warning unstyled.
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains(&format!(
+        "warning: --account 'personal' ignored; thread {thread_id} owned by work"
+    )));
+    assert!(stderr.contains("resume always pins to owner"));
+}
+
+#[test]
 fn resume_blocked_preflight_cooldown_does_not_spawn_child() {
     let env = TestEnv::new();
     env.seed_account("work", "{\"token\":\"work\"}\n");

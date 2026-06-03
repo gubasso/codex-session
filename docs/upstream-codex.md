@@ -233,9 +233,36 @@ and `src/services/account/failover.rs` currently depends on these facts:
   codex 0.135.0): an `error` event followed by `turn.failed` whose
   `error` object carries only a `message` ("Your workspace is out of
   credits. Add credits to continue.") — no `error_code`, no
-  `http_status_code`. The wrapper currently classifies this as
-  Unclassified (unhandled error); the failover classifier does not yet
-  have a credit-exhaustion category.
+  `http_status_code`. The wrapper classifies this as
+  `Category::CreditExhausted` (message-based, case-insensitive
+  "out of credits"), writes a cooldown that expires at the exhausted
+  quota window's reset (`retry::credit_cooldown`, derived from the
+  account's own usage data; 300s fallback when quota is unavailable),
+  then rotates on the auto path or returns `ResumeBlocked` on the
+  resume path.
+- Credit semantics (verified live 2026-06-03 against `wham/usage`, and
+  corroborated by [`openai/codex#19830`](https://github.com/openai/codex/issues/19830)
+  whose error text offers "purchase more credits OR try again at
+  [reset time]"): credits are a **workspace-level overflow pool**
+  consumed only after the plan's included windows are exhausted; they
+  refill via manual/auto top-up only (no scheduled reset). The
+  "out of credits" error fires when a window is at 100% used AND the
+  workspace has no credits — the account recovers at the window reset
+  **without** a top-up. Upstream's `RateLimitReachedType`
+  (`codex-rs/protocol/src/protocol.rs`) has both
+  `WorkspaceOwnerCreditsDepleted` and `WorkspaceMemberCreditsDepleted`
+  variants, and `RateLimitSnapshot` carries an optional
+  `CreditsSnapshot { has_credits, unlimited, balance }`.
+- The raw `wham/usage` response (the endpoint
+  `src/services/account/quota.rs` polls) carries more than the
+  windows the wrapper parses today — verified fields: `rate_limit.allowed`,
+  `rate_limit.limit_reached`, per-window `used_percent` /
+  `limit_window_seconds` / `reset_after_seconds` / `reset_at`,
+  `credits { has_credits, unlimited, overage_limit_reached, balance, … }`,
+  `spend_control`, and `rate_limit_reached_type { type, details }`
+  (observed `"workspace_owner_credits_depleted"`). The wrapper currently
+  retains only the windows; the credit fields are a candidate for
+  `account quota`/`health` surfacing.
 - Bare `429` failures still happen without a `usage_limit_*` code. In that
   case the wrapper must inspect the snapshot: high `used_percent` means
   window exhaustion; healthy headroom means a transient limit.

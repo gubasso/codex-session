@@ -21,6 +21,22 @@ fn quota_cache(five_hour: f64, weekly: f64) -> String {
     )
 }
 
+/// Like `quota_cache`, but with a caller-chosen five-hour `reset_at_unix` so a
+/// test can pin the reset-aware credit cooldown to a known instant.
+fn quota_cache_with_five_hour_reset(five_hour: f64, weekly: f64, reset_at_unix: u64) -> String {
+    format!(
+        r#"{{
+    "fetched_at_unix": 4102444800,
+    "ttl_secs": 30,
+    "body": {{
+    "kind": "ok",
+    "five_hour": {{ "percent_left": {five_hour}, "reset_at_unix": {reset_at_unix} }},
+    "weekly": {{ "percent_left": {weekly}, "reset_at_unix": 4103053200 }}
+    }}
+}}"#
+    )
+}
+
 fn latest_log_file(dir: &std::path::Path) -> std::path::PathBuf {
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .unwrap()
@@ -131,6 +147,89 @@ fn auto_retry_rotates_accounts_and_writes_cooldown() {
     }
     assert!(logs.contains("\"state\":\"rate_limited_429\""));
     assert!(logs.contains("\"earliest_available_at_unix\""));
+}
+
+#[test]
+fn credits_rotate_and_write_reset_aware_cooldown() {
+    let env = TestEnv::new_empty();
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    // Exhausted five-hour windows (still selectable — quota is a soft
+    // penalty, not a block) with a pinned future reset: the credit cooldown
+    // must expire at exactly that window reset (see retry::credit_cooldown).
+    let start = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let window_reset_at = start + 1234;
+    env.write_quota_cache(
+        "work",
+        &quota_cache_with_five_hour_reset(0.0, 27.0, window_reset_at),
+    );
+    env.write_quota_cache(
+        "personal",
+        &quota_cache_with_five_hour_reset(0.0, 27.0, window_reset_at),
+    );
+
+    let assert = env
+        .cmd()
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-credits-jsonl.sh"),
+        )
+        .args([
+            "-v",
+            "--account",
+            "auto",
+            "--max-retries",
+            "2",
+            "exec",
+            "trigger credits",
+        ])
+        .assert()
+        .failure()
+        .code(75);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    let homes = marker_homes(&stderr, "marker:codex-session-fake-credits home=");
+    assert_eq!(
+        homes.len(),
+        2,
+        "credit exhaustion should rotate, not terminate"
+    );
+    assert_ne!(homes[0], homes[1]);
+
+    for account in ["work", "personal"] {
+        let cooldown = read_cooldown(&env, account);
+        assert!(
+            cooldown["reason"]
+                .as_str()
+                .unwrap()
+                .starts_with("credits detected:"),
+            "cooldown reason should be credit-specific: {cooldown}"
+        );
+        assert_eq!(cooldown["reset_source"], "server-reset");
+        let reset_at = cooldown["reset_at_unix"].as_u64().unwrap();
+        assert!(
+            (window_reset_at..=window_reset_at + 30).contains(&reset_at),
+            "cooldown should expire at the window reset \
+            (expected ~{window_reset_at}, got {reset_at})"
+        );
+    }
+
+    assert!(stderr.contains("account: auto-selection exhausted"));
+    assert!(stderr.contains("• work  out of credits"));
+    assert!(stderr.contains("• personal  out of credits"));
+    // Clearing cooldowns does not add credits; the hint must point at the
+    // window reset / top-up instead.
+    assert!(stderr.contains("add credits to the workspace"));
+    assert!(!stderr.contains("cooldown clear --all"));
+
+    let log_file = latest_log_file(&env.state_home.join("codex-session"));
+    let logs = std::fs::read_to_string(log_file).unwrap();
+    assert!(logs.contains("\"state\":\"credit_exhausted\""));
+    assert!(logs.contains("\"op\":\"account.switch\""));
+    assert!(logs.contains("\"op\":\"cooldown.write\""));
 }
 
 #[test]

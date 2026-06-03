@@ -602,7 +602,7 @@ fn run_resume(
         && pinned != resolved.id
     {
         ctx.ui.write_warning(&format!(
-            "--account '{pinned}' ignored; thread {thread_id} owned by {} \
+            "warning: --account '{pinned}' ignored; thread {thread_id} owned by {} \
             (resume always pins to owner)",
             resolved.id
         ))?;
@@ -744,12 +744,43 @@ fn resume_blocked_from_live_rate_limit(
         return Ok(None);
     };
     // The resume path is account-bound and cannot rotate, so only a rate limit
-    // blocks the resume (-> `ResumeBlocked`). The unhandled categories that
+    // or credit exhaustion blocks the resume (-> `ResumeBlocked`). The unhandled categories that
     // `run_auto` surfaces via `codex_unhandled_error` get the same styled
     // stderr + log-pointer UX here too, instead of letting codex's raw output
     // stand silently. Auth failures keep the existing pass-through behavior.
     match &classification.category {
         crate::services::account::failover::Category::RateLimit(_) => {}
+        crate::services::account::failover::Category::CreditExhausted => {
+            // Resume is owner-bound, so credit exhaustion blocks it just like
+            // a rate limit — but with credit-specific labels, and a
+            // reset-aware cooldown derived from the owner's own usage windows
+            // (the error carries no reset; see `retry::credit_cooldown` and
+            // docs/upstream-codex.md §F9).
+            let (reset, source) =
+                crate::services::account::retry::credit_cooldown(ctx, &resolved.id);
+            crate::services::account::retry::write_cooldown(
+                registry,
+                &resolved.id,
+                "credits",
+                &classification.snippet,
+                reset,
+                source,
+            )?;
+            let owner = crate::services::account::retry::account_outcome_line(
+                ctx,
+                registry,
+                &resolved.id,
+                crate::services::account::error::OutcomeState::CreditExhausted,
+                format!("out of credits: {}", classification.snippet),
+            );
+            return Ok(Some(
+                crate::services::account::AccountError::ResumeBlocked {
+                    thread_id: thread_id.to_owned(),
+                    owner,
+                    others: resume_other_lines(ctx, registry, &resolved.id)?,
+                },
+            ));
+        }
         crate::services::account::failover::Category::NoRolloutFound => {
             let inspected = crate::services::session::dir::inspect_session_root(
                 ctx.config.paths.runtime_dir.as_deref(),

@@ -7,6 +7,7 @@ use super::{cooldown::CooldownError, id::AccountId};
 pub(crate) enum OutcomeState {
     FiveHourExhausted,
     WeeklyExhausted,
+    CreditExhausted,
     RateLimited429,
     AuthFailed401,
     Cooldown,
@@ -22,6 +23,7 @@ impl OutcomeState {
         match self {
             Self::FiveHourExhausted => "five_hour_exhausted",
             Self::WeeklyExhausted => "weekly_exhausted",
+            Self::CreditExhausted => "credit_exhausted",
             Self::RateLimited429 => "rate_limited_429",
             Self::AuthFailed401 => "auth_failed_401",
             Self::Cooldown => "cooldown",

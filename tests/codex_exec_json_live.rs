@@ -64,6 +64,7 @@ fn looks_rate_limited(haystack: &str) -> bool {
         || h.contains("rate_limit")
         || h.contains("rate limit")
         || h.contains("too many requests")
+        || h.contains("out of credits")
         || h.contains(" 429")
         || h.contains("\"429\"")
 }

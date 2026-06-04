@@ -1,7 +1,0 @@
-# Rounds for this plan, in execution order. status: backlog | todo | doing | done
-rounds:
-  - item: interactive-passthrough-stdio
-    status: done
-    depends_on: []
-    prompt: /prex -ar .plan/interactive-tui-passthrough-stdio/interactive-passthrough-stdio.md
-    notes: Inherit stdio for interactive TUI passthrough (auto + resume).

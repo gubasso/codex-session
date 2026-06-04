@@ -1,7 +1,0 @@
-# Rounds for this plan, in execution order. status: backlog | todo | doing | done
-rounds:
-  - item: aggregate-totals-panel
-    status: done
-    depends_on: []
-    prompt: /prex -ar .plan/account-quota-aggregate-totals/aggregate-totals-panel.md
-    notes: Pool-wide TOTAL panel + 5-hour label rename + JSON wrapper.

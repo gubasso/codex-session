@@ -60,7 +60,6 @@ impl SpinnerGroup {
     }
 
     /// Clear all visible spinner lines.
-    #[allow(dead_code)]
     pub(crate) fn clear(&self) -> std::io::Result<()> {
         self.multi.clear()
     }

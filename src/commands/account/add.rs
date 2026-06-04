@@ -41,7 +41,7 @@ pub(crate) fn run(
     let spinner = spinners.add("Saving account...");
     super::persist_auth_to_seed(&auth_path, &registry, &args.name)?;
     registry.set_current(&args.name)?;
-    spinner.finish_ok(&format!("Account \"{}\" added", args.name));
+    spinner.finish_and_clear();
 
     tracing::info!(op = "account.add", outcome = "ok", account = %args.name);
     ctx.ui.write_account_mutation(

@@ -187,9 +187,20 @@ Spinner frames use `{spinner:.cyan} {msg}` when stderr color is enabled and
 
 Completion markers render as `✓ <msg>` in `GREEN` for success and `✗ <msg>` in
 `RED` for failure. When color is disabled, use `[ok] <msg>` and `[err] <msg>`
-ASCII fallbacks. Finished spinner lines render as marker plus message only; the
-spinner style must switch to `{msg}` before finishing. Transient spinners may
-finish-and-clear when no residual progress line is useful.
+ASCII fallbacks. Completion markers are transient: they may appear while a
+spinner group is still live, such as when other lines are still in flight, but
+the group must clear before the command writes its final stdout report or
+returns an error. No spinner line persists after the command's durable output.
+Durable output is owned solely by stdout report renderers, including
+per-account inline `Error: ...` entries in `account quota` and per-account
+status in `account health`, the `write_account_mutation` block, and the
+standard error renderer. Multi-line groups (`account quota`, `account health`)
+keep per-line `✓`/`✗` markers as live feedback and wipe the whole group once
+the last line finishes. Single-spinner commands (`doctor`, `account add`,
+`account refresh`, single-account `account quota`) finish-and-clear directly.
+Finished spinner lines render as marker plus message only; the spinner style
+must switch to `{msg}` before finishing. Finish messages remain 60 characters
+or fewer.
 
 While a spinner group is live, any other wrapper stderr writer, including
 warnings and prompts, must write through the spinner suspend mechanism. The

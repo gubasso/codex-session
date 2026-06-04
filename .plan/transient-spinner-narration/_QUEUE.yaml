@@ -1,7 +1,7 @@
 # Rounds for this plan, in execution order. status: backlog | todo | doing | done
 rounds:
   - item: clear-spinner-leftovers
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar .plan/transient-spinner-narration/clear-spinner-leftovers.md
     notes: >-

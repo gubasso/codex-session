@@ -61,11 +61,11 @@ pub(crate) async fn run(
         );
         match result.await {
             Ok(view) => {
-                spinner.finish_ok(target.as_str());
+                spinner.finish_and_clear();
                 entries.push(view);
             }
             Err(err) => {
-                spinner.finish_err(&format!("{target} — {err}"));
+                spinner.finish_and_clear();
                 return Err(err.into());
             }
         }
@@ -106,13 +106,21 @@ pub(crate) async fn run(
             entries.push(
                 result
                     .map_err(|err| {
+                        // Clear the transient spinner markers before the error
+                        // renderer owns durable output (contract: no spinner
+                        // line survives a return).
+                        let _ = spinners.clear();
                         crate::error::AppError::Other(anyhow::anyhow!(
                             "quota task join failed: {err}"
                         ))
                     })?
-                    .map_err(crate::error::AppError::from)?,
+                    .map_err(|err| {
+                        let _ = spinners.clear();
+                        crate::error::AppError::from(err)
+                    })?,
             );
         }
+        let _ = spinners.clear();
     }
 
     entries.sort_by(quota_sort_key);

@@ -229,7 +229,9 @@ registry.list()
 └─ non-empty -> resolver.intent()
    ├─ Auto (no --account, --account auto, or CODEX_SESSION_ACCOUNT=auto)
    │  └─ ReadyAuto(candidates = usable account count)
-   │     ├─ ensure() -> AutoDeferred -> retry::run_auto()
+   │     ├─ ensure() -> AutoDeferred
+   │     │  ├─ interactive TTY passthrough -> retry::run_auto_interactive()
+   │     │  └─ otherwise (exec/--json/piped) -> retry::run_auto()
    │     └─ login/logout with no ready current -> NoneSelected
    └─ Pinned (--account <name> or CODEX_SESSION_ACCOUNT=<name>)
       └─ expect_account_dir()

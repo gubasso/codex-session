@@ -83,7 +83,11 @@ pub(crate) fn run(
             crate::services::account::retry::single_attempt(ctx, argv, &resolved)
         }
         crate::services::account::gate::GateOutcome::AutoDeferred => {
-            crate::services::account::retry::run_auto(ctx, argv)
+            if is_interactive_passthrough(argv) {
+                crate::services::account::retry::run_auto_interactive(ctx, argv)
+            } else {
+                crate::services::account::retry::run_auto(ctx, argv)
+            }
         }
     }
 }
@@ -94,7 +98,7 @@ pub(crate) fn run(
 /// When `capture` is `true`, the child's streams are tee'd to the
 /// parent's real stdio **and** independently captured (each capped at
 /// `failover::MAX_CAPTURE_BYTES`). The two streams are returned
-/// separately so callers can run `failover::scan` on each without
+/// separately so callers can run `failover::classify_run` on each without
 /// manufacturing a synthetic interleaving — concatenating them risks
 /// false-positive line boundaries (a partial line on stdout joined to a
 /// fragment on stderr) and false negatives (real interleaving reordered
@@ -401,8 +405,35 @@ fn current_cwd() -> Result<Utf8PathBuf, crate::config::ConfigError> {
         .map_err(crate::config::ConfigError::from)
 }
 
-fn has_json_flag(argv: &[std::ffi::OsString]) -> bool {
+pub(crate) fn has_json_flag(argv: &[std::ffi::OsString]) -> bool {
     argv.iter().any(|arg| arg.to_str() == Some("--json"))
+}
+
+/// Shape-only: argv looks like an interactive TUI launch (not exec, not --json).
+/// Pure and deterministic so it can be unit-tested without a real terminal.
+fn argv_is_interactive_shape(argv: &[std::ffi::OsString]) -> bool {
+    if has_json_flag(argv) {
+        return false;
+    }
+    // Forwarded argv always starts with a non-flag verb token: clap's
+    // `external_subcommand` capture consumes wrapper global flags first and
+    // rejects unknown leading flags with EX_USAGE, so `--flag exec ...` can
+    // never reach this predicate.
+    let first = argv.first().and_then(|a| a.to_str()).unwrap_or("");
+    // `codex exec ...` and `codex exec resume <id>` are non-interactive streaming runs.
+    first != "exec"
+}
+
+/// True when this launch is an interactive TUI attached to a real terminal, so the
+/// child must inherit stdio (codex checks isatty on stdout/stdin and refuses a pipe).
+///
+/// Deliberately stricter than `gate::ensure`'s stdin-only interactive check:
+/// the stdio capture decision requires an stdout terminal too (codex's
+/// `isatty(stdout)` startup check), whereas prompt gating only needs stdin.
+fn is_interactive_passthrough(argv: &[std::ffi::OsString]) -> bool {
+    argv_is_interactive_shape(argv)
+        && crate::ui::terminal::stdout_is_terminal()
+        && crate::ui::terminal::stdin_is_terminal()
 }
 
 fn rewrite_last_to_id(argv: &[std::ffi::OsString], thread_id: &str) -> Vec<std::ffi::OsString> {
@@ -677,24 +708,28 @@ fn run_resume(
     }
 
     let session = SignalSession::install()?;
+    let interactive = is_interactive_passthrough(argv);
     let (exit_code, stdout, stderr) = run_once(
         ctx,
         &effective_argv,
         &resolved,
         &session,
-        true,
+        !interactive,
         gid_override,
     )?;
-    if let Some(err) = resume_blocked_from_live_rate_limit(
-        ctx,
-        &registry,
-        &resolved,
-        &thread_id,
-        &original_group_id,
-        exit_code,
-        &stdout,
-        &stderr,
-    )? {
+    if !interactive
+        && let Some(err) = resume_blocked_from_live_rate_limit(
+            ctx,
+            &registry,
+            &resolved,
+            &thread_id,
+            &original_group_id,
+            exit_code,
+            has_json_flag(&effective_argv),
+            &stdout,
+            &stderr,
+        )?
+    {
         return Err(err.into());
     }
     Ok(exit_code)
@@ -734,13 +769,14 @@ fn resume_blocked_from_live_rate_limit(
     thread_id: &str,
     group_id: &str,
     exit_code: i32,
+    json_mode: bool,
     stdout: &[u8],
     stderr: &[u8],
 ) -> Result<Option<crate::services::account::AccountError>, crate::error::AppError> {
     let events = crate::services::account::codex_events::scan_events(stdout);
-    let Some(classification) =
-        crate::services::account::failover::classify(&events, stdout, stderr)
-    else {
+    let Some(classification) = crate::services::account::failover::classify_run(
+        &events, exit_code, json_mode, stdout, stderr,
+    ) else {
         return Ok(None);
     };
     // The resume path is account-bound and cannot rotate, so only a rate limit
@@ -1031,6 +1067,10 @@ mod tests {
     use super::*;
     use std::ffi::OsString;
 
+    fn av(items: &[&str]) -> Vec<OsString> {
+        items.iter().map(|s| OsString::from(*s)).collect()
+    }
+
     #[test]
     fn has_json_flag_present() {
         let argv = vec![
@@ -1056,6 +1096,19 @@ mod tests {
     fn has_json_flag_not_exact_match() {
         let argv = vec![OsString::from("--json=true")];
         assert!(!has_json_flag(&argv));
+    }
+
+    #[test]
+    fn argv_is_interactive_shape_classifies() {
+        // Interactive (TUI) shapes:
+        assert!(argv_is_interactive_shape(&av(&[]))); // bare TUI
+        assert!(argv_is_interactive_shape(&av(&["resume"]))); // interactive picker
+        assert!(argv_is_interactive_shape(&av(&["resume", "ID"]))); // interactive resume
+        assert!(argv_is_interactive_shape(&av(&["some prompt"]))); // prompt-only TUI
+        // Non-interactive shapes:
+        assert!(!argv_is_interactive_shape(&av(&["exec", "do"]))); // exec
+        assert!(!argv_is_interactive_shape(&av(&["exec", "resume", "ID"]))); // exec resume
+        assert!(!argv_is_interactive_shape(&av(&["--json"]))); // json forces capture
     }
 
     #[test]

@@ -503,6 +503,21 @@ that both layers would reject.
   design is to always resolve a resume back to the thread's owning account via
   `thread-index.jsonl`.
 
+## F17 — TUI requires terminal stdio
+
+The interactive codex TUI requires terminal stdio on startup. In particular,
+it checks that stdout is a terminal and refuses to run when stdout is piped,
+emitting `stdout is not a terminal`; interactive stdin must likewise remain a
+terminal for the TUI to own input.
+
+- **Sources:** Live observation 2026-06-03: launching the interactive TUI
+  through `codex-session` on the auto-selection path with captured child
+  stdout/stderr reproduced the upstream error `stdout is not a terminal`.
+- **Implementation note:** `codex-session` must inherit, not pipe, stdio for
+  interactive launches. Captured output scanning remains appropriate for
+  non-interactive invocations such as `exec`, `--json`, and piped output, but
+  it breaks the TUI terminal check.
+
 ## Sources (full list)
 
 - Docs: <https://developers.openai.com/codex/local-config/>,

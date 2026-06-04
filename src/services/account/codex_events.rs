@@ -42,6 +42,10 @@ pub(crate) struct TurnError {
 pub(crate) struct EventSummary {
     pub last_rate_limits: Option<RateLimitSnapshot>,
     pub turn_error: Option<TurnError>,
+    /// A `turn.completed` event was observed. Used by `failover::classify_run`
+    /// to treat a zero-exit run as successful even when transient mid-stream
+    /// `error` events were emitted before the turn recovered and completed.
+    pub turn_completed: bool,
 }
 
 const KNOWN_ERROR_CODES: [&str; 3] = [
@@ -75,6 +79,9 @@ pub(crate) fn scan_events(stdout: &[u8]) -> EventSummary {
             }
             Some("turn.failed" | "error") => {
                 summary.turn_error = Some(extract_turn_error(&value));
+            }
+            Some("turn.completed") => {
+                summary.turn_completed = true;
             }
             _ => {}
         }
@@ -268,6 +275,25 @@ mod tests {
         );
         assert_eq!(turn_error.retry_after_seconds, Some(45));
         assert_eq!(turn_error.http_status, Some(429));
+    }
+
+    #[test]
+    fn records_turn_completed() {
+        let stdout = concat!(
+            "{\"type\":\"turn.started\"}\n",
+            "{\"type\":\"item.completed\",",
+            "\"item\":{\"type\":\"agent_message\",\"text\":\"done\"}}\n",
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1}}\n"
+        );
+        let summary = scan_events(stdout.as_bytes());
+        assert!(summary.turn_completed);
+        assert!(summary.turn_error.is_none());
+    }
+
+    #[test]
+    fn turn_completed_defaults_false() {
+        let summary = scan_events(b"{\"type\":\"turn.started\"}\n");
+        assert!(!summary.turn_completed);
     }
 
     #[test]

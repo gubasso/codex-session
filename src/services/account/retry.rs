@@ -45,6 +45,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
     };
 
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
+    let json_mode = crate::commands::pass_through::has_json_flag(argv);
     let mut tried = HashSet::new();
     let mut ran_report = Vec::new();
     let mut force_same: Option<ResolvedAccount> = None;
@@ -83,7 +84,9 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
         )?;
 
         let events = super::codex_events::scan_events(&stdout_buf);
-        let Some(classification) = failover::classify(&events, &stdout_buf, &stderr_buf) else {
+        let Some(classification) =
+            failover::classify_run(&events, exit_code, json_mode, &stdout_buf, &stderr_buf)
+        else {
             // The child has already run and forwarded its stdout/stderr. Updating
             // `state/last-account` is best-effort bookkeeping (it only drives the
             // selector recency penalty) — a write failure here must not convert a
@@ -252,6 +255,41 @@ pub(crate) fn single_attempt(
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
     let (exit_code, _stdout_buf, _stderr_buf) =
         crate::commands::pass_through::run_once(ctx, argv, resolved, &signal_session, false, None)?;
+    Ok(exit_code)
+}
+
+/// Auto-selection for an interactive TUI launch: pick the best eligible account
+/// up front (pre-flight, the same selector dry-run uses) and run it with inherited
+/// stdio. No output capture and no reactive 401/429 failover — codex owns the
+/// terminal, so mid-session rotation is impossible and capture would break the
+/// TUI's isatty check. Pre-flight selection (skips cooled-down/exhausted accounts,
+/// scores by quota) is the defense.
+pub(crate) fn run_auto_interactive(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppError> {
+    let resolved = resolver::resolve_for_exec(ctx, &HashSet::new())?;
+    tracing::info!(
+        op = "retry.interactive",
+        account = %resolved.id,
+        "interactive passthrough: failover disabled, stdio inherited"
+    );
+    let signal_session = crate::commands::pass_through::SignalSession::install()?;
+    let (exit_code, _stdout_buf, _stderr_buf) = crate::commands::pass_through::run_once(
+        ctx,
+        argv,
+        &resolved,
+        &signal_session,
+        false,
+        None,
+    )?;
+    // Best-effort recency bookkeeping, mirroring run_auto's success path. A write
+    // failure must not turn a completed launch into an error.
+    let registry = Registry::from_config(&ctx.config);
+    if let Err(err) = registry.set_current(&resolved.id) {
+        tracing::warn!(
+            op = "last_account.write_failed",
+            account = %resolved.id,
+            error = %err,
+        );
+    }
     Ok(exit_code)
 }
 

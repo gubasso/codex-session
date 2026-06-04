@@ -31,6 +31,20 @@ Routing rules:
 - Debug and trace details go to logs only.
 - Pass-through child output is owned by upstream `codex`; the wrapper must not
   restyle it.
+- Interactive TUI passthrough inherits the child's stdio directly and is not
+  captured. A launch is interactive when the forwarded argv shape is not
+  `exec`, does not include upstream `--json`, and both stdin and stdout are
+  terminals.
+- Reactive `401`/`429` failover applies only to captured non-interactive
+  passthrough invocations (`exec`, `--json`, or piped output). For interactive
+  TUI launches, pre-flight account selection is the defense; output scanning is
+  intentionally disabled because piping would break codex's terminal checks.
+- Reactive failover classifies only failed runs: a zero-exit child whose event
+  stream completed its turn (or carried no structured error) is a success and
+  is never classified, even when its output text mentions `401`/`429`/rate-limit
+  tokens. In `--json` mode the raw-text fallback scans stderr only — stdout is
+  an event stream whose agent messages embed arbitrary model text; structured
+  events carry the stdout signal (`failover::classify_run`).
 
 ## 3. Color Palette
 

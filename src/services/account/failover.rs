@@ -222,9 +222,40 @@ pub(crate) const fn pattern_name(matched: &Match) -> &'static str {
     }
 }
 
+/// Run-outcome-aware classifier — the entry point for post-exit failover
+/// decisions. Wraps `classify` with two precision gates that keep captured
+/// output that merely *mentions* failure tokens from being classified as a
+/// failure (observed live 2026-06-03: agent messages discussing "401/429"
+/// patterns triggered transient-429 backoff loops and false cooldowns):
+///
+/// 1. Success gate: a zero-exit run whose event stream either completed its
+///    turn or carried no structured error is a success — never classify it.
+///    Mid-stream `error` events followed by `turn.completed` (codex retried
+///    internally and recovered) count as success; re-running them would
+///    duplicate a completed turn.
+/// 2. JSONL stdout gate: with `--json`, stdout is an event stream whose
+///    `agent_message` items embed arbitrary model text. Structured events
+///    (already parsed into `events`) carry the stdout signal; the raw-text
+///    fallback scans only stderr.
+pub(crate) fn classify_run(
+    events: &EventSummary,
+    exit_code: i32,
+    json_mode: bool,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Option<Classification> {
+    if exit_code == 0 && (events.turn_completed || events.turn_error.is_none()) {
+        return None;
+    }
+    let text_stdout: &[u8] = if json_mode { &[] } else { stdout };
+    classify(events, text_stdout, stderr)
+}
+
 /// Structured-first classifier. `events` comes from
 /// `codex_events::scan_events(stdout)`; `stderr`/`stdout` feed the text
 /// fallback. Pure: no I/O, no sleep, no cooldown writes, no rotation.
+/// Callers on the post-exit failover path use `classify_run`, which adds the
+/// run-outcome gates.
 #[allow(dead_code)]
 pub(crate) fn classify(
     events: &EventSummary,
@@ -575,12 +606,111 @@ fn contains_no_rollout_language(message: &str) -> bool {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::{
-        Category, Match, MatchKind, RateLimitClass, ResetSource, classify, pattern_name,
-        pick_priority, scan,
+        Category, Match, MatchKind, RateLimitClass, ResetSource, classify, classify_run,
+        pattern_name, pick_priority, scan,
     };
     use crate::services::account::codex_events::{
         EventSummary, RateLimitSnapshot, RateLimitWindow, TurnError, scan_events,
     };
+
+    /// JSONL stream for a successful turn whose agent message *mentions*
+    /// rate-limit tokens — the live false-positive shape from 2026-06-03.
+    const COMPLETED_TURN_MENTIONING_429: &str = concat!(
+        "{\"type\":\"thread.started\",\"thread_id\":\"t-1\"}\n",
+        "{\"type\":\"turn.started\"}\n",
+        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",",
+        "\"text\":\"Reactive 401/429 scanning and rate limit failover apply here.\"}}\n",
+        "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10}}\n"
+    );
+
+    #[test]
+    fn classify_run_skips_successful_run_mentioning_429() {
+        let stdout = COMPLETED_TURN_MENTIONING_429.as_bytes();
+        let events = scan_events(stdout);
+        assert_eq!(classify_run(&events, 0, true, stdout, b""), None);
+    }
+
+    #[test]
+    fn classify_run_skips_zero_exit_recovered_turn() {
+        // Mid-stream `error` event, then codex recovers and completes the
+        // turn with exit 0: success — re-classifying would duplicate the run.
+        let stdout = concat!(
+            "{\"type\":\"error\",\"message\":\"stream error: retrying\"}\n",
+            "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10}}\n"
+        )
+        .as_bytes();
+        let events = scan_events(stdout);
+        assert_eq!(classify_run(&events, 0, true, stdout, b""), None);
+    }
+
+    #[test]
+    fn classify_run_skips_zero_exit_text_mention_without_events() {
+        // Non-JSON capture: a successful answer that merely discusses rate
+        // limits must not be classified.
+        let stdout = b"To handle HTTP 429 you should respect rate limit headers.\n";
+        let events = scan_events(stdout);
+        assert_eq!(classify_run(&events, 0, false, stdout, b""), None);
+    }
+
+    #[test]
+    fn classify_run_zero_exit_with_unrecovered_turn_error_still_classifies() {
+        // Defensive: exit 0 but a structured failure with no completed turn
+        // keeps classifying (upstream exit-code bug shape).
+        let stdout = concat!(
+            "{\"type\":\"turn.failed\",\"message\":\"HTTP 429 Too Many Requests\",",
+            "\"error\":{\"http_status_code\":429}}\n"
+        )
+        .as_bytes();
+        let events = scan_events(stdout);
+        let classification = classify_run(&events, 0, true, stdout, b"").unwrap();
+        assert!(matches!(classification.category, Category::RateLimit(_)));
+    }
+
+    #[test]
+    fn classify_run_json_mode_failed_run_ignores_stdout_text() {
+        // Failed run (exit 1) in --json mode: agent text in the event stream
+        // must not feed the raw-text fallback; with clean stderr and no
+        // structured error there is no signal, so the child exit passes
+        // through unclassified.
+        let stdout = COMPLETED_TURN_MENTIONING_429.as_bytes();
+        let events = EventSummary::default(); // no structured error parsed
+        assert_eq!(classify_run(&events, 1, true, stdout, b""), None);
+    }
+
+    #[test]
+    fn classify_run_json_mode_failed_run_scans_stderr_stream() {
+        let stderr = b"HTTP 429 Too Many Requests\n";
+        let events = EventSummary::default();
+        let classification = classify_run(&events, 1, true, b"", stderr).unwrap();
+        assert_eq!(
+            classification.category,
+            Category::RateLimit(RateLimitClass::Transient)
+        );
+    }
+
+    #[test]
+    fn classify_run_text_mode_failed_run_scans_stdout_text() {
+        // Legacy non-JSON failure shape keeps the stdout text fallback.
+        let stdout = b"HTTP 429 Too Many Requests\n";
+        let events = scan_events(stdout);
+        let classification = classify_run(&events, 1, false, stdout, b"").unwrap();
+        assert_eq!(
+            classification.category,
+            Category::RateLimit(RateLimitClass::Transient)
+        );
+    }
+
+    #[test]
+    fn classify_run_structured_error_with_nonzero_exit_classifies() {
+        let stdout = concat!(
+            "{\"type\":\"turn.failed\",\"message\":\"Your workspace is out of credits. ",
+            "Add credits to continue.\"}\n"
+        )
+        .as_bytes();
+        let events = scan_events(stdout);
+        let classification = classify_run(&events, 1, true, stdout, b"").unwrap();
+        assert_eq!(classification.category, Category::CreditExhausted);
+    }
 
     #[test]
     fn matches_http_429_too_many_requests() {
@@ -925,6 +1055,7 @@ mod tests {
     #[test]
     fn classify_structured_reset_uses_snapshot_when_retry_after_missing() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot {
                 primary: Some(RateLimitWindow {
                     resets_in_seconds: Some(21),
@@ -951,6 +1082,7 @@ mod tests {
     #[test]
     fn classify_structured_no_rollout_found() {
         let events = EventSummary {
+            turn_completed: false,
             turn_error: Some(TurnError {
                 message: "thread/resume failed: no rollout found for thread id abc (code -32600)"
                     .to_owned(),
@@ -998,6 +1130,7 @@ mod tests {
     #[test]
     fn classify_structured_429_without_usage_limit_code_is_transient() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "HTTP 429 Too Many Requests".to_owned(),
@@ -1020,6 +1153,7 @@ mod tests {
     #[test]
     fn classify_structured_headroom_biases_429_to_transient() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot {
                 primary: Some(RateLimitWindow {
                     used_percent: Some(42.0),
@@ -1053,6 +1187,7 @@ mod tests {
         // window is spent must escalate to UsageLimitExhausted (rotate), not
         // Transient. This pins that `snapshot_window_exhausted` is load-bearing.
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot {
                 primary: Some(RateLimitWindow {
                     used_percent: Some(99.5),
@@ -1085,6 +1220,7 @@ mod tests {
         // The live shape (docs/upstream-codex.md §F9): `turn.failed` carrying
         // only a message — no error_code, no http_status, no retry_after.
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "Your workspace is out of credits. Add credits to continue.".to_owned(),
@@ -1108,6 +1244,7 @@ mod tests {
     #[test]
     fn classify_out_of_credits_is_case_insensitive() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "OUT OF CREDITS".to_owned(),
@@ -1126,6 +1263,7 @@ mod tests {
         // Only the "out of credits" phrase classifies; a stray "credits"
         // mention must not.
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "credits to the team for this failure".to_owned(),
@@ -1142,6 +1280,7 @@ mod tests {
     #[test]
     fn classify_structured_context_window_exceeded() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "context_window_exceeded".to_owned(),
@@ -1160,6 +1299,7 @@ mod tests {
     #[test]
     fn classify_structured_server_error() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "stream error from upstream".to_owned(),
@@ -1181,6 +1321,7 @@ mod tests {
         // message lacks a recognizable `401`/`unauthorized` token must still
         // route to AuthFailure (refresh-then-rotate), not the unhandled path.
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: None,
             turn_error: Some(TurnError {
                 message: "authentication failed".to_owned(),
@@ -1252,6 +1393,7 @@ mod tests {
     #[test]
     fn classify_structured_unknown_error_with_no_text_signal_is_unclassified() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot::default()),
             turn_error: Some(TurnError {
                 message: "weird failure".to_owned(),
@@ -1276,6 +1418,7 @@ mod tests {
         // suppress a stronger legacy text signal — a 401/429 in stderr/stdout
         // still wins over the structured non-signal.
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot::default()),
             turn_error: Some(TurnError {
                 message: "weird failure".to_owned(),
@@ -1298,6 +1441,7 @@ mod tests {
     #[test]
     fn classify_structured_snapshot_without_turn_error_returns_none() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot {
                 primary: Some(RateLimitWindow {
                     used_percent: Some(45.0),
@@ -1316,6 +1460,7 @@ mod tests {
     #[test]
     fn classify_snapshot_without_structured_error_can_fall_back_to_text() {
         let events = EventSummary {
+            turn_completed: false,
             last_rate_limits: Some(RateLimitSnapshot::default()),
             turn_error: None,
         };

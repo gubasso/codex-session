@@ -111,10 +111,7 @@ pub(crate) fn run(
     let spinners = SpinnerGroup::new(should_show_spinner(ctx, fmt, false));
     let spinner = spinners.add("Running checks...");
     let report = build_report(ctx, args, Some(&spinner));
-    match doctor_finish(&report.summary) {
-        DoctorFinish::Ok(message) => spinner.finish_ok(&message),
-        DoctorFinish::Err(message) => spinner.finish_err(&message),
-    }
+    spinner.finish_and_clear();
     ctx.ui.write_doctor(&report, fmt)?;
     Ok(u8::from(report.summary.fail > 0))
 }
@@ -419,20 +416,6 @@ fn push_group(groups: &mut Vec<CheckGroup>, name: &str, checks: Vec<CheckResult>
 fn set_progress(progress: Option<&SpinnerHandle>, message: &'static str) {
     if let Some(progress) = progress {
         progress.set_message(message);
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum DoctorFinish {
-    Ok(String),
-    Err(String),
-}
-
-fn doctor_finish(summary: &CheckSummary) -> DoctorFinish {
-    match (summary.fail, summary.warn) {
-        (fail, _) if fail > 0 => DoctorFinish::Err(format!("{fail} checks failed")),
-        (_, warn) if warn > 0 => DoctorFinish::Ok(format!("All checks passed ({warn} warnings)")),
-        _ => DoctorFinish::Ok("All checks passed".to_owned()),
     }
 }
 
@@ -1615,45 +1598,6 @@ fn fail(name: impl Into<String>, detail: impl Into<String>) -> CheckResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn doctor_finish_reports_failures_as_error() {
-        let summary = CheckSummary {
-            ok: 3,
-            warn: 2,
-            fail: 1,
-        };
-        assert_eq!(
-            doctor_finish(&summary),
-            DoctorFinish::Err("1 checks failed".to_owned())
-        );
-    }
-
-    #[test]
-    fn doctor_finish_reports_warning_count_as_success() {
-        let summary = CheckSummary {
-            ok: 3,
-            warn: 2,
-            fail: 0,
-        };
-        assert_eq!(
-            doctor_finish(&summary),
-            DoctorFinish::Ok("All checks passed (2 warnings)".to_owned())
-        );
-    }
-
-    #[test]
-    fn doctor_finish_reports_clean_success() {
-        let summary = CheckSummary {
-            ok: 3,
-            warn: 0,
-            fail: 0,
-        };
-        assert_eq!(
-            doctor_finish(&summary),
-            DoctorFinish::Ok("All checks passed".to_owned())
-        );
-    }
 
     #[test]
     fn all_checks_iterates_every_group_in_order() {

@@ -90,9 +90,14 @@ pub(crate) async fn run(
 
     while let Some(result) = set.join_next().await {
         entries.push(result.map_err(|err| {
+            // Clear the transient spinner markers before the error renderer
+            // owns durable output (contract: no spinner line survives a return).
+            let _ = spinners.clear();
             crate::error::AppError::Other(anyhow::anyhow!("health task join failed: {err}"))
         })?);
     }
+
+    let _ = spinners.clear();
 
     entries.sort_by(|left, right| match (left.score, right.score) {
         (Some(l), Some(r)) => r

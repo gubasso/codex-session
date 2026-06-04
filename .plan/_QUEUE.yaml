@@ -14,7 +14,7 @@
 plans:
   # ---- active ----
   - item: transient-spinner-narration
-    status: todo
+    status: done
     depends_on: []
     prompt: /prex -ar @.plan/transient-spinner-narration/
     notes: >-

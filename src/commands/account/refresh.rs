@@ -33,7 +33,7 @@ pub(crate) fn run(
     let spinner = spinners.add("Saving credentials...");
     super::persist_auth_to_seed(&auth_path, &registry, &name)?;
     registry.delete_group_auths(&name)?;
-    spinner.finish_ok("Credentials refreshed");
+    spinner.finish_and_clear();
 
     tracing::info!(op = "account.refresh", outcome = "ok", account = %name);
     ctx.ui.write_account_mutation(

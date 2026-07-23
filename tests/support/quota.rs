@@ -37,6 +37,24 @@ pub fn payload(five_hour: f64, weekly: f64) -> String {
     )
 }
 
+/// Current live shape: a single window under `primary_window` whose
+/// `limit_window_seconds` (604800 = 7d) marks it as the weekly window, with
+/// `secondary_window: null`. The five-hour window is absent.
+#[allow(dead_code)]
+pub fn payload_weekly_only(weekly: f64) -> String {
+    let used = 100.0 - weekly;
+    format!(
+        r#"{{
+    "rate_limit": {{
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {{ "used_percent": {used}, "limit_window_seconds": 604800, "reset_at": 1785260773 }},
+    "secondary_window": null
+    }}
+}}"#
+    )
+}
+
 pub fn add_oauth_account(env: &TestEnv, name: &str) {
     env.seed_account(name, oauth_auth());
 }

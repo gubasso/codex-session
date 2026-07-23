@@ -93,7 +93,9 @@ async fn empty_body_is_missing_rate_limit() {
 }
 
 #[tokio::test]
-async fn missing_five_hour_window_is_parse_error() {
+async fn missing_five_hour_window_is_tolerated() {
+    // A response with only the weekly window is valid: the command succeeds
+    // with the five-hour window absent.
     let env = TestEnv::new();
     add_account(&env, "work");
 
@@ -111,17 +113,27 @@ async fn missing_five_hour_window_is_parse_error() {
         .mount(&server)
         .await;
 
-    env.cmd()
+    let output = env
+        .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work"])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
-        .failure()
-        .code(65)
-        .stderr(predicate::str::contains("missing window: five_hour"));
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert!(value["entries"][0]["five-hour"].is_null());
+    let weekly_pct = value["entries"][0]["weekly"]["percent-left"]
+        .as_f64()
+        .unwrap();
+    assert!((weekly_pct - 65.0).abs() < 0.01);
 }
 
 #[tokio::test]
-async fn missing_weekly_window_is_parse_error() {
+async fn missing_weekly_window_is_tolerated() {
+    // Symmetric case: only a short (five-hour) window present — succeed with the
+    // weekly window absent.
     let env = TestEnv::new();
     add_account(&env, "work");
 
@@ -139,13 +151,21 @@ async fn missing_weekly_window_is_parse_error() {
         .mount(&server)
         .await;
 
-    env.cmd()
+    let output = env
+        .cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
-        .args(["account", "quota", "--account", "work"])
+        .args(["account", "quota", "--account", "work", "--format", "json"])
         .assert()
-        .failure()
-        .code(65)
-        .stderr(predicate::str::contains("missing window: weekly"));
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert!(value["entries"][0]["weekly"].is_null());
+    let five_hour_pct = value["entries"][0]["five-hour"]["percent-left"]
+        .as_f64()
+        .unwrap();
+    assert!((five_hour_pct - 65.0).abs() < 0.01);
 }
 
 #[tokio::test]
@@ -198,7 +218,9 @@ async fn new_shape_tolerates_extra_fields() {
 }
 
 #[tokio::test]
-async fn missing_primary_and_five_hour_is_parse_error() {
+async fn only_secondary_window_is_tolerated() {
+    // Only the `secondary` (weekly) alias present, no five-hour: succeed with
+    // the weekly window and an absent five-hour window.
     let env = TestEnv::new();
     add_account(&env, "work");
 
@@ -216,11 +238,47 @@ async fn missing_primary_and_five_hour_is_parse_error() {
         .mount(&server)
         .await;
 
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota", "--account", "work", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert!(value["entries"][0]["five-hour"].is_null());
+    let weekly_pct = value["entries"][0]["weekly"]["percent-left"]
+        .as_f64()
+        .unwrap();
+    assert!((weekly_pct - 90.0).abs() < 0.01);
+}
+
+#[tokio::test]
+async fn no_windows_present_is_parse_error() {
+    // A `rate_limit` object with no usable window (e.g. `secondary_window: null`
+    // and no primary) is a genuine schema break: fail loudly.
+    let env = TestEnv::new();
+    add_account(&env, "work");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{
+    "rate_limit": { "allowed": true, "secondary_window": null }
+}"#,
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+
     env.cmd()
         .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
         .args(["account", "quota", "--account", "work"])
         .assert()
         .failure()
         .code(65)
-        .stderr(predicate::str::contains("missing window: five_hour"));
+        .stderr(predicate::str::contains("no rate-limit windows present"));
 }

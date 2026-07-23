@@ -904,7 +904,11 @@ fn resume_preflight_block(
     else {
         return Ok(None);
     };
-    if quota.five_hour.percent_left <= 0.0 {
+    if let Some(five_hour) = quota
+        .five_hour
+        .as_ref()
+        .filter(|window| window.percent_left <= 0.0)
+    {
         return Ok(Some(crate::services::account::retry::account_outcome_line(
             ctx,
             registry,
@@ -912,20 +916,21 @@ fn resume_preflight_block(
             crate::services::account::error::OutcomeState::FiveHourExhausted,
             format!(
                 "five-hour quota exhausted ({:.1}% left)",
-                quota.five_hour.percent_left
+                five_hour.percent_left
             ),
         )));
     }
-    if quota.weekly.percent_left <= 0.0 {
+    if let Some(weekly) = quota
+        .weekly
+        .as_ref()
+        .filter(|window| window.percent_left <= 0.0)
+    {
         return Ok(Some(crate::services::account::retry::account_outcome_line(
             ctx,
             registry,
             &resolved.id,
             crate::services::account::error::OutcomeState::WeeklyExhausted,
-            format!(
-                "weekly quota exhausted ({:.1}% left)",
-                quota.weekly.percent_left
-            ),
+            format!("weekly quota exhausted ({:.1}% left)", weekly.percent_left),
         )));
     }
 

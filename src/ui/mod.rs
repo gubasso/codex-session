@@ -269,7 +269,7 @@ impl Ui {
                     stdout,
                     "{} {}",
                     styled_text("log.file:", styles::DIM, use_color),
-                    &view.log.file
+                    view.log.file
                 )?;
                 writeln!(
                     stdout,
@@ -1560,6 +1560,16 @@ fn write_quota_entry_text(
                     shown,
                     style_close(ps, use_color),
                     human_duration_until(fh.reset_at_unix),
+                )?;
+            } else if view.weekly.is_some() {
+                // OpenAI currently returns only the weekly window for some plans.
+                // Note it where the 5-hour row would be, worded as a possibly
+                // temporary omission rather than a permanent removal.
+                writeln!(
+                    stdout,
+                    "  {}5-hour      OpenAI didn't report this cycle{}",
+                    style_open(styles::DIM, use_color),
+                    style_close(styles::DIM, use_color),
                 )?;
             }
             if let Some(ref wk) = view.weekly {

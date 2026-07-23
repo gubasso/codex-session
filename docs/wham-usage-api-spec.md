@@ -4,11 +4,21 @@ How `codex-session` fetches and parses rate-limit quota from the OpenAI
 WHAM usage endpoint. This is an undocumented internal endpoint whose
 schema has changed between versions — **treat as unstable.**
 
-- **Last verified:** 2026-05-26
+- **Last verified:** 2026-07-22
 - **Source file:** `src/services/account/quota.rs`
-- **Maintenance:** if a quota parse failure appears (`missing window`,
-  `missing rate_limit`), the response shape may have changed again.
+- **Maintenance:** if a quota parse failure appears (`no rate-limit windows
+  present`, `missing rate_limit`), the response shape may have changed again.
   Run the **Re-verification recipe** (§7) and update this file.
+
+> **2026-07-22 — single weekly window.** On team plans the endpoint now returns
+> **only** the weekly window, under `primary_window`, with
+> `limit_window_seconds: 604800` and `secondary_window: null`. The five-hour
+> window is currently absent (upstream appears to have dropped the 5-hour limit;
+> treat as possibly temporary). Both windows are therefore optional, and the
+> parser classifies each present window by its `limit_window_seconds`
+> (`>= 172800` = 2 days ⇒ weekly, shorter ⇒ five-hour) rather than by field
+> position. A single present window is a success; only an empty `rate_limit`
+> (no usable window) is an error (`no rate-limit windows present`, exit 65).
 
 ---
 
@@ -66,7 +76,35 @@ Aliases observed in older versions:
 - `primary_window` (alias for `five_hour`)
 - `secondary_window` (alias for `weekly`)
 
-### 4b. Current shape (2026-05, verified live)
+### 4c. Current shape (2026-07-22, verified live — single weekly window)
+
+On team plans the endpoint now returns a **single** window under
+`primary_window`, whose `limit_window_seconds` (604800 = 7 days) marks it as the
+**weekly** window; `secondary_window` is `null`. There is currently no five-hour
+window (see the note at the top of this file).
+
+```jsonc
+{
+  "plan_type": "team",
+  "rate_limit": {
+    "allowed": true,
+    "limit_reached": false,
+    "primary_window": {
+      "used_percent": 1,
+      "limit_window_seconds": 604800,        // 7 days ⇒ weekly window
+      "reset_after_seconds": 498833,
+      "reset_at": 1785260773
+    },
+    "secondary_window": null                 // no second window reported
+  }
+}
+```
+
+The parser reads whatever window object is present in each alias family, then
+**classifies by `limit_window_seconds`** (see §5b), so this lone `primary_window`
+lands in the weekly slot rather than being mislabeled five-hour.
+
+### 4b. Prior shape (2026-05, verified live — two windows)
 
 ```jsonc
 {
@@ -107,12 +145,23 @@ The parser tries field names left-to-right; the first match wins.
 | `rate_limit`  | Legacy singular |
 | `rate_limits` | Current plural  |
 
-### 5b. Window names
+### 5b. Window names + duration classification
 
-| Internal name | Try in order                                |
-| ------------- | ------------------------------------------- |
-| `five_hour`   | `five_hour` → `primary_window` → `primary`  |
-| `weekly`      | `weekly` → `secondary_window` → `secondary` |
+The parser first reads the first present **object** in each alias family
+(JSON `null` and missing keys are skipped), then **reclassifies each window by
+its `limit_window_seconds`**: a window `>= 172800` seconds (2 days) is the
+weekly window, anything shorter is the five-hour window. A window without
+`limit_window_seconds` (legacy shapes) keeps the positional slot it arrived in.
+
+| Alias family     | Try in order                                |
+| ---------------- | ------------------------------------------- |
+| primary (short)  | `five_hour` → `primary_window` → `primary`  |
+| secondary (long) | `weekly` → `secondary_window` → `secondary` |
+
+Both windows are **optional**. A single present window is a success; the five-
+hour and weekly slots are each `Option<Window>`. This is why a lone
+`primary_window` carrying `limit_window_seconds: 604800` (§4c) is stored as the
+weekly window, not five-hour.
 
 ### 5c. Percent field
 
@@ -133,7 +182,10 @@ back to RFC-3339 string parsing for backward compatibility.
 ## 6. Error behavior
 
 - **Missing root key** (`rate_limit` / `rate_limits`): `QuotaError::ParseMissingRateLimit`, exit 65.
-- **Missing window**: `QuotaError::ParseMissingWindow("five_hour")` or `("weekly")`, exit 65.
+- **No usable windows** (root present but neither a five-hour nor a weekly window
+  can be parsed — e.g. `secondary_window: null` and no primary):
+  `QuotaError::ParseNoWindows`, exit 65. A *single* present window is **not** an
+  error; the absent window is simply `None`.
 - **HTTP 5xx**: retry once after 1 s; on second failure, `QuotaError::HttpStatus`, exit 69.
 - **HTTP 401**: triggers an OAuth token refresh attempt (see below);
   on success, retries the WHAM request once. If the refresh also fails,

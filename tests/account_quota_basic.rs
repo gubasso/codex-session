@@ -239,6 +239,47 @@ async fn parses_real_api_shape_with_used_percent_and_reset_at_integer() {
 }
 
 #[tokio::test]
+async fn parses_single_weekly_window_null_secondary() {
+    // Current live shape: only `primary_window` is present and its
+    // `limit_window_seconds` (604800 = 7d) identifies it as the weekly window;
+    // `secondary_window` is null. The command must succeed with the five-hour
+    // window absent and the weekly window populated.
+    let env = TestEnv::new();
+    add_account(&env, "work");
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/usage"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            support::quota::payload_weekly_only(87.0),
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+
+    let output = env
+        .cmd()
+        .env("CODEX_SESSION_WHAM_USAGE_URL", wham_url(&server))
+        .args(["account", "quota", "--account", "work", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(value["entries"][0]["mode"], "oauth");
+    assert!(value["entries"][0]["five-hour"].is_null());
+    let weekly_pct = value["entries"][0]["weekly"]["percent-left"]
+        .as_f64()
+        .unwrap();
+    assert!((weekly_pct - 87.0).abs() < 0.01);
+    assert_eq!(
+        value["entries"][0]["weekly"]["reset-at-unix"],
+        1_785_260_773u64
+    );
+}
+
+#[tokio::test]
 async fn parses_new_primary_secondary_shape() {
     let env = TestEnv::new();
     add_account(&env, "work");

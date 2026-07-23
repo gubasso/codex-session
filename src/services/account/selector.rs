@@ -311,38 +311,47 @@ fn score_for_display(quota_state: &QuotaState, params: &ScoringParams) -> ScoreB
         ineligible_reason,
     ) = match quota_state {
         QuotaState::Known(quota) => {
-            let eligible = quota.five_hour.percent_left > params.five_hour_threshold
-                && quota.weekly.percent_left > params.weekly_floor;
-            let fht = params.five_hour_threshold;
-            let wf = params.weekly_floor;
-            let reason = (!eligible).then(|| {
-                format!("below penalty knee (5h<={fht}% or weekly<={wf}%): deprioritized")
-            });
-            let weekly_weight = 1.0 - params.five_hour_weight;
-            let avail_score = params.five_hour_weight.mul_add(
-                quota.five_hour.percent_left,
-                weekly_weight * quota.weekly.percent_left,
-            ) - 50.0;
-            let weekly_pressure = if quota.weekly.percent_left < 20.0 {
-                -30.0
+            let fh = quota.five_hour.as_ref().map(|window| window.percent_left);
+            let wk = quota.weekly.as_ref().map(|window| window.percent_left);
+
+            if fh.is_none() && wk.is_none() {
+                // No windows reported: treat like Unknown — no availability
+                // signal, no gate.
+                (0.0, 0.0, 0.0, None, None, None, true, None)
             } else {
-                0.0
-            };
-            let fh_pressure = if quota.five_hour.percent_left < 15.0 {
-                -25.0
-            } else {
-                0.0
-            };
-            (
-                avail_score,
-                weekly_pressure,
-                fh_pressure,
-                Some(quota.five_hour.percent_left),
-                Some(quota.weekly.percent_left),
-                Some(quota.five_hour.percent_left),
-                eligible,
-                reason,
-            )
+                let fht = params.five_hour_threshold;
+                let wf = params.weekly_floor;
+                // Each *present* window must clear its gate; an absent window
+                // imposes no gate (so weekly-only data gates on weekly alone).
+                let eligible =
+                    fh.is_none_or(|value| value > fht) && wk.is_none_or(|value| value > wf);
+                let reason = (!eligible).then(|| {
+                    format!("below penalty knee (5h<={fht}% or weekly<={wf}%): deprioritized")
+                });
+                let avail_score = weighted_avail(fh, wk, params.five_hour_weight) - 50.0;
+                let weekly_pressure = if wk.is_some_and(|value| value < 20.0) {
+                    -30.0
+                } else {
+                    0.0
+                };
+                let fh_pressure = if fh.is_some_and(|value| value < 15.0) {
+                    -25.0
+                } else {
+                    0.0
+                };
+                (
+                    avail_score,
+                    weekly_pressure,
+                    fh_pressure,
+                    fh,
+                    wk,
+                    // Tie-break on five-hour when present, else fall back to
+                    // weekly so weekly-only accounts still order deterministically.
+                    fh.or(wk),
+                    eligible,
+                    reason,
+                )
+            }
         }
         QuotaState::ApiKeyMode | QuotaState::Unknown => {
             (0.0, 0.0, 0.0, None, None, None, true, None)
@@ -374,6 +383,19 @@ fn score_for_display(quota_state: &QuotaState, params: &ScoringParams) -> ScoreB
         eligible,
         ineligible_reason,
         tie_five_hour,
+    }
+}
+
+/// Availability signal: the `five_hour_weight`-weighted mean of the present
+/// window percentages, renormalized so a single present window carries full
+/// weight (matches the two-window formula when both are present).
+fn weighted_avail(five_hour: Option<f64>, weekly: Option<f64>, five_hour_weight: f64) -> f64 {
+    let weekly_weight = 1.0 - five_hour_weight;
+    match (five_hour, weekly) {
+        (Some(fh), Some(wk)) => five_hour_weight.mul_add(fh, weekly_weight * wk),
+        (Some(fh), None) => fh,
+        (None, Some(wk)) => wk,
+        (None, None) => 0.0,
     }
 }
 
@@ -449,14 +471,24 @@ mod tests {
 
     fn known(five_hour: f64, weekly: f64) -> QuotaState {
         QuotaState::Known(crate::services::account::quota::Quota {
-            five_hour: crate::services::account::quota::Window {
+            five_hour: Some(crate::services::account::quota::Window {
                 percent_left: five_hour,
                 reset_at_unix: 0,
-            },
-            weekly: crate::services::account::quota::Window {
+            }),
+            weekly: Some(crate::services::account::quota::Window {
                 percent_left: weekly,
                 reset_at_unix: 0,
-            },
+            }),
+        })
+    }
+
+    fn weekly_only(weekly: f64) -> QuotaState {
+        QuotaState::Known(crate::services::account::quota::Quota {
+            five_hour: None,
+            weekly: Some(crate::services::account::quota::Window {
+                percent_left: weekly,
+                reset_at_unix: 0,
+            }),
         })
     }
 
@@ -643,17 +675,87 @@ mod tests {
     }
 
     #[test]
+    fn weekly_only_ranks_by_weekly_quota() {
+        let now = std::time::SystemTime::now();
+        let candidates = vec![
+            candidate("low", weekly_only(40.0), None, None, 0),
+            candidate("high", weekly_only(80.0), None, None, 0),
+        ];
+        let picked = pick_from_candidates(&candidates, now, 50.0, 10.0, 0.70).unwrap();
+        assert_eq!(picked.id.as_str(), "high");
+    }
+
+    #[test]
+    fn weekly_only_gates_on_weekly_floor_alone() {
+        let now = std::time::SystemTime::now();
+        // Weekly below the floor is deprioritized; the absent five-hour window
+        // imposes no gate of its own.
+        let score = score_from_quota_result(
+            &crate::services::account::quota::QuotaResult::Ok(
+                crate::services::account::quota::Quota {
+                    five_hour: None,
+                    weekly: Some(crate::services::account::quota::Window {
+                        percent_left: 5.0,
+                        reset_at_unix: 0,
+                    }),
+                },
+            ),
+            &ScoringParams {
+                plan_bonus: 0,
+                last_used_at: None,
+                is_lru: false,
+                now,
+                five_hour_threshold: 50.0,
+                weekly_floor: 10.0,
+                five_hour_weight: 0.70,
+            },
+        );
+        assert!(!score.eligible);
+        assert_eq!(score.five_hour_pct, None);
+        assert_eq!(score.weekly_pct, Some(5.0));
+    }
+
+    #[test]
+    fn weekly_only_avail_uses_weekly_at_full_weight() {
+        let now = std::time::SystemTime::now();
+        let score = score_from_quota_result(
+            &crate::services::account::quota::QuotaResult::Ok(
+                crate::services::account::quota::Quota {
+                    five_hour: None,
+                    weekly: Some(crate::services::account::quota::Window {
+                        percent_left: 90.0,
+                        reset_at_unix: 0,
+                    }),
+                },
+            ),
+            &ScoringParams {
+                plan_bonus: 0,
+                last_used_at: None,
+                is_lru: false,
+                now,
+                five_hour_threshold: 50.0,
+                weekly_floor: 10.0,
+                five_hour_weight: 0.70,
+            },
+        );
+        assert!(score.eligible);
+        // avail_score == weekly% - 50 (full weight on the lone window).
+        assert!((score.avail_score - 40.0).abs() < f64::EPSILON);
+        assert_eq!(score.tie_five_hour, Some(90.0));
+    }
+
+    #[test]
     fn score_from_quota_result_returns_breakdown() {
         let result = crate::services::account::quota::QuotaResult::Ok(
             crate::services::account::quota::Quota {
-                five_hour: crate::services::account::quota::Window {
+                five_hour: Some(crate::services::account::quota::Window {
                     percent_left: 80.0,
                     reset_at_unix: 0,
-                },
-                weekly: crate::services::account::quota::Window {
+                }),
+                weekly: Some(crate::services::account::quota::Window {
                     percent_left: 60.0,
                     reset_at_unix: 0,
-                },
+                }),
             },
         );
         let now = std::time::SystemTime::now();
@@ -678,14 +780,14 @@ mod tests {
     fn below_knee_breakdown_is_deprioritized_not_blocked() {
         let result = crate::services::account::quota::QuotaResult::Ok(
             crate::services::account::quota::Quota {
-                five_hour: crate::services::account::quota::Window {
+                five_hour: Some(crate::services::account::quota::Window {
                     percent_left: 49.0,
                     reset_at_unix: 0,
-                },
-                weekly: crate::services::account::quota::Window {
+                }),
+                weekly: Some(crate::services::account::quota::Window {
                     percent_left: 80.0,
                     reset_at_unix: 0,
-                },
+                }),
             },
         );
         let now = std::time::SystemTime::now();

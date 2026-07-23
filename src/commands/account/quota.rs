@@ -311,13 +311,16 @@ fn quota_view(
         fetched_at_unix: meta.fetched_at_unix,
         ttl_secs: meta.ttl_secs,
         error: None,
-        five_hour: Some(AccountQuotaWindowView {
-            percent_left: quota.five_hour.percent_left,
-            reset_at_unix: quota.five_hour.reset_at_unix,
-        }),
-        weekly: Some(AccountQuotaWindowView {
-            percent_left: quota.weekly.percent_left,
-            reset_at_unix: quota.weekly.reset_at_unix,
+        five_hour: quota
+            .five_hour
+            .as_ref()
+            .map(|window| AccountQuotaWindowView {
+                percent_left: window.percent_left,
+                reset_at_unix: window.reset_at_unix,
+            }),
+        weekly: quota.weekly.as_ref().map(|window| AccountQuotaWindowView {
+            percent_left: window.percent_left,
+            reset_at_unix: window.reset_at_unix,
         }),
         score: scoring_raw.as_ref().map(|sc| sc.total),
         rank: None,

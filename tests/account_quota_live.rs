@@ -80,20 +80,16 @@ fn live_quota_parses_successfully() {
 
     let value = first_oauth_entry(&top);
 
-    let five_hour_pct = value["five-hour"]["percent-left"].as_f64();
-    assert!(
-        five_hour_pct.is_some(),
-        "five-hour.percent-left missing or not a number. \
-        Upstream WHAM API may have changed. \
-        See docs/wham-usage-api-spec.md §4 and run §7 re-verification recipe.\n\
-        Raw output: {value}",
-    );
-    let pct = five_hour_pct.unwrap();
-    assert!(
-        (0.0..=100.0).contains(&pct),
-        "five-hour.percent-left out of range: {pct}",
-    );
+    // The five-hour window is optional — OpenAI may report only the weekly
+    // window (see docs/wham-usage-api-spec.md §4). Validate it only when present.
+    if let Some(pct) = value["five-hour"]["percent-left"].as_f64() {
+        assert!(
+            (0.0..=100.0).contains(&pct),
+            "five-hour.percent-left out of range: {pct}",
+        );
+    }
 
+    // The weekly window is the surviving window and must always be present.
     let weekly_pct = value["weekly"]["percent-left"].as_f64();
     assert!(
         weekly_pct.is_some(),
@@ -134,21 +130,18 @@ fn live_quota_reset_at_is_future() {
         .unwrap()
         .as_secs();
 
-    let five_hour_reset = value["five-hour"]["reset-at-unix"].as_u64();
-    assert!(
-        five_hour_reset.is_some_and(|ts| ts > 0),
-        "five-hour.reset-at-unix missing or zero. \
-        Upstream WHAM API may have changed. \
-        See docs/wham-usage-api-spec.md §4 and run §7 re-verification recipe.\n\
-        Raw output: {value}",
-    );
-    let ts = five_hour_reset.unwrap();
-    assert!(
-        ts > now.saturating_sub(86400),
-        "five-hour.reset-at-unix ({ts}) is more than 24h in the past \
-        (now={now}). See docs/wham-usage-api-spec.md §5d for reset-time \
-        field mappings.",
-    );
+    // Five-hour window is optional; validate its reset only when present.
+    if let Some(ts) = value["five-hour"]["reset-at-unix"]
+        .as_u64()
+        .filter(|ts| *ts > 0)
+    {
+        assert!(
+            ts > now.saturating_sub(86400),
+            "five-hour.reset-at-unix ({ts}) is more than 24h in the past \
+            (now={now}). See docs/wham-usage-api-spec.md §5d for reset-time \
+            field mappings.",
+        );
+    }
 
     let weekly_reset = value["weekly"]["reset-at-unix"].as_u64();
     assert!(

@@ -379,10 +379,18 @@ pub(crate) fn credit_cooldown(
     let Ok(quota::QuotaResult::Ok(quota)) = quota::get(ctx, account, ttl) else {
         return (None, None);
     };
-    let reset_at = if quota.five_hour.percent_left <= 0.0 {
-        quota.five_hour.reset_at_unix
-    } else if quota.weekly.percent_left <= 0.0 {
-        quota.weekly.reset_at_unix
+    let reset_at = if let Some(five_hour) = quota
+        .five_hour
+        .as_ref()
+        .filter(|window| window.percent_left <= 0.0)
+    {
+        five_hour.reset_at_unix
+    } else if let Some(weekly) = quota
+        .weekly
+        .as_ref()
+        .filter(|window| window.percent_left <= 0.0)
+    {
+        weekly.reset_at_unix
     } else {
         return (None, None);
     };
@@ -517,8 +525,8 @@ fn apply_quota(
     let Ok(quota::QuotaResult::Ok(quota)) = quota::get(ctx, account, ttl) else {
         return;
     };
-    line.five_hour_left = Some(quota.five_hour.percent_left);
-    line.weekly_left = Some(quota.weekly.percent_left);
+    line.five_hour_left = quota.five_hour.as_ref().map(|window| window.percent_left);
+    line.weekly_left = quota.weekly.as_ref().map(|window| window.percent_left);
 
     let mut reset = None;
     let can_quota_set_state = !matches!(
@@ -530,25 +538,26 @@ fn apply_quota(
             | OutcomeState::NoAuth
             | OutcomeState::TokenExpired
     );
-    if quota.five_hour.percent_left <= 0.0 {
+    if let Some(five_hour) = quota.five_hour.as_ref()
+        && five_hour.percent_left <= 0.0
+    {
         if can_quota_set_state {
             line.state = OutcomeState::FiveHourExhausted;
             line.outcome = format!(
                 "five-hour quota exhausted ({:.1}% left)",
-                quota.five_hour.percent_left
+                five_hour.percent_left
             );
         }
-        reset = min_available(reset, quota.five_hour.reset_at_unix);
+        reset = min_available(reset, five_hour.reset_at_unix);
     }
-    if quota.weekly.percent_left <= 0.0 {
+    if let Some(weekly) = quota.weekly.as_ref()
+        && weekly.percent_left <= 0.0
+    {
         if can_quota_set_state && !matches!(line.state, OutcomeState::FiveHourExhausted) {
             line.state = OutcomeState::WeeklyExhausted;
-            line.outcome = format!(
-                "weekly quota exhausted ({:.1}% left)",
-                quota.weekly.percent_left
-            );
+            line.outcome = format!("weekly quota exhausted ({:.1}% left)", weekly.percent_left);
         }
-        reset = min_available(reset, quota.weekly.reset_at_unix);
+        reset = min_available(reset, weekly.reset_at_unix);
     }
     if !matches!(
         line.state,
@@ -561,14 +570,26 @@ fn apply_quota(
             | OutcomeState::NoAuth
             | OutcomeState::TokenExpired
     ) {
-        let below_five = quota.five_hour.percent_left <= ctx.config.account.five_hour_threshold;
-        let below_weekly = quota.weekly.percent_left <= ctx.config.account.weekly_floor;
+        // A gate only fires for a window that is actually reported.
+        let below_five = quota
+            .five_hour
+            .as_ref()
+            .is_some_and(|window| window.percent_left <= ctx.config.account.five_hour_threshold);
+        let below_weekly = quota
+            .weekly
+            .as_ref()
+            .is_some_and(|window| window.percent_left <= ctx.config.account.weekly_floor);
         if below_five || below_weekly {
-            line.state = OutcomeState::BelowKnee;
-            line.outcome = format!(
-                "below penalty knee (5h {:.1}% / weekly {:.1}% left)",
-                quota.five_hour.percent_left, quota.weekly.percent_left
+            let five_str = quota.five_hour.as_ref().map_or_else(
+                || "n/a".to_owned(),
+                |window| format!("{:.1}%", window.percent_left),
             );
+            let weekly_str = quota.weekly.as_ref().map_or_else(
+                || "n/a".to_owned(),
+                |window| format!("{:.1}%", window.percent_left),
+            );
+            line.state = OutcomeState::BelowKnee;
+            line.outcome = format!("below penalty knee (5h {five_str} / weekly {weekly_str} left)");
             // Below-knee is a soft scoring penalty, not a block: the account is
             // still selectable now. Do NOT record a window reset as
             // `available_at_unix` — that would render it as "back in <dur>" and

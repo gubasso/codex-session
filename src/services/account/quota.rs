@@ -21,9 +21,19 @@ pub(crate) enum QuotaResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct Quota {
-    pub(crate) five_hour: Window,
-    pub(crate) weekly: Window,
+    #[serde(default)]
+    pub(crate) five_hour: Option<Window>,
+    #[serde(default)]
+    pub(crate) weekly: Option<Window>,
 }
+
+/// Window durations at or above this many seconds are classified as the
+/// weekly window; anything shorter is the five-hour (short) window. The
+/// upstream WHAM API can return a single window whose `limit_window_seconds`
+/// identifies which cadence it measures (5h = 18000, weekly = 604800), so the
+/// parser keys off duration rather than field position. `172_800` (2 days) sits
+/// safely between the two.
+const WEEKLY_MIN_SECS: u64 = 172_800;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct Window {
@@ -39,8 +49,8 @@ pub(crate) enum QuotaError {
     HttpStatus(u16),
     #[error("missing rate_limit")]
     ParseMissingRateLimit,
-    #[error("missing window: {0}")]
-    ParseMissingWindow(&'static str),
+    #[error("no rate-limit windows present")]
+    ParseNoWindows,
     #[error("{0}")]
     AuthMissing(String),
     #[error("{0}")]
@@ -57,7 +67,12 @@ struct CacheEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum CacheBody {
-    Ok { five_hour: Window, weekly: Window },
+    Ok {
+        #[serde(default)]
+        five_hour: Option<Window>,
+        #[serde(default)]
+        weekly: Option<Window>,
+    },
     ApiKey,
 }
 
@@ -293,8 +308,8 @@ impl From<QuotaError> for AccountError {
             QuotaError::ParseMissingRateLimit => Self::QuotaParse {
                 detail: "missing rate_limit".to_owned(),
             },
-            QuotaError::ParseMissingWindow(name) => Self::QuotaParse {
-                detail: format!("missing window: {name}"),
+            QuotaError::ParseNoWindows => Self::QuotaParse {
+                detail: "no rate-limit windows present".to_owned(),
             },
         }
     }
@@ -361,32 +376,63 @@ fn parse_quota_body(body: &[u8]) -> Result<Quota, QuotaError> {
         .and_then(Value::as_object)
         .ok_or(QuotaError::ParseMissingRateLimit)?;
 
-    Ok(Quota {
-        five_hour: parse_window(
-            &[
-                root.get("five_hour"),
-                root.get("primary_window"),
-                root.get("primary"),
-            ],
-            "five_hour",
-        )?,
-        weekly: parse_window(
-            &[
-                root.get("weekly"),
-                root.get("secondary_window"),
-                root.get("secondary"),
-            ],
-            "weekly",
-        )?,
-    })
+    // Historically `primary`→five_hour and `secondary`→weekly. The API can now
+    // return a single window (`secondary_window: null`) whose real cadence is
+    // revealed by `limit_window_seconds`, so we read whatever object is present
+    // in each family, then reclassify by duration.
+    let primary = first_window(&[
+        root.get("five_hour"),
+        root.get("primary_window"),
+        root.get("primary"),
+    ]);
+    let secondary = first_window(&[
+        root.get("weekly"),
+        root.get("secondary_window"),
+        root.get("secondary"),
+    ]);
+
+    let (five_hour, weekly) = classify_windows(primary, secondary);
+    if five_hour.is_none() && weekly.is_none() {
+        return Err(QuotaError::ParseNoWindows);
+    }
+    Ok(Quota { five_hour, weekly })
 }
 
-fn parse_window(candidates: &[Option<&Value>], name: &'static str) -> Result<Window, QuotaError> {
-    let window = candidates
-        .iter()
-        .find_map(|c| c.filter(|v| v.is_object()))
-        .ok_or(QuotaError::ParseMissingWindow(name))?;
+/// Slot two parsed windows into (`five_hour`, `weekly`). A window with an
+/// explicit `limit_window_seconds` is placed by duration
+/// (`>= WEEKLY_MIN_SECS` → weekly); a window without one keeps the positional
+/// slot it arrived in (legacy shapes).
+fn classify_windows(
+    primary: Option<(Window, Option<u64>)>,
+    secondary: Option<(Window, Option<u64>)>,
+) -> (Option<Window>, Option<Window>) {
+    let mut five_hour = None;
+    let mut weekly = None;
+    for (candidate, origin_is_weekly) in [(primary, false), (secondary, true)] {
+        let Some((window, window_seconds)) = candidate else {
+            continue;
+        };
+        let target_weekly = window_seconds.map_or(origin_is_weekly, |secs| secs >= WEEKLY_MIN_SECS);
+        if target_weekly {
+            weekly.get_or_insert(window);
+        } else {
+            five_hour.get_or_insert(window);
+        }
+    }
+    (five_hour, weekly)
+}
 
+/// First candidate that parses to a `Window`, carrying its `limit_window_seconds`
+/// (when present) so the caller can classify it by cadence. Non-object values
+/// (including JSON `null`) and windows missing a usable percentage are skipped.
+fn first_window(candidates: &[Option<&Value>]) -> Option<(Window, Option<u64>)> {
+    candidates
+        .iter()
+        .find_map(|candidate| candidate.and_then(parse_window))
+}
+
+fn parse_window(value: &Value) -> Option<(Window, Option<u64>)> {
+    let window = value.as_object()?;
     let percent_left = window
         .get("percent_left")
         .and_then(Value::as_f64)
@@ -396,15 +442,18 @@ fn parse_window(candidates: &[Option<&Value>], name: &'static str) -> Result<Win
                 .or_else(|| window.get("usedPercent"))
                 .and_then(Value::as_f64)
                 .map(|used| 100.0 - used)
-        })
-        .ok_or(QuotaError::ParseMissingWindow(name))?;
+        })?;
     let percent_left = percent_left.clamp(0.0, 100.0);
-    let reset_at_unix = parse_reset_at_unix(window).unwrap_or(0);
+    let reset_at_unix = parse_reset_at_unix(value).unwrap_or(0);
+    let window_seconds = window.get("limit_window_seconds").and_then(Value::as_u64);
 
-    Ok(Window {
-        percent_left,
-        reset_at_unix,
-    })
+    Some((
+        Window {
+            percent_left,
+            reset_at_unix,
+        },
+        window_seconds,
+    ))
 }
 
 fn parse_reset_at_unix(window: &Value) -> Option<u64> {
@@ -631,10 +680,13 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert!((quota.five_hour.percent_left - 73.4).abs() < 0.01);
-        assert!((quota.weekly.percent_left - 87.1).abs() < 0.01);
-        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
-        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+        assert!((quota.five_hour.as_ref().unwrap().percent_left - 73.4).abs() < 0.01);
+        assert!((quota.weekly.as_ref().unwrap().percent_left - 87.1).abs() < 0.01);
+        assert_eq!(
+            quota.five_hour.as_ref().unwrap().reset_at_unix,
+            1_716_393_600
+        );
+        assert_eq!(quota.weekly.as_ref().unwrap().reset_at_unix, 1_716_998_400);
     }
 
     #[test]
@@ -646,8 +698,8 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert!((quota.five_hour.percent_left - 100.0).abs() < f64::EPSILON);
-        assert!((quota.weekly.percent_left - 0.0).abs() < f64::EPSILON);
+        assert!((quota.five_hour.as_ref().unwrap().percent_left - 100.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.as_ref().unwrap().percent_left - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -659,8 +711,8 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert!((quota.five_hour.percent_left - 80.0).abs() < f64::EPSILON);
-        assert!((quota.weekly.percent_left - 90.0).abs() < f64::EPSILON);
+        assert!((quota.five_hour.as_ref().unwrap().percent_left - 80.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.as_ref().unwrap().percent_left - 90.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -672,8 +724,11 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
-        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+        assert_eq!(
+            quota.five_hour.as_ref().unwrap().reset_at_unix,
+            1_716_393_600
+        );
+        assert_eq!(quota.weekly.as_ref().unwrap().reset_at_unix, 1_716_998_400);
     }
 
     #[test]
@@ -685,8 +740,11 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
-        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+        assert_eq!(
+            quota.five_hour.as_ref().unwrap().reset_at_unix,
+            1_716_393_600
+        );
+        assert_eq!(quota.weekly.as_ref().unwrap().reset_at_unix, 1_716_998_400);
     }
 
     #[test]
@@ -706,8 +764,11 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
-        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+        assert_eq!(
+            quota.five_hour.as_ref().unwrap().reset_at_unix,
+            1_716_393_600
+        );
+        assert_eq!(quota.weekly.as_ref().unwrap().reset_at_unix, 1_716_998_400);
     }
 
     #[test]
@@ -729,10 +790,13 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert!((quota.five_hour.percent_left - 99.0).abs() < f64::EPSILON);
-        assert!((quota.weekly.percent_left - 100.0).abs() < f64::EPSILON);
-        assert_eq!(quota.five_hour.reset_at_unix, 1_779_813_200);
-        assert_eq!(quota.weekly.reset_at_unix, 1_780_400_000);
+        assert!((quota.five_hour.as_ref().unwrap().percent_left - 99.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.as_ref().unwrap().percent_left - 100.0).abs() < f64::EPSILON);
+        assert_eq!(
+            quota.five_hour.as_ref().unwrap().reset_at_unix,
+            1_779_813_200
+        );
+        assert_eq!(quota.weekly.as_ref().unwrap().reset_at_unix, 1_780_400_000);
     }
 
     #[test]
@@ -744,8 +808,11 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert_eq!(quota.five_hour.reset_at_unix, 1_716_393_600);
-        assert_eq!(quota.weekly.reset_at_unix, 1_716_998_400);
+        assert_eq!(
+            quota.five_hour.as_ref().unwrap().reset_at_unix,
+            1_716_393_600
+        );
+        assert_eq!(quota.weekly.as_ref().unwrap().reset_at_unix, 1_716_998_400);
     }
 
     #[test]
@@ -757,7 +824,70 @@ mod tests {
             }
         }"#;
         let quota = parse_quota_body(body).unwrap();
-        assert!((quota.five_hour.percent_left - 100.0).abs() < f64::EPSILON);
-        assert!((quota.weekly.percent_left - 0.0).abs() < f64::EPSILON);
+        assert!((quota.five_hour.as_ref().unwrap().percent_left - 100.0).abs() < f64::EPSILON);
+        assert!((quota.weekly.as_ref().unwrap().percent_left - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_single_weekly_window_null_secondary() {
+        // Current live shape: one window under `primary_window` whose
+        // `limit_window_seconds` (604800 = 7d) marks it as the weekly window,
+        // with `secondary_window: null`. It must land in the weekly slot, not
+        // be mislabeled as five-hour.
+        let body = br#"{
+            "rate_limit": {
+                "allowed": true,
+                "limit_reached": false,
+                "primary_window": {
+                    "used_percent": 1,
+                    "limit_window_seconds": 604800,
+                    "reset_after_seconds": 498833,
+                    "reset_at": 1785260773
+                },
+                "secondary_window": null
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!(quota.five_hour.is_none());
+        let weekly = quota.weekly.as_ref().unwrap();
+        assert!((weekly.percent_left - 99.0).abs() < f64::EPSILON);
+        assert_eq!(weekly.reset_at_unix, 1_785_260_773);
+    }
+
+    #[test]
+    fn parse_five_hour_only_window() {
+        // Symmetric case: a lone short-cadence window (18000 = 5h) stays in the
+        // five-hour slot; weekly is absent.
+        let body = br#"{
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 40,
+                    "limit_window_seconds": 18000,
+                    "reset_at": 1785260773
+                },
+                "secondary_window": null
+            }
+        }"#;
+        let quota = parse_quota_body(body).unwrap();
+        assert!(quota.weekly.is_none());
+        assert!((quota.five_hour.as_ref().unwrap().percent_left - 60.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_no_windows_present_is_error() {
+        let body = br#"{ "rate_limit": { "allowed": true, "secondary_window": null } }"#;
+        assert!(matches!(
+            parse_quota_body(body),
+            Err(QuotaError::ParseNoWindows)
+        ));
+    }
+
+    #[test]
+    fn parse_missing_rate_limit_root_is_error() {
+        let body = br#"{ "user_id": "abc" }"#;
+        assert!(matches!(
+            parse_quota_body(body),
+            Err(QuotaError::ParseMissingRateLimit)
+        ));
     }
 }

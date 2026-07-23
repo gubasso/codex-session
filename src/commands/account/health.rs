@@ -449,19 +449,19 @@ fn read_quota_from_cache(
     match kind {
         "api_key" => Some((quota::QuotaResult::ApiKeyMode, fetched)),
         "ok" => {
-            let fh = body.get("five_hour")?;
-            let wk = body.get("weekly")?;
+            let parse_window = |window: &Value| -> Option<quota::Window> {
+                Some(quota::Window {
+                    percent_left: window.get("percent_left")?.as_f64()?.clamp(0.0, 100.0),
+                    reset_at_unix: window.get("reset_at_unix")?.as_u64()?,
+                })
+            };
+            let five_hour = body.get("five_hour").and_then(&parse_window);
+            let weekly = body.get("weekly").and_then(&parse_window);
+            if five_hour.is_none() && weekly.is_none() {
+                return None;
+            }
             Some((
-                quota::QuotaResult::Ok(quota::Quota {
-                    five_hour: quota::Window {
-                        percent_left: fh.get("percent_left")?.as_f64()?.clamp(0.0, 100.0),
-                        reset_at_unix: fh.get("reset_at_unix")?.as_u64()?,
-                    },
-                    weekly: quota::Window {
-                        percent_left: wk.get("percent_left")?.as_f64()?.clamp(0.0, 100.0),
-                        reset_at_unix: wk.get("reset_at_unix")?.as_u64()?,
-                    },
-                }),
+                quota::QuotaResult::Ok(quota::Quota { five_hour, weekly }),
                 fetched,
             ))
         }

@@ -48,7 +48,11 @@ pub fn payload_weekly_only(weekly: f64) -> String {
     "rate_limit": {{
     "allowed": true,
     "limit_reached": false,
-    "primary_window": {{ "used_percent": {used}, "limit_window_seconds": 604800, "reset_at": 1785260773 }},
+    "primary_window": {{
+        "used_percent": {used},
+        "limit_window_seconds": 604800,
+        "reset_at": 1785260773
+    }},
     "secondary_window": null
     }}
 }}"#

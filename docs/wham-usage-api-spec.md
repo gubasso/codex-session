@@ -184,7 +184,7 @@ back to RFC-3339 string parsing for backward compatibility.
 - **Missing root key** (`rate_limit` / `rate_limits`): `QuotaError::ParseMissingRateLimit`, exit 65.
 - **No usable windows** (root present but neither a five-hour nor a weekly window
   can be parsed — e.g. `secondary_window: null` and no primary):
-  `QuotaError::ParseNoWindows`, exit 65. A *single* present window is **not** an
+  `QuotaError::ParseNoWindows`, exit 65. A _single_ present window is **not** an
   error; the absent window is simply `None`.
 - **HTTP 5xx**: retry once after 1 s; on second failure, `QuotaError::HttpStatus`, exit 69.
 - **HTTP 401**: triggers an OAuth token refresh attempt (see below);

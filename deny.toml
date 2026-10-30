@@ -29,6 +29,16 @@ confidence-threshold = 0.93
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# The serde YAML crates ruled out for config-recipe manifests. Each parses
+# with unsafe C-derived code or carries its own advisory; serde-saphyr parses
+# in safe Rust. A transitive dependency on one is the same signal as a direct one.
+deny = [
+    { crate = "serde_yaml", reason = "use serde-saphyr: deprecated and unmaintained, and it parses with unsafe-libyaml" },
+    { crate = "serde_yaml_ng", reason = "use serde-saphyr: it parses with unsafe-libyaml, unmaintained under RUSTSEC-2024-0449" },
+    { crate = "serde_norway", reason = "use serde-saphyr: it parses with unsafe-libyaml-norway, a fork of the same unsafe parser" },
+    { crate = "serde_yml", reason = "use serde-saphyr: unsound and unmaintained under RUSTSEC-2025-0068" },
+    { crate = "yaml_serde", reason = "use serde-saphyr: its parser libyaml-rs is libyaml translated to unsafe Rust by c2rust, with no commit since March 2026" },
+]
 
 [sources]
 unknown-registry = "deny"

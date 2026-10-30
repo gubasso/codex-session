@@ -101,7 +101,7 @@ pub(crate) enum ConfigError {
     ManifestParse {
         path: camino::Utf8PathBuf,
         #[source]
-        source: serde_yaml_ng::Error,
+        source: ManifestYamlError,
     },
 
     /// A config-recipe manifest was syntactically valid YAML but failed schema validation.
@@ -189,5 +189,20 @@ impl From<EnvParseError> for ConfigError {
             value: value.value,
             expected: value.expected,
         }
+    }
+}
+
+/// The YAML parser's message for a manifest, written for the operator.
+///
+/// It is the `caused by:` line of a manifest parse error. It names what is
+/// wrong and where, and gives no advice about the YAML crate's own API.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub(crate) struct ManifestYamlError(String);
+
+impl ManifestYamlError {
+    /// Renders a parser error with the formatter meant for end users.
+    pub(crate) fn new(error: &serde_saphyr::Error) -> Self {
+        Self(error.render_with_formatter(&serde_saphyr::UserMessageFormatter))
     }
 }

@@ -5,8 +5,13 @@
 
 #![allow(clippy::result_large_err)]
 
+use std::fmt;
+
 use camino::Utf8PathBuf;
-use serde::Deserialize;
+use serde::{
+    Deserialize, Deserializer,
+    de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Manifest {
@@ -19,23 +24,231 @@ pub(crate) struct Manifest {
 #[serde(deny_unknown_fields)]
 struct RawManifest {
     #[serde(rename = "config-layers")]
-    config_layers: serde_yaml_ng::Value,
+    config_layers: Listed,
     #[serde(rename = "profile-files", default)]
-    profile_files: Option<serde_yaml_ng::Value>,
+    profile_files: Option<Listed>,
+}
+
+/// A field value as the manifest wrote it: a list, or any other value.
+///
+/// The YAML crate has no untyped value, so the shape is read here and judged
+/// by `Manifest::parse`, which owns the schema reasons.
+#[derive(Debug)]
+enum Listed {
+    Sequence(Vec<Entry>),
+    NotASequence,
+}
+
+/// One list entry as the manifest wrote it: text, or any other value.
+#[derive(Debug)]
+enum Entry {
+    Text(String),
+    NotAString,
+}
+
+impl<'de> Deserialize<'de> for Listed {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(ListedVisitor)
+    }
+}
+
+struct ListedVisitor;
+
+/// Every value that is not a sequence becomes `NotASequence`, so a wrong
+/// shape reaches the schema reason instead of a parse error.
+impl<'de> Visitor<'de> for ListedVisitor {
+    type Value = Listed;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any YAML value")
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Listed, A::Error> {
+        let mut entries = Vec::new();
+        while let Some(entry) = seq.next_element::<Entry>()? {
+            entries.push(entry);
+        }
+        Ok(Listed::Sequence(entries))
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Listed, A::Error> {
+        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Listed, D::Error> {
+        Listed::deserialize(deserializer)
+    }
+
+    fn visit_newtype_struct<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Listed, D::Error> {
+        Listed::deserialize(deserializer)
+    }
+
+    fn visit_bool<E: de::Error>(self, _: bool) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_i64<E: de::Error>(self, _: i64) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_i128<E: de::Error>(self, _: i128) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_u64<E: de::Error>(self, _: u64) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_u128<E: de::Error>(self, _: u128) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_f64<E: de::Error>(self, _: f64) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_bytes<E: de::Error>(self, _: &[u8]) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_none<E: de::Error>(self) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Listed, E> {
+        Ok(Listed::NotASequence)
+    }
+}
+
+impl<'de> Deserialize<'de> for Entry {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(EntryVisitor)
+    }
+}
+
+struct EntryVisitor;
+
+/// Text becomes `Text`. Every other value, a float included, becomes
+/// `NotAString`, and a nested list or mapping is consumed whole.
+impl<'de> Visitor<'de> for EntryVisitor {
+    type Value = Entry;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any YAML value")
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<Entry, E> {
+        Ok(Entry::Text(value.to_owned()))
+    }
+
+    fn visit_borrowed_str<E: de::Error>(self, value: &'de str) -> Result<Entry, E> {
+        Ok(Entry::Text(value.to_owned()))
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<Entry, E> {
+        Ok(Entry::Text(value))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Entry, A::Error> {
+        while seq.next_element::<IgnoredAny>()?.is_some() {}
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Entry, A::Error> {
+        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Entry, D::Error> {
+        Entry::deserialize(deserializer)
+    }
+
+    fn visit_newtype_struct<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Entry, D::Error> {
+        Entry::deserialize(deserializer)
+    }
+
+    fn visit_bool<E: de::Error>(self, _: bool) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_i64<E: de::Error>(self, _: i64) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_i128<E: de::Error>(self, _: i128) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_u64<E: de::Error>(self, _: u64) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_u128<E: de::Error>(self, _: u128) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_f64<E: de::Error>(self, _: f64) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_bytes<E: de::Error>(self, _: &[u8]) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_none<E: de::Error>(self) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Entry, E> {
+        Ok(Entry::NotAString)
+    }
+}
+
+/// The parser options of every manifest parse, each set by name so that a
+/// changed default of the YAML crate cannot move a result unnoticed.
+fn yaml_options() -> serde_saphyr::Options {
+    serde_saphyr::options! {
+        // Only `true` and `false` are booleans; `yes` and `on` stay text.
+        strict_booleans: true,
+        duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
+        // `<<` is an ordinary key, which the closed root mapping refuses.
+        merge_keys: serde_saphyr::MergeKeyPolicy::AsOrdinary,
+        // A `!!binary` entry keeps its text rather than being decoded.
+        ignore_binary_tag_for_string: true,
+        // An application tag such as `!foo` is refused, as it always was.
+        reject_unsupported_tags: true,
+        legacy_octal_numbers: false,
+        // `.inf` and `.nan` reach the visitors as floats, which are not names.
+        non_finite_float_policy: serde_saphyr::NonFiniteFloatPolicy::PassThrough,
+        budget: Some(serde_saphyr::Budget::default()),
+        // The `caused by:` line holds one message. A source excerpt would add
+        // lines, name its file `<input>` beside the `where:` path, and repeat
+        // the message.
+        with_snippet: false,
+    }
 }
 
 impl Manifest {
     pub(crate) fn parse(path: Utf8PathBuf) -> Result<Self, crate::config::ConfigError> {
         let contents = std::fs::read_to_string(path.as_std_path())?;
-        let raw: RawManifest = serde_yaml_ng::from_str(&contents).map_err(|source| {
-            crate::config::ConfigError::ManifestParse {
+        let raw: RawManifest = serde_saphyr::from_str_with_options(&contents, yaml_options())
+            .map_err(|error| crate::config::ConfigError::ManifestParse {
                 path: path.clone(),
-                source,
-            }
-        })?;
+                source: crate::config::ManifestYamlError::new(&error),
+            })?;
 
-        let layers_value = raw.config_layers;
-        let serde_yaml_ng::Value::Sequence(layers) = layers_value else {
+        let Listed::Sequence(layers) = raw.config_layers else {
             return Err(crate::config::ConfigError::ManifestSchema {
                 path,
                 reason: "`config-layers` must be a non-empty array of strings".to_owned(),
@@ -51,7 +264,7 @@ impl Manifest {
 
         let mut config_layers = Vec::with_capacity(layers.len());
         for item in layers {
-            let serde_yaml_ng::Value::String(name) = item else {
+            let Entry::Text(name) = item else {
                 return Err(crate::config::ConfigError::ManifestSchema {
                     path,
                     reason: "`config-layers` entries must be strings".to_owned(),
@@ -68,7 +281,7 @@ impl Manifest {
 
         let profile_files = match raw.profile_files {
             None => None,
-            Some(serde_yaml_ng::Value::Sequence(items)) => {
+            Some(Listed::Sequence(items)) => {
                 if items.is_empty() {
                     return Err(crate::config::ConfigError::ManifestSchema {
                         path,
@@ -78,7 +291,7 @@ impl Manifest {
                 let mut names = Vec::with_capacity(items.len());
                 let mut seen = std::collections::BTreeSet::new();
                 for item in items {
-                    let serde_yaml_ng::Value::String(name) = item else {
+                    let Entry::Text(name) = item else {
                         return Err(crate::config::ConfigError::ManifestSchema {
                             path,
                             reason: "`profile-files` entries must be strings".to_owned(),
@@ -100,7 +313,7 @@ impl Manifest {
                 }
                 Some(names)
             }
-            Some(_) => {
+            Some(Listed::NotASequence) => {
                 return Err(crate::config::ConfigError::ManifestSchema {
                     path,
                     reason: "`profile-files` must be a non-empty array of strings".to_owned(),
@@ -392,31 +605,34 @@ mod tests {
         assert_eq!(outcome("config-layers:\n\t- base\n"), Outcome::Parse);
     }
 
-    // The tests below pin inputs whose result a change of the YAML crate is
-    // expected to move. Each states the result of today.
+    // The tests below pin the inputs that read differently since the YAML
+    // crate became serde-saphyr. Each states the result before the change.
 
     /// A plain scalar with a leading zero, an underscore, or an exponent too
-    /// large for a float is a name as written.
+    /// large for a float is a number in YAML 1.2, so it is not a name. A
+    /// quoted spelling is. Before serde-saphyr each was a name as written.
     #[test]
-    fn a_number_like_plain_scalar_is_a_name() {
+    fn a_number_like_plain_scalar_is_not_a_string() {
         for spelling in ["007", "01", "00", "1_000", "1e999"] {
             assert_eq!(
                 outcome(&layer_entry(spelling)),
-                layers(&[spelling]),
+                schema(LAYER_NOT_STRING),
                 "{spelling}"
             );
             assert_eq!(
                 outcome(&profile_entry(spelling)),
-                base_with_profile_files(&[spelling]),
+                schema(PROFILE_NOT_STRING),
                 "{spelling}"
             );
         }
+        assert_eq!(outcome(&layer_entry("\"007\"")), layers(&["007"]));
     }
 
-    /// An application tag on an entry or a field value makes it a value that
-    /// is neither a name nor a list, which the schema refuses.
+    /// An application tag is an unsupported tag, refused by the parser on an
+    /// entry, on a field value, and through an alias. Before serde-saphyr the
+    /// schema refused the tagged value instead. Both exit with code 78.
     #[test]
-    fn an_application_tag_is_a_schema_error() {
+    fn an_application_tag_is_a_parse_error() {
         for entry in [
             "!foo base",
             "!foo [base]",
@@ -425,82 +641,79 @@ mod tests {
             "!foo null",
             "!foo ~",
         ] {
-            assert_eq!(
-                outcome(&layer_entry(entry)),
-                schema(LAYER_NOT_STRING),
-                "{entry}"
-            );
-            assert_eq!(
-                outcome(&profile_entry(entry)),
-                schema(PROFILE_NOT_STRING),
-                "{entry}"
-            );
+            assert_eq!(outcome(&layer_entry(entry)), Outcome::Parse, "{entry}");
+            assert_eq!(outcome(&profile_entry(entry)), Outcome::Parse, "{entry}");
         }
         for value in ["!foo [base]", "!foo []", "!foo null", "!foo ~", "!foo base"] {
-            assert_eq!(
-                outcome(&layers_value(value)),
-                schema(LAYERS_NOT_LIST),
-                "{value}"
-            );
-            assert_eq!(
-                outcome(&profile_value(value)),
-                schema(PROFILES_NOT_LIST),
-                "{value}"
-            );
+            assert_eq!(outcome(&layers_value(value)), Outcome::Parse, "{value}");
+            assert_eq!(outcome(&profile_value(value)), Outcome::Parse, "{value}");
         }
+        assert_eq!(outcome(&layers_value("[&a !foo base, *a]")), Outcome::Parse);
+    }
+
+    /// An application tag on the root mapping is refused too. Before
+    /// serde-saphyr it was ignored.
+    #[test]
+    fn an_application_tag_on_the_root_is_a_parse_error() {
+        assert_eq!(outcome("!foo {config-layers: [base]}\n"), Outcome::Parse);
+    }
+
+    /// `!!seq` on a scalar entry and `!!str` on a list value name the wrong
+    /// node kind, which the parser refuses. Before serde-saphyr the tag was
+    /// ignored.
+    #[test]
+    fn a_mismatched_seq_or_str_tag_is_a_parse_error() {
+        assert_eq!(outcome(&layer_entry("!!seq base")), Outcome::Parse);
+        assert_eq!(outcome(&profile_entry("!!seq base")), Outcome::Parse);
+        assert_eq!(outcome(&layers_value("!!str [base]")), Outcome::Parse);
+        assert_eq!(outcome(&profile_value("!!str [base]")), Outcome::Parse);
+    }
+
+    /// `!!null` makes a value null whatever its text, so the schema judges a
+    /// null: not a string as an entry, not a list as `config-layers`. Before
+    /// serde-saphyr each was a parse error.
+    #[test]
+    fn a_null_tag_on_text_reads_as_null() {
         assert_eq!(
-            outcome(&layers_value("[&a !foo base, *a]")),
+            outcome(&layer_entry("!!null base")),
             schema(LAYER_NOT_STRING)
         );
-    }
-
-    /// An application tag on the root mapping is ignored.
-    #[test]
-    fn an_application_tag_on_the_root_is_ignored() {
-        assert_eq!(outcome("!foo {config-layers: [base]}\n"), layers(&["base"]));
-    }
-
-    /// `!!seq` on a scalar entry and `!!str` on a list value are ignored.
-    #[test]
-    fn a_mismatched_seq_or_str_tag_is_ignored() {
-        assert_eq!(outcome(&layer_entry("!!seq base")), layers(&["base"]));
         assert_eq!(
-            outcome(&profile_entry("!!seq base")),
-            base_with_profile_files(&["base"])
+            outcome(&profile_entry("!!null base")),
+            schema(PROFILE_NOT_STRING)
         );
-        assert_eq!(outcome(&layers_value("!!str [base]")), layers(&["base"]));
         assert_eq!(
-            outcome(&profile_value("!!str [base]")),
-            base_with_profile_files(&["base"])
+            outcome(&layers_value("!!null base")),
+            schema(LAYERS_NOT_LIST)
         );
     }
 
-    /// `!!null` on text that is not null is a parse error, as an entry and as
-    /// the value of `config-layers`.
+    /// A null `profile-files` is no list, whatever its text. Before
+    /// serde-saphyr `profile-files: !!null base` was a parse error.
     #[test]
-    fn a_null_tag_on_text_is_a_parse_error() {
-        assert_eq!(outcome(&layer_entry("!!null base")), Outcome::Parse);
-        assert_eq!(outcome(&profile_entry("!!null base")), Outcome::Parse);
-        assert_eq!(outcome(&layers_value("!!null base")), Outcome::Parse);
+    fn a_null_tag_on_profile_files_is_no_list() {
+        assert_eq!(outcome(&profile_value("!!null base")), layers(&["base"]));
     }
 
-    /// `!!null` on text as the value of `profile-files` is a parse error.
+    /// The default parse budget refuses one anchor repeated by 100 aliases;
+    /// 99 pass. Before serde-saphyr 100 aliases parsed in `config-layers`,
+    /// and in `profile-files` the repeat was refused as a duplicate name.
     #[test]
-    fn a_null_tag_on_profile_files_is_a_parse_error() {
-        assert_eq!(outcome(&profile_value("!!null base")), Outcome::Parse);
-    }
-
-    /// One anchor may be repeated by 100 aliases.
-    #[test]
-    fn one_hundred_aliases_of_one_anchor_parse() {
+    fn one_hundred_aliases_of_one_anchor_are_a_parse_error() {
         let many = format!("config-layers:\n  - &a base\n{}", "  - *a\n".repeat(100));
-        assert_eq!(outcome(&many), layers(&["base"; 101]));
+        assert_eq!(outcome(&many), Outcome::Parse);
+        let files = format!(
+            "config-layers: [base]\nprofile-files:\n  - &a a\n{}",
+            "  - *a\n".repeat(100)
+        );
+        assert_eq!(outcome(&files), Outcome::Parse);
     }
 
-    /// A tab after the indentation spaces, a tab after `-`, an unknown
-    /// directive, and a `%YAML 1.3` directive are parse errors.
+    /// The parser reads the YAML 1.2 grammar: a tab after the indentation
+    /// spaces, a tab after `-`, an unknown directive, and `%YAML 1.3` are
+    /// accepted. Before serde-saphyr each was a parse error.
     #[test]
-    fn yaml_1_2_spacing_and_directives_are_parse_errors() {
+    fn yaml_1_2_spacing_and_directives_are_accepted() {
         for yaml in [
             "config-layers:\n  \t- base\n",
             "config-layers:\n  -\tbase\n",
@@ -508,7 +721,7 @@ mod tests {
             "%FOO\n---\nconfig-layers: [base]\n",
             "%YAML 1.3\n---\nconfig-layers: [base]\n",
         ] {
-            assert_eq!(outcome(yaml), Outcome::Parse, "{yaml:?}");
+            assert_eq!(outcome(yaml), layers(&["base"]), "{yaml:?}");
         }
     }
 

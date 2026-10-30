@@ -88,6 +88,22 @@ Profile overrides are emitted as sibling `<name>.config.toml` files, copied
 1:1 from sibling `profiles/<name>.config.toml`. Stock mode still creates a
 session directory with an empty `config.toml`.
 
+A manifest is read as YAML 1.2 by `serde-saphyr`, which parses in safe Rust.
+Since the parser changed to it, these inputs read differently:
+
+| Input                                                                                                  | Before                      | Now                                                                        |
+| ------------------------------------------------------------------------------------------------------ | --------------------------- | -------------------------------------------------------------------------- |
+| An unquoted `007`, `01`, `00`, `1_000`, or `1e999` as an entry                                         | The name as written         | Refused: entries must be strings. A quoted `"007"` still works.            |
+| An application tag such as `!foo` on an entry, a field value, or an alias                              | A schema error              | A parse error, "unsupported tag". Both exit with code 78.                  |
+| An application tag on the root mapping                                                                 | Ignored                     | A parse error, "unsupported tag"                                           |
+| `!!seq base` as an entry, or `!!str [base]` as a field value                                           | The tag ignored             | A parse error                                                              |
+| `!!null base` as an entry, or as the value of `config-layers`                                          | A parse error               | The schema error for a non-string entry, or for a value that is not a list |
+| `profile-files: !!null base`                                                                           | A parse error               | No list, the same as an absent field                                       |
+| One anchor repeated by 100 or more aliases                                                             | Accepted in `config-layers` | A parse error from the parse budget. 99 aliases pass.                      |
+| Spaces then a tab in indentation, a tab after `-`, an unknown directive such as `%FOO`, or `%YAML 1.3` | A parse error               | Accepted. A tab as the first indentation character is still refused.       |
+
+The wording and the line and column of a parse error can differ from before.
+
 ## Composability contract
 
 codex-session's emitted `$CODEX_HOME/` tree is byte-for-byte structurally

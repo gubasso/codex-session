@@ -7,7 +7,7 @@
 
 pub(crate) mod error;
 
-pub(crate) use error::ConfigError;
+pub(crate) use error::{ConfigError, ManifestYamlError};
 
 use camino::Utf8PathBuf;
 use clap::ValueEnum;

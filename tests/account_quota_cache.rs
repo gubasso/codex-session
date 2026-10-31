@@ -99,5 +99,5 @@ async fn cache_write_leaves_no_temp_files() {
         .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
         .filter(|name| name.contains(".tmp"))
         .collect();
-    assert!(leftovers.is_empty());
+    assert_eq!(leftovers, Vec::<String>::new());
 }

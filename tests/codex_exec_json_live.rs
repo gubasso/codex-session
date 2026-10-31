@@ -37,9 +37,7 @@ const NOOP_PROMPT: &str = concat!(
 );
 
 fn live_tests_enabled() -> bool {
-    std::env::var("CODEX_SESSION_LIVE_TESTS")
-        .ok()
-        .is_some_and(|v| v == "1" || v == "true")
+    std::env::var("CODEX_SESSION_LIVE_TESTS").is_ok_and(|v| v == "1" || v == "true")
 }
 
 /// Recursively search a JSON tree for the first value under `key`.

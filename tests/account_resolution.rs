@@ -104,7 +104,7 @@ fn account_auto_invokes_selector() {
         .stdout
         .clone();
     let stdout = String::from_utf8(output).unwrap();
-    assert!(stdout.is_empty());
+    assert_eq!(stdout, "");
 }
 
 #[test]

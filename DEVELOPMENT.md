@@ -51,16 +51,21 @@ just uninstall
 holds the Rust **stable** toolchain from `rust-toolchain.toml` (MSRV
 `1.89`, edition 2024), with `rustfmt` and `clippy`. `flake.lock` fixes
 its version, so a local run and CI get the same compiler. The devshell
-also holds `pre-commit`, `just`, and every tool that a
-`language: system` hook or a recipe calls: `taplo`, `dprint`,
-`cargo-nextest`, `cargo-audit`, `cargo-deny`, `ripgrep`, `cargo-watch`,
-`cargo-insta`, and `python3`. Run `just --list` to see the recipes.
+also holds `pre-commit`, `just`, and every tool that a recipe, a
+`language: system` hook, or a `language: script` hook calls from
+`PATH`: `taplo`, `dprint`, `cargo-nextest`, `cargo-audit`,
+`cargo-deny`, `ripgrep`, `cargo-watch`, `cargo-insta`, `python3`, and
+`curl`. Run `just --list` to see the recipes.
 
-pre-commit installs and manages the tools of the hooks that declare a
-language: `gitleaks`, `ripsecrets`, `markdownlint-cli2`, `typos`,
-`committed`, `md-toc`, `editorconfig-checker`, `cargo-machete`, and
-`lychee`. The host supplies only `git`, `bash`, and the coreutils. When
-a tool is missing, add it to `flake.nix`, never to the host.
+pre-commit installs and manages the tools of the hooks whose language
+gets an environment that pre-commit builds: `gitleaks`, `ripsecrets`,
+`markdownlint-cli2`, `typos`, `committed`, `md-toc`,
+`editorconfig-checker`, and `cargo-machete`. The `lychee` hook is a
+script hook: it installs its own `lychee` binary into the pre-commit
+cache, and on a cold cache it downloads `cargo-binstall` with `curl`.
+So the devshell holds `curl` and no `lychee`. The host supplies only
+`git`, `bash`, and the coreutils. When a tool is missing, add it to
+`flake.nix`, never to the host.
 
 ## First-time setup
 

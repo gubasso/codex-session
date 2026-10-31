@@ -151,7 +151,7 @@ fn doctor_json_shape() {
         .iter()
         .flat_map(|g| g["checks"].as_array().unwrap().iter())
         .collect();
-    assert!(!all.is_empty());
+    assert_ne!(all.len(), 0);
     assert_eq!(value["summary"]["fail"], 0);
     assert!(
         value.get("checks").is_none(),

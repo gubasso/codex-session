@@ -808,7 +808,6 @@ fn login_handle_ready(
                 ctx,
                 &format!("account '{}' is already authenticated.", resolved.id),
             );
-            Ok(0)
         }
         Ok((Some(false), stderr)) => {
             emit_stderr(&stderr);
@@ -824,7 +823,6 @@ fn login_handle_ready(
                 ctx,
                 &format!("account '{}' is now authenticated.", resolved.id),
             );
-            Ok(0)
         }
         Ok((None, stderr)) => {
             // Probe failed for a non-auth reason (timeout, binary issue, env).
@@ -839,7 +837,6 @@ fn login_handle_ready(
                     resolved.id,
                 ),
             );
-            Ok(0)
         }
         Err(err) => {
             // A child-version mismatch is a hard, user-actionable error —
@@ -859,9 +856,9 @@ fn login_handle_ready(
                     resolved.id,
                 ),
             );
-            Ok(0)
         }
     }
+    Ok(0)
 }
 
 pub(crate) fn run_logout(ctx: &AppContext) -> Result<i32, AppError> {

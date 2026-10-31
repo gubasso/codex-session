@@ -37,9 +37,7 @@ fn first_oauth_entry(value: &serde_json::Value) -> serde_json::Value {
 }
 
 fn live_tests_enabled() -> bool {
-    std::env::var("CODEX_SESSION_LIVE_TESTS")
-        .ok()
-        .is_some_and(|v| v == "1" || v == "true")
+    std::env::var("CODEX_SESSION_LIVE_TESTS").is_ok_and(|v| v == "1" || v == "true")
 }
 
 #[test]

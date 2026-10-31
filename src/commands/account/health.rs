@@ -455,8 +455,8 @@ fn read_quota_from_cache(
                     reset_at_unix: window.get("reset_at_unix")?.as_u64()?,
                 })
             };
-            let five_hour = body.get("five_hour").and_then(&parse_window);
-            let weekly = body.get("weekly").and_then(&parse_window);
+            let five_hour = body.get("five_hour").and_then(parse_window);
+            let weekly = body.get("weekly").and_then(parse_window);
             if five_hour.is_none() && weekly.is_none() {
                 return None;
             }

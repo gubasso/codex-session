@@ -301,7 +301,7 @@ mod tests {
         }
         tail.finish(&mut capture);
         // An over-cap unterminated line does not fit and is dropped at finish.
-        assert!(capture.is_empty());
+        assert_eq!(capture, Vec::<u8>::new());
     }
 
     #[test]

@@ -1,5 +1,23 @@
 # codex-session — agent guide
 
+## Dev environment
+
+`flake.nix` defines the devshell, and `.envrc` loads it with direnv. Run every
+command of this guide in the devshell: in a shell that direnv activated, or with
+`direnv exec . CMD` or `nix develop --command CMD`. Run `git commit` the same
+way, because the hooks find their tools on the `PATH` of the commit.
+
+Three owners supply the tools:
+
+- The devshell holds the major tools: the Rust toolchain from
+  `rust-toolchain.toml`, `pre-commit`, `just`, and every tool that a
+  `language: system` hook or a recipe calls.
+- pre-commit manages the tools of each hook that declares a language, in the
+  environment that it builds for that hook.
+- The host supplies only `git`, `bash`, and the coreutils.
+
+When a tool is missing, add it to `flake.nix`. Never install it on the host.
+
 ## Quality gates: prefer `just` recipes over raw `cargo`
 
 This project's quality gates are defined in [`justfile`](./justfile), which is a

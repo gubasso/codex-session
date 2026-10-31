@@ -32,8 +32,9 @@
         formatter = pkgs.nixfmt;
 
         # The devshell holds the major tools of the project and every tool that
-        # a `language: system` hook or a recipe calls. pre-commit manages the
-        # tools of a hook that declares a language (gitleaks, typos, lychee,
+        # a recipe, a `language: system` hook, or a `language: script` hook
+        # calls from PATH. pre-commit manages the tools of a hook whose language
+        # gets an environment that pre-commit builds (gitleaks, typos,
         # markdownlint-cli2, ...), so no go, node, or hook binary is listed here.
         devShells.default = pkgs.mkShell {
           packages = [
@@ -57,6 +58,10 @@
             pkgs.cargo-insta
             # The signal tests start `python3` from PATH.
             pkgs.python3
+            # The upstream lychee hook is a script hook that installs its own
+            # lychee binary. On a cold cache it downloads cargo-binstall with
+            # curl, so no lychee is listed here.
+            pkgs.curl
           ];
           # The greeting goes to standard error, because `nix develop --command`
           # shares the standard output of the command.

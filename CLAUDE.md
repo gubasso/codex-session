@@ -10,10 +10,10 @@ way, because the hooks find their tools on the `PATH` of the commit.
 Three owners supply the tools:
 
 - The devshell holds the major tools: the Rust toolchain from
-  `rust-toolchain.toml`, `pre-commit`, `just`, and every tool that a
-  `language: system` hook or a recipe calls.
-- pre-commit manages the tools of each hook that declares a language, in the
-  environment that it builds for that hook.
+  `rust-toolchain.toml`, `pre-commit`, `just`, and every tool that a recipe, a
+  `language: system` hook, or a `language: script` hook calls from `PATH`.
+- pre-commit manages the tools of each hook whose language gets an environment
+  that pre-commit builds, such as `python`, `golang`, `node`, or `rust`.
 - The host supplies only `git`, `bash`, and the coreutils.
 
 When a tool is missing, add it to `flake.nix`. Never install it on the host.

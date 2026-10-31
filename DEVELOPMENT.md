@@ -6,9 +6,13 @@ expected to follow.
 
 ## TL;DR
 
+Every command below runs in the devshell: in a shell that direnv
+activated, or with `direnv exec . CMD` or `nix develop --command CMD`.
+
 ```bash
 # One-time setup
 git clone <repo> && cd codex-session
+direnv allow                   # load the devshell of flake.nix
 pre-commit install --install-hooks
 cargo build
 
@@ -39,36 +43,44 @@ just uninstall
 
 ## Prerequisites
 
-- Rust **stable** (pinned via `rust-toolchain.toml`, MSRV `1.89`,
-  edition 2024). `rustup` will install the right toolchain on first
-  `cargo` invocation.
-- [`just`](https://github.com/casey/just) — task runner. Every command
-  below is a `just` recipe; run `just --list` to see them all.
-- [`cargo-nextest`](https://nexte.st/) — preferred test runner
-  (`cargo install cargo-nextest --locked`).
-- [`pre-commit`](https://pre-commit.com/) — installs the project's
-  git hooks.
+- [Nix](https://nixos.org/download/) with flakes enabled.
+- [direnv](https://direnv.net/) with
+  [nix-direnv](https://github.com/nix-community/nix-direnv).
 
-Optional tooling used by some recipes / hooks:
+`flake.nix` defines the devshell, and `.envrc` loads it. The devshell
+holds the Rust **stable** toolchain from `rust-toolchain.toml` (MSRV
+`1.89`, edition 2024), with `rustfmt` and `clippy`. `flake.lock` fixes
+its version, so a local run and CI get the same compiler. The devshell
+also holds `pre-commit`, `just`, and every tool that a
+`language: system` hook or a recipe calls: `taplo`, `dprint`,
+`cargo-nextest`, `cargo-audit`, `cargo-deny`, `ripgrep`, `cargo-watch`,
+`cargo-insta`, and `python3`. Run `just --list` to see the recipes.
 
-- `cargo-watch` (for `just watch`)
-- `taplo-cli` (TOML formatting hook)
-- `cargo-machete`, `cargo-audit`, `cargo-deny` (pre-push / supply-chain
-  recipes)
-- `gitleaks`, `ripsecrets` (secret scanning hooks; installed
-  automatically by pre-commit)
+pre-commit installs and manages the tools of the hooks that declare a
+language: `gitleaks`, `ripsecrets`, `markdownlint-cli2`, `typos`,
+`committed`, `md-toc`, `editorconfig-checker`, `cargo-machete`, and
+`lychee`. The host supplies only `git`, `bash`, and the coreutils. When
+a tool is missing, add it to `flake.nix`, never to the host.
 
 ## First-time setup
 
 ```bash
 git clone <repo> && cd codex-session
+direnv allow                          # load the devshell of flake.nix
 pre-commit install --install-hooks    # pre-commit, commit-msg, pre-push
 cargo build                           # warm the toolchain + deps
 just check                            # confirm lint + tests pass
 ```
 
+Outside a shell that direnv activated, run each command with
+`direnv exec . CMD` or `nix develop --command CMD`, for example
+`direnv exec . pre-commit install --install-hooks`.
+
 `pre-commit install` registers hooks for the `pre-commit`, `commit-msg`,
-and `pre-push` stages, so commits and pushes are gated locally.
+and `pre-push` stages, so commits and pushes are gated locally. Commit
+and push in the devshell, for example `direnv exec . git commit`: the
+hooks find their tools on the `PATH` of the commit, and the meta hooks
+import `pre_commit` through the `PYTHONPATH` that the devshell exports.
 
 ## Daily loop
 

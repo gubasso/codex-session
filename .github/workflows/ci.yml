@@ -1,5 +1,10 @@
 name: ci
 
+# Every step runs in the devshell of flake.nix, so CI and a local run use
+# the same toolchain from rust-toolchain.toml and flake.lock, and the same
+# clippy. Nix flakes see only git-tracked files, so flake.lock stays
+# committed.
+
 on:
   push:
   pull_request:
@@ -9,21 +14,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+      - name: Nix cache
+        uses: DeterminateSystems/flakehub-cache-action@v3.21.5
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@nextest
-      - uses: taiki-e/install-action@just
+        with:
+          # The cache key holds the output of `rustc -vV`. Run it in the
+          # devshell, so the key follows the toolchain of flake.lock and not
+          # the rustup toolchain of the runner image.
+          cmd-format: nix develop --command {0}
+      - name: toolchain
+        run: nix develop --command bash -c 'cargo --version && cargo clippy --version'
       - name: fmt
-        run: cargo fmt --check
+        run: nix develop --command cargo fmt --check
       - name: clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: nix develop --command cargo clippy --all-targets --all-features -- -D warnings
       - name: nextest
         # `--profile ci` activates the retry-tolerant, quiet-output
         # profile in .config/nextest.toml. Without it nextest falls
         # back to `[profile.default]` and ignores the CI-specific
         # retry/timeout/status-level tuning.
-        run: cargo nextest run --profile ci
+        run: nix develop --command cargo nextest run --profile ci
       - name: print-lint
-        run: just lint-print
+        run: nix develop --command just lint-print

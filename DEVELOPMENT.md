@@ -102,7 +102,9 @@ import `pre_commit` through the `PYTHONPATH` that the devshell exports.
 | Supply-chain audit          | `just audit` / `just machete` / `just deny`         |
 
 `just check` (= `lint` + `test`) is the contract every contributor and
-CI run is expected to meet before pushing.
+CI run is expected to meet before pushing. CI runs its steps in the same
+devshell, with `nix develop --command`, so it uses the toolchain and the
+clippy of `flake.lock`.
 
 ## Running the binary interactively
 

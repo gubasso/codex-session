@@ -10,11 +10,17 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # The two fixers skip the lock files that cargo and nix write. A
+      # generated file follows its generator, so no hook rewrites it: the dev
+      # environment rule of nix-secrets,
+      # home/apps/claude-session/rules/dev-environment.md. typos
+      # and editorconfig-checker skip them in _typos.toml and
+      # .editorconfig-checker.json, so a direct run of either tool agrees.
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
-        exclude: '\.snap$'
+        exclude: '\.snap$|^(Cargo|flake)\.lock$'
       - id: end-of-file-fixer
-        exclude: '\.snap$'
+        exclude: '\.snap$|^(Cargo|flake)\.lock$'
       - id: check-added-large-files
         args: ['--maxkb=2048']
       - id: check-case-conflict

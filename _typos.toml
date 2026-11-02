@@ -9,7 +9,11 @@
 
 [files]
 # Snapshot fixtures hold arbitrary recorded output; don't spell-check them.
-extend-exclude = ["*.snap"]
+# cargo and nix write Cargo.lock and flake.lock, and a generated file
+# follows its generator (the dev environment rule of nix-secrets). The hook
+# passes --force-exclude, so this list
+# also holds there.
+extend-exclude = ["*.snap", "Cargo.lock", "flake.lock"]
 
 [default.extend-words]
 # Project's deliberate spelling: the `Unparseable` enum variant,

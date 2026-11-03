@@ -130,6 +130,10 @@ repos:
     rev: v1.46.2
     hooks:
       - id: typos
+        # The upstream hook passes --write-changes and --force-exclude. These
+        # args replace both and keep --force-exclude, so the extend-exclude of
+        # _typos.toml still applies to the files that pre-commit passes.
+        args: [--force-exclude]
 
   # --- Tests (layered per docs-n-notes cli-design/08-testing-strategy.md) ---
   #

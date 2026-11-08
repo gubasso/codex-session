@@ -48,6 +48,7 @@
             # language: system hooks.
             pkgs.taplo
             pkgs.dprint
+            pkgs.lychee
             pkgs.cargo-nextest
             pkgs.cargo-audit
             pkgs.cargo-deny
@@ -58,10 +59,6 @@
             pkgs.cargo-insta
             # The signal tests start `python3` from PATH.
             pkgs.python3
-            # The upstream lychee hook is a script hook that installs its own
-            # lychee binary. On a cold cache it downloads cargo-binstall with
-            # curl, so no lychee is listed here.
-            pkgs.curl
           ];
           # The greeting goes to standard error, because `nix develop --command`
           # shares the standard output of the command.

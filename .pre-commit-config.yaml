@@ -233,7 +233,8 @@ repos:
   - repo: https://github.com/lycheeverse/lychee
     rev: lychee-v0.24.2
     hooks:
-      - id: lychee
+      # The devshell supplies the lychee binary, so the hook installs none.
+      - id: lychee-system
         stages: [pre-push]
         types: [markdown]
         # Args intentionally minimal so lychee.toml owns the behavior.

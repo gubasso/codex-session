@@ -7,16 +7,23 @@ command of this guide in the devshell: in a shell that direnv activated, or with
 `direnv exec . CMD` or `nix develop --command CMD`. Run `git commit` the same
 way, because the hooks find their tools on the `PATH` of the commit.
 
-Three owners supply the tools:
+Each dependency has one owner, the most specific file that declares it
+natively, in this order:
 
-- The devshell holds the major tools: the Rust toolchain from
-  `rust-toolchain.toml`, `pre-commit`, `just`, and every tool that a recipe, a
-  `language: system` hook, or a `language: script` hook calls from `PATH`.
-- pre-commit manages the tools of each hook whose language gets an environment
-  that pre-commit builds, such as `python`, `golang`, `node`, or `rust`.
-- The host supplies only `git`, `bash`, and the coreutils.
+- The manifest of the stack: `Cargo.toml` and `Cargo.lock` for the crate.
+- `.pre-commit-config.yaml`: each hook tool for which pre-commit builds an
+  environment, such as typos, gitleaks, and markdownlint-cli2, and each tool
+  that only a hook uses.
+- The devshell of `flake.nix`: the Rust toolchain from `rust-toolchain.toml`,
+  `pre-commit`, `just`, and each tool that no owner above can declare. A hook
+  that keeps `language: system` names its owner and class in an `# owner:`
+  comment.
+- The host: `git`, `bash`, the coreutils, `nix`, `direnv`, the ELF loader, and
+  the tools that carry credentials.
 
-When a tool is missing, add it to `flake.nix`. Never install it on the host.
+The agent rule `home/apps/claude-session/rules/dev-environment.md` of
+nix-secrets states the full rule. When a tool is missing, add it to its owner.
+Never install it on the host.
 
 ## Quality gates: prefer `just` recipes over raw `cargo`
 

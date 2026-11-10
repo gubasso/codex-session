@@ -5,6 +5,13 @@
 
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
 
+# The node hook runs on the devShell nodejs. Without this line an empty
+# pre-commit cache can pick `default`, and nodeenv then fails on a prerelease
+# entry of the node index: "invalid literal for int() with base 10: '0-alpha'"
+# (2026-11-10).
+default_language_version:
+  node: system
+
 repos:
   # --- Housekeeping (auto-fix where possible) ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -53,6 +60,7 @@ repos:
   # --- Rust: format & lint (auto-fix) ---
   - repo: local
     hooks:
+      # owner: devshell (project-environment) cargo fmt is part of the Rust toolchain that the devShell pins.
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --all
@@ -60,6 +68,7 @@ repos:
         types: [rust]
         pass_filenames: false
 
+      # owner: devshell (project-environment) cargo clippy is part of the Rust toolchain and builds the crate.
       - id: clippy-fix
         name: clippy auto-fix
         entry: cargo clippy --fix --allow-dirty --allow-staged --all-features -- -W clippy::all
@@ -67,6 +76,7 @@ repos:
         types: [rust]
         pass_filenames: false
 
+      # owner: devshell (project-environment) cargo clippy is part of the Rust toolchain and builds the crate.
       - id: clippy-strict
         name: clippy gate
         entry: cargo clippy --all-targets --all-features -- -D warnings
@@ -74,7 +84,7 @@ repos:
         types: [rust]
         pass_filenames: false
 
-      # Requires `taplo` on PATH (cargo install taplo-cli --features lsp).
+      # owner: devshell (no-hook-language) upstream taplo publishes no pre-commit hook.
       - id: taplo-format
         name: taplo format
         entry: taplo format
@@ -84,11 +94,12 @@ repos:
   # --- Markdown formatter: dprint (canonical CommonMark + GFM) ---
   #
   # dprint is the single source of truth for markdown whitespace, list
-  # style, emphasis, table padding, etc. Config in ./dprint.json. Requires
-  # `dprint` on PATH (cargo install dprint). pre-commit only — the format
+  # style, emphasis, table padding, etc. Config in ./dprint.json. The devShell
+  # supplies dprint. pre-commit only — the format
   # has already been applied by commit time, no need to re-run on push.
   - repo: local
     hooks:
+      # owner: devshell (no-hook-language) upstream dprint publishes no pre-commit hook.
       - id: dprint
         name: dprint fmt
         entry: dprint fmt
@@ -178,9 +189,9 @@ repos:
   #     [profile.pre-push]   default-filter = "kind(test) - binary(/live/)"
   #     [profile.live]       default-filter = "binary(/live/)"
   #
-  # Requires `cargo nextest` on PATH (cargo install --locked cargo-nextest).
   - repo: local
     hooks:
+      # owner: devshell (project-environment) cargo nextest runs the test suite of the crate.
       - id: cargo-nextest-unit
         name: cargo nextest (unit tests)
         entry: cargo nextest run --profile pre-commit --all-features
@@ -189,6 +200,7 @@ repos:
         pass_filenames: false
         stages: [pre-commit, pre-push]
 
+      # owner: devshell (project-environment) cargo nextest runs the test suite of the crate.
       - id: cargo-nextest-integration
         name: cargo nextest (integration tests)
         entry: cargo nextest run --profile pre-push --all-features
@@ -199,6 +211,7 @@ repos:
 
   - repo: local
     hooks:
+      # owner: devshell (project-environment) cargo nextest runs the live tests of the crate.
       - id: cargo-nextest-live
         name: cargo nextest (live API tests)
         entry: env CODEX_SESSION_LIVE_TESTS=1 cargo nextest run --profile live --all-features
@@ -234,6 +247,7 @@ repos:
     rev: lychee-v0.24.2
     hooks:
       # The devshell supplies the lychee binary, so the hook installs none.
+      # owner: devshell (no-hook-language) upstream lychee offers only script, docker_image, and system ids.
       - id: lychee-system
         stages: [pre-push]
         types: [markdown]
@@ -250,7 +264,7 @@ repos:
 
   - repo: local
     hooks:
-      # Requires `cargo-audit` on PATH (cargo install cargo-audit).
+      # owner: devshell (project-environment) cargo audit is a cargo subcommand that reads the lock file of the crate.
       - id: cargo-audit
         name: cargo audit
         entry: cargo audit
@@ -258,13 +272,23 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
-      # Requires `cargo-deny` on PATH (cargo install cargo-deny).
+      # owner: devshell (project-environment) cargo deny is a cargo subcommand that reads the lock file of the crate.
       - id: cargo-deny
         name: cargo deny
         entry: cargo deny check advisories bans sources
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+  # --- A flake holds no language library (pygrep) ---
+  - repo: local
+    hooks:
+      - id: no-language-library-in-flake
+        name: a flake holds no language library
+        language: pygrep
+        entry: '^(?!\s*#).*(withPackages|python3[0-9]*Packages\.|pythonPackages\.|nodePackages\.|perlPackages\.)'
+        files: '(^|/)flake\.nix$|(^|/)nix/.*\.nix$'
+        stages: [pre-commit]
 
   - repo: meta
     hooks:

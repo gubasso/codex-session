@@ -31,11 +31,13 @@
         # `nix fmt` formats flake.nix.
         formatter = pkgs.nixfmt;
 
-        # The devshell holds the major tools of the project and every tool that
-        # a recipe, a `language: system` hook, or a `language: script` hook
-        # calls from PATH. pre-commit manages the tools of a hook whose language
-        # gets an environment that pre-commit builds (gitleaks, typos,
-        # markdownlint-cli2, ...), so no go, node, or hook binary is listed here.
+        # Each dependency has one owner, the most specific file that declares
+        # it natively. pre-commit pins each hook tool that it can build an
+        # environment for (gitleaks, typos, markdownlint-cli2, ...). This shell
+        # holds the toolchain, pre-commit, just, the tools of the hooks that keep
+        # `language: system` (each names its owner in .pre-commit-config.yaml),
+        # the tools that recipes call, and nodejs, which the node hook builds on.
+        # It holds no language library.
         devShells.default = pkgs.mkShell {
           packages = [
             toolchain
@@ -59,6 +61,9 @@
             pkgs.cargo-insta
             # The signal tests start `python3` from PATH.
             pkgs.python3
+            # The markdownlint-cli2 hook builds on this nodejs
+            # (default_language_version in .pre-commit-config.yaml).
+            pkgs.nodejs
           ];
           # The greeting goes to standard error, because `nix develop --command`
           # shares the standard output of the command.

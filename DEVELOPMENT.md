@@ -50,19 +50,23 @@ just uninstall
 `flake.nix` defines the devshell, and `.envrc` loads it. The devshell
 holds the Rust **stable** toolchain from `rust-toolchain.toml` (MSRV
 `1.89`, edition 2024), with `rustfmt` and `clippy`. `flake.lock` fixes
-its version, so a local run and CI get the same compiler. The devshell
-also holds `pre-commit`, `just`, and every tool that a recipe, a
-`language: system` hook, or a `language: script` hook calls from
-`PATH`: `taplo`, `dprint`, `lychee`, `cargo-nextest`, `cargo-audit`,
-`cargo-deny`, `ripgrep`, `cargo-watch`, `cargo-insta`, and `python3`.
-Run `just --list` to see the recipes.
+its version, so a local run and CI get the same compiler. Each
+dependency has one owner, the most specific file that declares it
+natively: `Cargo.toml` for the crate, then `.pre-commit-config.yaml`,
+then the devshell, then the host. The devshell also holds `pre-commit`,
+`just`, the tools of the hooks that keep `language: system` (`taplo`,
+`dprint`, `lychee`, `cargo-nextest`, `cargo-audit`, `cargo-deny`), the
+tools that recipes and tests call (`ripgrep`, `cargo-watch`,
+`cargo-insta`, `python3`), and `nodejs`, on which the markdownlint-cli2
+hook builds. Each system hook names its owner and class in an
+`# owner:` comment. Run `just --list` to see the recipes.
 
 pre-commit installs and manages the tools of the hooks whose language
 gets an environment that pre-commit builds: `gitleaks`, `ripsecrets`,
 `markdownlint-cli2`, `typos`, `committed`, `md-toc`,
-`editorconfig-checker`, and `cargo-machete`. The host supplies only
-`git`, `bash`, and the coreutils. When a tool is missing, add it to
-`flake.nix`, never to the host.
+`editorconfig-checker`, and `cargo-machete`. The host supplies `git`,
+`bash`, the coreutils, `nix`, and `direnv`. When a tool is missing, add
+it to its owner, never to the host.
 
 ## First-time setup
 

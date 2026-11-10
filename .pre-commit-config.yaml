@@ -189,7 +189,6 @@ repos:
   #     [profile.pre-push]   default-filter = "kind(test) - binary(/live/)"
   #     [profile.live]       default-filter = "binary(/live/)"
   #
-  # Requires `cargo nextest` on PATH (cargo install --locked cargo-nextest).
   - repo: local
     hooks:
       # owner: devshell (project-environment) cargo nextest runs the test suite of the crate.

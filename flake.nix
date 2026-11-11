@@ -6,6 +6,12 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
+    # The store guard of the canon (exobrain): `exobrain store-guard --daily`
+    # in .envrc warns about working-tree copies in the Nix store.
+    exobrain-tech = {
+      url = "github:gubasso/exobrain-tech/v1.0.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -13,6 +19,7 @@
       nixpkgs,
       rust-overlay,
       flake-utils,
+      exobrain-tech,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -64,6 +71,11 @@
             # The markdownlint-cli2 hook builds on this nodejs
             # (default_language_version in .pre-commit-config.yaml).
             pkgs.nodejs
+          ]
+          # exobrain, the store guard that .envrc runs once a day. exobrain-tech
+          # builds it for x86_64-linux only, so other systems keep their shells.
+          ++ pkgs.lib.optionals (system == "x86_64-linux") [
+            exobrain-tech.packages.${system}.default
           ];
           # The greeting goes to standard error, because `nix develop --command`
           # shares the standard output of the command.

@@ -114,6 +114,7 @@ pub(crate) fn run_once(
     session: &SignalSession,
     capture: bool,
     group_id_override: Option<&str>,
+    stdin_replay: Option<&crate::domain::child_invocation::StdinReplay>,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), crate::error::AppError> {
     let json_mode = has_json_flag(argv);
     let effective_capture = capture || json_mode;
@@ -129,13 +130,14 @@ pub(crate) fn run_once(
     let cache_config = cache_config_target(ctx);
     let session_config = prepared.session_dir.join("config.toml");
     let PreparedInvocation {
-        invocation,
+        mut invocation,
         session_dir,
         baseline_projects,
         group_id,
         cwd,
     } = prepared;
 
+    invocation.stdin = stdin_replay.cloned();
     let result = run_child(ctx, invocation, session, effective_capture);
     sync_group_auth_to_seed(ctx, account, &session_dir);
     persist_trust(&session_config, &cache_config, baseline_projects.as_ref());
@@ -257,6 +259,7 @@ fn prepare_invocation(
         binary: child_binary.clone(),
         args: argv.to_vec(),
         env: child_env,
+        stdin: None,
     };
 
     Ok(PreparedInvocation {
@@ -419,9 +422,14 @@ fn argv_is_interactive_shape(argv: &[std::ffi::OsString]) -> bool {
     // `external_subcommand` capture consumes wrapper global flags first and
     // rejects unknown leading flags with EX_USAGE, so `--flag exec ...` can
     // never reach this predicate.
-    let first = argv.first().and_then(|a| a.to_str()).unwrap_or("");
     // `codex exec ...` and `codex exec resume <id>` are non-interactive streaming runs.
-    first != "exec"
+    !is_exec_verb(argv)
+}
+
+/// True when the forwarded argv starts with the `exec` verb or its upstream
+/// alias `e` (docs/upstream-codex.md F18).
+pub(crate) fn is_exec_verb(argv: &[std::ffi::OsString]) -> bool {
+    matches!(argv.first().and_then(|a| a.to_str()), Some("exec" | "e"))
 }
 
 /// True when this launch is an interactive TUI attached to a real terminal, so the
@@ -716,6 +724,7 @@ fn run_resume(
         &session,
         !interactive,
         gid_override,
+        None,
     )?;
     if !interactive
         && let Some(err) = resume_blocked_from_live_rate_limit(
@@ -1112,6 +1121,7 @@ mod tests {
         assert!(argv_is_interactive_shape(&av(&["some prompt"]))); // prompt-only TUI
         // Non-interactive shapes:
         assert!(!argv_is_interactive_shape(&av(&["exec", "do"]))); // exec
+        assert!(!argv_is_interactive_shape(&av(&["e", "do"]))); // exec alias
         assert!(!argv_is_interactive_shape(&av(&["exec", "resume", "ID"]))); // exec resume
         assert!(!argv_is_interactive_shape(&av(&["--json"]))); // json forces capture
     }

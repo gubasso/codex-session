@@ -256,17 +256,20 @@ impl Spawner for StdSpawner {
     ) -> Result<std::process::ExitStatus, SpawnerError> {
         use std::sync::atomic::Ordering;
 
+        let replay = inv.stdin.clone();
         let mut cmd = inv.into_command();
         let mut child = cmd.spawn().map_err(SpawnerError::Exec)?;
         pid_sink.store(
             i32::try_from(child.id()).unwrap_or(i32::MAX),
             Ordering::SeqCst,
         );
+        let feeder = feed_stdin(&mut child, replay);
         let status = child.wait().map_err(|e| {
             pid_sink.store(0, Ordering::SeqCst);
             SpawnerError::Exec(e)
         })?;
         pid_sink.store(0, Ordering::SeqCst);
+        join_stdin_feeder(feeder)?;
         Ok(status)
     }
 
@@ -285,6 +288,7 @@ impl Spawner for StdSpawner {
         use std::sync::atomic::Ordering;
         use std::thread;
 
+        let replay = inv.stdin.clone();
         let mut cmd = inv.into_command();
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -294,6 +298,7 @@ impl Spawner for StdSpawner {
             i32::try_from(child.id()).unwrap_or(i32::MAX),
             Ordering::SeqCst,
         );
+        let feeder = feed_stdin(&mut child, replay);
 
         let mut child_stdout = child
             .stdout
@@ -340,12 +345,58 @@ impl Spawner for StdSpawner {
             .join()
             .map_err(|_| SpawnerError::Exec(std::io::Error::other("stderr tee panicked")))?
             .map_err(SpawnerError::Exec)?;
+        join_stdin_feeder(feeder)?;
 
         Ok(ChildOutput {
             status,
             stdout,
             stderr,
         })
+    }
+}
+
+/// Write the replayed stdin bytes to the child on a thread of their own, then
+/// close the pipe so the child reads EOF. A thread, because a child that does
+/// not drain stdin would otherwise block the wrapper on a full pipe buffer
+/// before `wait`. Returns `None` when the child inherits stdin.
+fn feed_stdin(
+    child: &mut std::process::Child,
+    replay: Option<crate::domain::child_invocation::StdinReplay>,
+) -> Option<std::thread::JoinHandle<std::io::Result<()>>> {
+    let bytes = replay?.0;
+    let mut pipe = child.stdin.take()?;
+    Some(std::thread::spawn(move || {
+        use std::io::Write as _;
+        // `pipe` drops at the end of the closure, which closes the write end.
+        pipe.write_all(&bytes)
+    }))
+}
+
+/// Join the stdin feeder after the child exited. A broken pipe means the
+/// child exited or closed stdin before it read every byte, which is the
+/// child's choice, not a wrapper failure. When the feeder still blocks, a
+/// grandchild holds the read end without draining it. The wrapper then
+/// detaches the thread instead of waiting on a process it does not own.
+fn join_stdin_feeder(
+    feeder: Option<std::thread::JoinHandle<std::io::Result<()>>>,
+) -> Result<(), SpawnerError> {
+    let Some(handle) = feeder else {
+        return Ok(());
+    };
+    if !handle.is_finished() {
+        tracing::debug!(
+            op = "spawner.stdin_feeder",
+            outcome = "detached",
+            "child exited before its stdin was fully written"
+        );
+        return Ok(());
+    }
+    match handle
+        .join()
+        .map_err(|_| SpawnerError::Exec(std::io::Error::other("stdin feeder panicked")))?
+    {
+        Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => Err(SpawnerError::Exec(err)),
+        _ => Ok(()),
     }
 }
 

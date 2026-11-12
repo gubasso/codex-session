@@ -1,0 +1,20 @@
+# The host tools that the justfile and the git hooks of codex-session call,
+# read from that code. The flake devShell, Cargo.toml, and
+# .pre-commit-config.yaml own every other tool, so none of those appear here.
+# The POSIX base tools are not listed. `exobrain host-check` reads this file:
+# the justfile checks the global tools once per run, and each recipe that runs
+# the hook runner checks prek as its first line. The convention and the checker
+# belong to exobrain-tech.
+schema = 1
+
+# Global. The devShell needs nix (flakes enabled), the pre-push hook runs
+# `nix build`, and the hooks call git.
+[tools.nix]
+
+[tools.git]
+
+# Path-scoped: the git hooks, and the gate recipes that run them. prek
+# enforces its own version through minimum_prek_version in
+# .pre-commit-config.yaml, so the file names no floor.
+[tools.prek]
+version = "*"

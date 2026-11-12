@@ -11,14 +11,15 @@ Each dependency has one owner, the most specific file that declares it
 natively, in this order:
 
 - The manifest of the stack: `Cargo.toml` and `Cargo.lock` for the crate.
-- `.pre-commit-config.yaml`: each hook tool for which pre-commit builds an
+- `.pre-commit-config.yaml`: each hook tool for which the hook runner builds an
   environment, such as typos, gitleaks, and markdownlint-cli2, and each tool
   that only a hook uses.
 - The devshell of `flake.nix`: the Rust toolchain from `rust-toolchain.toml`,
-  `pre-commit`, `just`, and each tool that no owner above can declare. A hook
+  `just`, and each tool that no owner above can declare. A hook
   that keeps `language: system` names its owner and class in an `# owner:`
   comment.
-- The host: `git`, `bash`, the coreutils, `nix`, `direnv`, the ELF loader, and
+- The host: the tools that `host-requirements.toml` lists (`nix`, `git`, and
+  the hook runner `prek`), `bash`, the coreutils, `direnv`, the ELF loader, and
   the tools that carry credentials.
 
 The agent rule `home/apps/claude-session/rules/dev-environment.md` of
@@ -33,9 +34,9 @@ of truth). The recipes encode project-specific settings the agents don't see
 otherwise — most notably `cargo-nextest` profiles tuned for coding-agent output,
 `clippy-strict`, and a local stdout/stderr-ownership lint.
 
-**Principle — pre-commit hooks are the Source of Truth for quality gates.**
-The `justfile` gate recipes MUST delegate to `pre-commit run …` rather than
-invoke `cargo` directly. A new test/lint tier is defined as a pre-commit hook
+**Principle — the git hooks are the Source of Truth for quality gates.**
+The `justfile` gate recipes MUST delegate to `prek run …` rather than
+invoke `cargo` directly. A new test/lint tier is defined as a hook
 first (in `.pre-commit-config.yaml`), then exposed via a `just` recipe that
 calls that hook. Raw `cargo` in the justfile is reserved for inner-loop,
 non-gate recipes (`build`, `run`, `fmt`, `fix`, `watch`, `clean`).

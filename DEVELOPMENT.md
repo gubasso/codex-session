@@ -13,7 +13,7 @@ activated, or with `direnv exec . CMD` or `nix develop --command CMD`.
 # One-time setup
 git clone <repo> && cd codex-session
 direnv allow                   # load the devshell of flake.nix
-pre-commit install --install-hooks
+prek install --prepare-hooks
 cargo build
 
 # Inner loop
@@ -52,7 +52,7 @@ holds the Rust **stable** toolchain from `rust-toolchain.toml` (MSRV
 its version, so a local run and CI get the same compiler. Each
 dependency has one owner, the most specific file that declares it
 natively: `Cargo.toml` for the crate, then `.pre-commit-config.yaml`,
-then the devshell, then the host. The devshell also holds `pre-commit`,
+then the devshell, then the host. The devshell also holds
 `just`, the tools of the hooks that keep `language: system` (`taplo`,
 `dprint`, `lychee`, `cargo-nextest`, `cargo-audit`, `cargo-deny`), the
 tools that recipes and tests call (`ripgrep`, `cargo-watch`,
@@ -60,11 +60,12 @@ tools that recipes and tests call (`ripgrep`, `cargo-watch`,
 hook builds. Each system hook names its owner and class in an
 `# owner:` comment. Run `just --list` to see the recipes.
 
-pre-commit installs and manages the tools of the hooks whose language
-gets an environment that pre-commit builds: `gitleaks`, `ripsecrets`,
+The hook runner prek installs and manages the tools of the hooks whose
+language gets an environment that it builds: `gitleaks`, `ripsecrets`,
 `markdownlint-cli2`, `typos`, `committed`, `md-toc`,
-`editorconfig-checker`, and `cargo-machete`. The host supplies `git`,
-`bash`, the coreutils, `nix`, and `direnv`. When a tool is missing, add
+`editorconfig-checker`, and `cargo-machete`. The host supplies the tools
+that [host-requirements.toml](./host-requirements.toml) lists, and
+`direnv`, `bash`, and the coreutils. When a project tool is missing, add
 it to its owner, never to the host.
 
 ## First-time setup
@@ -72,20 +73,19 @@ it to its owner, never to the host.
 ```bash
 git clone <repo> && cd codex-session
 direnv allow                          # load the devshell of flake.nix
-pre-commit install --install-hooks    # pre-commit, commit-msg, pre-push
+prek install --prepare-hooks          # pre-commit, commit-msg, pre-push
 cargo build                           # warm the toolchain + deps
 just check                            # confirm lint + tests pass
 ```
 
 Outside a shell that direnv activated, run each command with
 `direnv exec . CMD` or `nix develop --command CMD`, for example
-`direnv exec . pre-commit install --install-hooks`.
+`direnv exec . prek install --prepare-hooks`.
 
-`pre-commit install` registers hooks for the `pre-commit`, `commit-msg`,
-and `pre-push` stages, so commits and pushes are gated locally. Commit
-and push in the devshell, for example `direnv exec . git commit`: the
-hooks find their tools on the `PATH` of the commit, and the meta hooks
-import `pre_commit` through the `PYTHONPATH` that the devshell exports.
+`prek install` registers hooks for the `pre-commit`, `commit-msg`, and
+`pre-push` stages, so commits and pushes are gated locally. Commit and
+push in the devshell, for example `direnv exec . git commit`: the hooks
+find their tools on the `PATH` of the commit.
 
 ## Daily loop
 

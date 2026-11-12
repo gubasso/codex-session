@@ -9,7 +9,7 @@
     # The store guard of the canon (exobrain): `exobrain store-guard --daily`
     # in .envrc warns about working-tree copies in the Nix store.
     exobrain-tech = {
-      url = "github:gubasso/exobrain-tech/v1.0.0";
+      url = "github:gubasso/exobrain-tech/v1.1.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -44,20 +44,16 @@
         packages.default = pkgs.callPackage ./nix/package.nix { };
 
         # Each dependency has one owner, the most specific file that declares
-        # it natively. pre-commit pins each hook tool that it can build an
-        # environment for (gitleaks, typos, markdownlint-cli2, ...). This shell
-        # holds the toolchain, pre-commit, just, the tools of the hooks that keep
-        # `language: system` (each names its owner in .pre-commit-config.yaml),
-        # the tools that recipes call, and nodejs, which the node hook builds on.
-        # It holds no language library.
+        # it natively. .pre-commit-config.yaml pins each hook tool that the
+        # hook runner can build an environment for (gitleaks, typos,
+        # markdownlint-cli2, ...). The host supplies the hook runner prek
+        # (host-requirements.toml). This shell holds the toolchain, just, the
+        # tools of the hooks that keep `language: system` (each names its
+        # owner in .pre-commit-config.yaml), the tools that recipes call, and
+        # nodejs, which the node hook builds on. It holds no language library.
         devShells.default = pkgs.mkShell {
           packages = [
             toolchain
-            # The meta hooks check-hooks-apply and check-useless-excludes run
-            # `python -m pre_commit.meta_hooks...`. They import pre_commit only
-            # through the PYTHONPATH that this devshell exports, so a commit
-            # runs in the devshell: `direnv exec . git commit`.
-            pkgs.pre-commit
             pkgs.just
             # language: system hooks.
             pkgs.taplo

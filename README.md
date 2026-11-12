@@ -10,7 +10,7 @@ wrapped child process.
 ## Install
 
 ```bash
-cargo install --path .
+cargo install --locked --path .
 ```
 
 `just install` wraps the same command.

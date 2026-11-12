@@ -2,8 +2,9 @@
 //!
 //! What this is: access to the wrapper version embedded at compile time from
 //! the checked-in `VERSION` file.
-//! What this is not: runtime install-path probing; the Rust binary is shipped
-//! via `cargo install`, so the embedded constant is sufficient.
+//! What this is not: runtime install-path probing. Every build, including
+//! the Nix package of `nix/package.nix`, embeds the constant, so it is
+//! sufficient.
 #![allow(clippy::must_use_candidate)]
 
 /// Return the wrapper version sourced from the checked-in `VERSION` file.

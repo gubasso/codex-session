@@ -9,11 +9,18 @@ wrapped child process.
 
 ## Install
 
-```bash
-cargo install --locked --path .
+`nix/package.nix` builds codex-session, with its bash completion, from
+`Cargo.lock`. On the operator's hosts, nix-secrets installs the binary
+through Home Manager. It pins this repository as a source and builds the
+package with its own nixpkgs:
+
+```nix
+pkgs.callPackage "${src}/nix/package.nix" { }
 ```
 
-`just install` wraps the same command.
+To build the package from a checkout, run `nix build .#default`. To run a
+debug build from the working tree, run `just run -- <args>`. The `just`
+recipes put no binary on `PATH`.
 
 ## Usage
 

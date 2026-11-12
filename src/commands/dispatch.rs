@@ -29,8 +29,10 @@ pub(crate) async fn run(
         Some(cli::Commands::Version(args)) => {
             commands::version::run(ctx.as_ref(), args).map(|()| 0)
         }
+        // `main` runs `completion` before it builds the context, so this arm
+        // serves only a caller that dispatches a parsed `Cli` directly.
         Some(cli::Commands::Completion(args)) => {
-            commands::completion::run(ctx.as_ref(), args).map(|()| 0)
+            commands::completion::run(&ctx.ui, &args).map(|()| 0)
         }
         Some(cli::Commands::Config(args)) => run_config(ctx.as_ref(), &args).map(|()| 0),
         Some(cli::Commands::ConfigRecipe(args)) => {

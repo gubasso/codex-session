@@ -38,6 +38,11 @@
         # `nix fmt` formats flake.nix.
         formatter = pkgs.nixfmt;
 
+        # The package that nix-secrets builds with its own nixpkgs, through
+        # `pkgs.callPackage "${src}/nix/package.nix" { }`. It uses the
+        # rustPlatform of nixpkgs, not the toolchain of the devshell.
+        packages.default = pkgs.callPackage ./nix/package.nix { };
+
         # Each dependency has one owner, the most specific file that declares
         # it natively. pre-commit pins each hook tool that it can build an
         # environment for (gitleaks, typos, markdownlint-cli2, ...). This shell

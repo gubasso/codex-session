@@ -280,6 +280,23 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+  # --- The Nix package (pre-push, costly) ---
+  # nix-secrets builds nix/package.nix with its own nixpkgs, so a push that
+  # breaks the package breaks the host install. The build reads only the
+  # crate, its lock file, VERSION, and the Nix files, so other changes skip it.
+  - repo: local
+    hooks:
+      # owner: host (no-hook-language) nix comes from the host and has no hook in a language that pre-commit builds.
+      - id: nix-build
+        name: nix build (the package that nix-secrets installs)
+        entry: nix build --no-link .#default
+        language: system
+        pass_filenames: false
+        # Follows the fileset of nix/package.nix, plus build.rs, which the
+        # fileset must gain when one appears.
+        files: '^(src/|nix/|Cargo\.(toml|lock)$|VERSION$|build\.rs$|flake\.(nix|lock)$)'
+        stages: [pre-push]
+
   # --- A flake holds no language library (pygrep) ---
   - repo: local
     hooks:

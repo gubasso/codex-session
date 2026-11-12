@@ -50,6 +50,15 @@ async fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(err) => return cli::exit::handle_clap_error(err, &argv),
     };
+    // `completion` only prints a script built from the clap definition. It
+    // runs before the config load, the log directory, and the session
+    // pruning, so it works with no writable HOME, as in a Nix build sandbox.
+    if let Some(cli::Commands::Completion(args)) = &cli.command {
+        return match commands::completion::run(&ui::Ui::new(), args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => error::print_and_exit(&err, &cli.global),
+        };
+    }
     let overrides = config::CliOverrides::from_global(&cli.global);
     let config = match config::Config::load(&overrides) {
         Ok(config) => Arc::new(config),

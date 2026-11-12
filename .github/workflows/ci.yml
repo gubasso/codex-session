@@ -38,3 +38,7 @@ jobs:
         run: nix develop --command cargo nextest run --profile ci
       - name: print-lint
         run: nix develop --command just lint-print
+      - name: nix-build
+        # The package that nix-secrets builds with its own nixpkgs. The
+        # pre-push hook nix-build runs the same command.
+        run: nix build --no-link .#default

@@ -3,17 +3,20 @@
 # pre-commit is the source of truth for what runs as a quality gate.
 # Recipes that gate code (test, lint, audit, machete, deny, check) call
 # the corresponding hook ids from .pre-commit-config.yaml. Inner-loop
-# recipes (build, run, watch, fmt, fix, clean, install) stay as direct
+# recipes (build, run, watch, fmt, fix, clean) stay as direct
 # cargo invocations because they are about fast local iteration, not
 # gating, and several differ from the hook entries (e.g. `fmt --check`
 # in lint is non-mutating while the pre-commit `cargo-fmt` hook mutates).
+#
+# No recipe installs the binary. nix-secrets installs the host copy from
+# nix/package.nix. `build` and `run` leave the binary in target/.
 
 default:
     @just --list
 
 # --- Build / run / clean (direct cargo, inner-loop) ---
 
-# Build a release binary.
+# Build a release binary into target/release/ (never onto PATH).
 build:
     cargo build --release
 
@@ -24,19 +27,6 @@ run *ARGS:
 # Watch sources and re-run unit tests on change (requires cargo-watch).
 watch:
     cargo watch -x 'nextest run --profile pre-commit'
-
-# Install codex-session into ~/.cargo/bin (+ bash completions if running bash).
-install:
-    cargo install --locked --path .
-    @if echo "$SHELL" | grep -q 'bash$$'; then \
-        mkdir -p ~/.local/share/bash-completion/completions && \
-        codex-session completion bash > ~/.local/share/bash-completion/completions/codex-session && \
-        echo 'Installed bash completions for codex-session'; \
-    fi
-
-# Remove the cargo-installed codex-session binary.
-uninstall:
-    cargo uninstall codex-session
 
 # Remove Cargo build artifacts. Safe to run anytime.
 clean:

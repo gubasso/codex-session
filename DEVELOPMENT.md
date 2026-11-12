@@ -34,11 +34,10 @@ RUST_LOG=debug just run -- config status    # verbose tracing
 # Commit & push (main/master/develop are protected; use a branch)
 git checkout -b feat/my-change
 git add -p && git commit -m "feat(cli): ..."
-git push -u origin HEAD        # pre-push runs gitleaks/audit/deny
+git push -u origin HEAD        # pre-push runs tests/gitleaks/audit/deny/nix build
 
-# Install / uninstall locally
-just install
-just uninstall
+# Build the package that nix-secrets installs on the host
+nix build .#default
 ```
 
 ## Prerequisites
@@ -103,8 +102,7 @@ import `pre_commit` through the `PYTHONPATH` that the devshell exports.
 | Full pre-push check         | `just check`                                        |
 | Pre-commit hooks (manual)   | `just precommit`                                    |
 | Pre-commit + pre-push hooks | `just precommit-all`                                |
-| Install to `~/.cargo/bin`   | `just install`                                      |
-| Uninstall                   | `just uninstall`                                    |
+| Build the Nix package       | `nix build .#default`                               |
 | Supply-chain audit          | `just audit` / `just machete` / `just deny`         |
 
 `just check` (= `lint` + `test`) is the contract every contributor and
@@ -142,10 +140,13 @@ cargo run --release -- <codex args>
 # Bare invocation: same as `codex` with no args (launches the TUI)
 cargo run --release --
 
-# Or after installing
-just install
-codex-session <codex args>
+# Or through the just recipe, from the working tree
+just run -- <codex args>
 ```
+
+No recipe installs the binary. On the operator's hosts, nix-secrets
+installs `codex-session` from `nix/package.nix` through Home Manager, so
+a debug build stays in `target/` and never shadows the host copy.
 
 Useful env knobs while poking at it:
 

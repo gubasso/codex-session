@@ -44,14 +44,13 @@
         packages.default = pkgs.callPackage ./nix/package.nix { };
 
         # Each dependency has one owner, the most specific file that declares
-        # it natively. .pre-commit-config.yaml pins each hook tool that the hook
-        # runner can build an environment for (gitleaks, typos,
+        # it natively. .pre-commit-config.yaml pins each hook tool that the
+        # hook runner can build an environment for (gitleaks, typos,
         # markdownlint-cli2, ...). The host supplies the hook runner prek
         # (host-requirements.toml). This shell holds the toolchain, just, the
-        # tools of the hooks that keep
-        # `language: system` (each names its owner in .pre-commit-config.yaml),
-        # the tools that recipes call, and nodejs, which the node hook builds on.
-        # It holds no language library.
+        # tools of the hooks that keep `language: system` (each names its
+        # owner in .pre-commit-config.yaml), the tools that recipes call, and
+        # nodejs, which the node hook builds on. It holds no language library.
         devShells.default = pkgs.mkShell {
           packages = [
             toolchain

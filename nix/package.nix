@@ -47,8 +47,10 @@ rustPlatform.buildRustPackage {
   # it skips the completion. installShellCompletion:
   # https://nixos.org/manual/nixpkgs/stable/#installshellfiles
   postInstall = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
-    installShellCompletion --cmd codex-session \
-      --bash <("$out/bin/codex-session" completion bash)
+    # A file, not a process substitution: bash drops the exit status of
+    # <(...), so a failing `completion` would install an empty script.
+    "$out/bin/codex-session" completion bash > codex-session.bash
+    installShellCompletion --cmd codex-session --bash codex-session.bash
   '';
 
   meta = {

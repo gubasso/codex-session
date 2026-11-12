@@ -27,7 +27,7 @@ watch:
 
 # Install codex-session into ~/.cargo/bin (+ bash completions if running bash).
 install:
-    cargo install --path .
+    cargo install --locked --path .
     @if echo "$SHELL" | grep -q 'bash$$'; then \
         mkdir -p ~/.local/share/bash-completion/completions && \
         codex-session completion bash > ~/.local/share/bash-completion/completions/codex-session && \

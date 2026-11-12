@@ -4,7 +4,7 @@
 // Single source of truth: this .jsonc is the ONLY markdownlint config. Do not add
 // a `.markdownlint.{yaml,json,...}` — when both exist, the `.markdownlint.*` rules
 // win and silently override the `config` block below. (markdownlint-cli2 also
-// reads this file in VS Code, so editor + pre-commit stay in sync.)
+// reads this file in VS Code, so editor + git hooks stay in sync.)
 //
 // Tooling split (researched): markdownlint is a LINTER with surgical per-span
 // autofixes, NOT a formatter. It cannot reflow/unwrap prose, normalize GFM table

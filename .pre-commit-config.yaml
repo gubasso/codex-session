@@ -1,14 +1,18 @@
-# Pre-commit configuration for codex-session.
+# Git hook configuration for codex-session. The host supplies the hook runner
+# prek (host-requirements.toml).
 #
 # Tailored from the dotfiles rust template:
 #   ~/.dotfiles/pre-commit/rust.pre-commit-config.yaml
 
+# The oldest prek that runs this file:
+# https://prek.j178.dev/reference/configuration/#minimum_prek_version
+minimum_prek_version: "0.5.7"
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
 
-# The node hook runs on the devShell nodejs. Without this line an empty
-# pre-commit cache can pick `default`, and nodeenv then fails on a prerelease
-# entry of the node index: "invalid literal for int() with base 10: '0-alpha'"
-# (2026-11-10).
+# The node hook runs on the devShell nodejs. Without this line, the former
+# runner pre-commit picked `default` with an empty cache, and nodeenv failed
+# on a prerelease entry of the node index: "invalid literal for int() with
+# base 10: '0-alpha'" (2026-11-10).
 default_language_version:
   node: system
 
@@ -286,7 +290,7 @@ repos:
   # crate, its lock file, VERSION, and the Nix files, so other changes skip it.
   - repo: local
     hooks:
-      # owner: host (no-hook-language) nix comes from the host and has no hook in a language that pre-commit builds.
+      # owner: host (no-hook-language) nix comes from the host and has no hook in a language that the hook runner builds.
       - id: nix-build
         name: nix build (the package that nix-secrets installs)
         entry: nix build --no-link .#default
@@ -308,11 +312,15 @@ repos:
         stages: [pre-commit]
 
   # A flake reference reads the git tree of a checkout, never a path copy of
-  # the whole folder into the Nix store. The hook is published by exobrain-tech.
+  # the whole folder into the Nix store. A flake holds no git hook runner, and
+  # host-requirements.toml parses whenever it changes. The three hooks are
+  # published by exobrain-tech, whose `exobrain` comes from the devShell.
   - repo: https://github.com/gubasso/exobrain-tech
-    rev: v1.0.0
+    rev: v1.1.0
     hooks:
       - id: no-path-flake-reference
+      - id: no-hook-runner-in-flake
+      - id: host-requirements
 
   - repo: meta
     hooks:

@@ -1,6 +1,6 @@
 # typos configuration — REPORT-ONLY spell check.
 #
-# Philosophy (sane default): typos NEVER auto-edits code. The pre-commit
+# Philosophy (sane default): typos NEVER auto-edits code. The typos
 # hook runs without --write-changes, so typos only *reports* misspellings;
 # you fix real ones in a normal edit and allowlist false positives here.
 # Add an entry ONLY when typos' suggestion is wrong — project terms,

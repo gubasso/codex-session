@@ -22,6 +22,9 @@ To build the package from a checkout, run `nix build .#default`. To run a
 debug build from the working tree, run `just run -- <args>`. The `just`
 recipes put no binary on `PATH`.
 
+The host tools of the dev environment, such as `nix` and the hook runner
+`prek`, are listed in [host-requirements.toml](./host-requirements.toml).
+
 ## Usage
 
 Run `codex-session help` for the full verb, flag, and environment variable

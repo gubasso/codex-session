@@ -13,6 +13,22 @@ pub(crate) struct ChildInvocation {
     pub(crate) binary: Utf8PathBuf,
     pub(crate) args: Vec<OsString>,
     pub(crate) env: ChildEnv,
+    /// Bytes to write to the child's stdin through a fresh pipe. `None`
+    /// keeps the inherited stdin. The auto-rotation path sets it so that
+    /// every attempt receives the same stdin prompt (see
+    /// `retry::read_stdin_for_replay`).
+    pub(crate) stdin: Option<StdinReplay>,
+}
+
+/// Stdin bytes that the wrapper read once and replays to each child attempt.
+/// `Debug` prints only the length, so a prompt never reaches a log line.
+#[derive(Clone)]
+pub(crate) struct StdinReplay(pub(crate) std::sync::Arc<[u8]>);
+
+impl std::fmt::Debug for StdinReplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StdinReplay({} bytes)", self.0.len())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +139,9 @@ impl ChildInvocation {
         }
         for (key, value) in &self.env.set {
             cmd.env(key, value);
+        }
+        if self.stdin.is_some() {
+            cmd.stdin(std::process::Stdio::piped());
         }
         cmd
     }

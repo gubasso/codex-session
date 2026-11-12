@@ -45,6 +45,11 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
     };
 
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
+    let stdin_replay = read_stdin_for_replay(
+        argv,
+        crate::ui::terminal::stdin_is_terminal(),
+        &mut std::io::stdin().lock(),
+    )?;
     let json_mode = crate::commands::pass_through::has_json_flag(argv);
     let mut tried = HashSet::new();
     let mut ran_report = Vec::new();
@@ -81,6 +86,7 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
             &signal_session,
             true,
             None,
+            stdin_replay.as_ref(),
         )?;
 
         let events = super::codex_events::scan_events(&stdout_buf);
@@ -247,14 +253,46 @@ pub(crate) fn run_auto(ctx: &AppContext, argv: &[OsString]) -> Result<i32, AppEr
     .into())
 }
 
+/// Read stdin once, so that every attempt of the auto-rotation loop gets the
+/// same bytes. Without it the first child reads the inherited stdin to EOF and
+/// a rotation retry gets an empty stdin ("No prompt provided via stdin").
+///
+/// Only `exec` (or its alias `e`) with a non-terminal stdin is buffered.
+/// Upstream `codex exec` reads a non-terminal stdin to EOF in that case anyway,
+/// even next to a prompt argument (docs/upstream-codex.md F18), so this read
+/// blocks no run that codex itself would not block. Any other verb, such as
+/// a stdio server, keeps its inherited, streaming stdin.
+fn read_stdin_for_replay(
+    argv: &[OsString],
+    stdin_is_terminal: bool,
+    stdin: &mut impl std::io::Read,
+) -> Result<Option<crate::domain::child_invocation::StdinReplay>, AppError> {
+    if !crate::commands::pass_through::is_exec_verb(argv) || stdin_is_terminal {
+        return Ok(None);
+    }
+    let mut buf = Vec::new();
+    stdin.read_to_end(&mut buf).map_err(AppError::Io)?;
+    tracing::debug!(op = "retry.stdin_replay", bytes = buf.len());
+    Ok(Some(crate::domain::child_invocation::StdinReplay(
+        buf.into(),
+    )))
+}
+
 pub(crate) fn single_attempt(
     ctx: &AppContext,
     argv: &[OsString],
     resolved: &ResolvedAccount,
 ) -> Result<i32, AppError> {
     let signal_session = crate::commands::pass_through::SignalSession::install()?;
-    let (exit_code, _stdout_buf, _stderr_buf) =
-        crate::commands::pass_through::run_once(ctx, argv, resolved, &signal_session, false, None)?;
+    let (exit_code, _stdout_buf, _stderr_buf) = crate::commands::pass_through::run_once(
+        ctx,
+        argv,
+        resolved,
+        &signal_session,
+        false,
+        None,
+        None,
+    )?;
     Ok(exit_code)
 }
 
@@ -278,6 +316,7 @@ pub(crate) fn run_auto_interactive(ctx: &AppContext, argv: &[OsString]) -> Resul
         &resolved,
         &signal_session,
         false,
+        None,
         None,
     )?;
     // Best-effort recency bookkeeping, mirroring run_auto's success path. A write
@@ -663,5 +702,57 @@ fn try_refresh(ctx: &AppContext, account: &AccountId) -> bool {
             );
             false
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn av(items: &[&str]) -> Vec<OsString> {
+        items.iter().map(|s| OsString::from(*s)).collect()
+    }
+
+    #[test]
+    fn stdin_replay_buffers_exec_with_piped_stdin() {
+        let mut input: &[u8] = b"review the phase\n";
+        let replay = read_stdin_for_replay(&av(&["exec", "--json", "-"]), false, &mut input)
+            .unwrap()
+            .expect("exec with piped stdin is buffered");
+        assert_eq!(&*replay.0, b"review the phase\n");
+        assert!(input.is_empty(), "stdin is read to EOF once");
+    }
+
+    #[test]
+    fn stdin_replay_keeps_empty_stdin_as_empty_replay() {
+        let mut input: &[u8] = b"";
+        let replay = read_stdin_for_replay(&av(&["exec", "hi"]), false, &mut input)
+            .unwrap()
+            .expect("an empty pipe still replays as an empty pipe");
+        assert!(replay.0.is_empty());
+    }
+
+    #[test]
+    fn stdin_replay_buffers_exec_alias() {
+        let mut input: &[u8] = b"prompt";
+        let replay = read_stdin_for_replay(&av(&["e", "-"]), false, &mut input).unwrap();
+        assert_eq!(&*replay.expect("the `e` alias is exec").0, b"prompt");
+    }
+
+    #[test]
+    fn stdin_replay_skips_terminal_stdin() {
+        let mut input: &[u8] = b"untouched";
+        let replay = read_stdin_for_replay(&av(&["exec", "hi"]), true, &mut input).unwrap();
+        assert!(replay.is_none());
+        assert_eq!(input, b"untouched");
+    }
+
+    #[test]
+    fn stdin_replay_skips_non_exec_verbs() {
+        let mut input: &[u8] = b"streamed";
+        let replay = read_stdin_for_replay(&av(&["mcp-server"]), false, &mut input).unwrap();
+        assert!(replay.is_none());
+        assert_eq!(input, b"streamed");
     }
 }

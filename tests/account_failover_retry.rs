@@ -67,6 +67,45 @@ fn marker_homes<'a>(stderr: &'a str, prefix: &str) -> Vec<&'a str> {
         .collect()
 }
 
+/// A caller such as plan-run sends the prompt on stdin (`codex exec -`). The
+/// first child reads stdin to EOF, so a rotation retry must get the same bytes
+/// replayed, not an empty stdin ("No prompt provided via stdin").
+#[test]
+fn auto_retry_replays_stdin_prompt_to_every_attempt() {
+    let env = TestEnv::new_empty();
+    env.seed_account("personal", "{\"token\":\"test\"}\n");
+    env.seed_account("work", "{\"token\":\"test\"}\n");
+    env.write_quota_cache("work", &quota_cache(90.0, 90.0));
+    env.write_quota_cache("personal", &quota_cache(80.0, 80.0));
+
+    let assert = env
+        .cmd()
+        .env(
+            "CODEX_SESSION_CHILD_BIN",
+            fixture_path("fake-429-usage-echo-stdin.sh"),
+        )
+        .args(["--account", "auto", "exec", "--json", "-"])
+        .write_stdin("review the phase\nsecond line")
+        .assert()
+        .failure()
+        .code(75);
+
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    let homes = marker_homes(&stderr, "marker:codex-session-fake-stdin home=");
+    assert_eq!(homes.len(), 2, "expected two attempts, stderr:\n{stderr}");
+    assert_ne!(homes[0], homes[1], "retry should rotate accounts");
+    let prompts: Vec<&str> = stderr
+        .split("prompt=[")
+        .skip(1)
+        .filter_map(|rest| rest.split_once(']').map(|(prompt, _)| prompt))
+        .collect();
+    assert_eq!(
+        prompts,
+        vec!["review the phase\nsecond line"; 2],
+        "every attempt must receive the full stdin prompt, stderr:\n{stderr}"
+    );
+}
+
 #[test]
 fn auto_retry_rotates_accounts_and_writes_cooldown() {
     let env = TestEnv::new_empty();

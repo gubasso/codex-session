@@ -176,6 +176,7 @@ pub(crate) fn spawn_child_isolated(
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>(),
         env,
+        stdin: None,
     };
     let status = ctx
         .spawner

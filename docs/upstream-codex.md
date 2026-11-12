@@ -5,7 +5,7 @@ behaves, used as the source of truth for any change in `codex-session` that
 depends on codex's config, auth, trust, or process semantics. Don't guess —
 consult or update this file.
 
-- **Last verified:** 2026-06-03
+- **Last verified:** 2026-11-12
 - **Codex version SoT:** `codex-session --version` (prints child binary path + version).
 - **Maintenance:** if this file looks stale (codex has released several
   versions since `Last verified`), re-run the **Re-verification recipe**
@@ -517,6 +517,27 @@ terminal for the TUI to own input.
   interactive launches. Captured output scanning remains appropriate for
   non-interactive invocations such as `exec`, `--json`, and piped output, but
   it breaks the TUI terminal check.
+
+## F18 — `exec` reads a piped stdin to EOF
+
+`codex exec` (alias `e`) reads its prompt from stdin when no prompt argument is
+given, or when the argument is `-`. When stdin is piped and a prompt argument is
+also given, codex still reads stdin and appends it to the prompt as a `<stdin>`
+block. With stdin at `/dev/null`, codex prints
+`Reading additional input from stdin...` to stderr. So a non-terminal stdin is
+always read to EOF before the turn starts.
+
+- **Sources:** `codex exec --help` of codex-cli 0.167.0, checked 2026-11-12:
+  "If not provided as an argument (or if `-` is used), instructions are read
+  from stdin. If stdin is piped and a prompt is also provided, stdin is
+  appended as a `<stdin>` block". `codex --help` lists `exec` with
+  `[aliases: e]`.
+- **Implementation note:** A child that inherits the wrapper's stdin consumes
+  it. The auto-rotation loop therefore reads stdin once for an `exec` argv with
+  a non-terminal stdin and writes the same bytes to a fresh pipe of each
+  attempt. Without the replay, a rotation retry gets an empty stdin and fails
+  with `No prompt provided via stdin`. The read blocks no run that codex itself
+  does not block, because codex reads the same stdin to EOF.
 
 ## Sources (full list)
 

@@ -151,6 +151,18 @@ repos:
         language: system
         types: [toml]
 
+      # project: the stdout/stderr ownership rule of DEVELOPMENT.md. Only
+      # src/ui/, src/error.rs, and src/logging.rs write to the terminal, so a
+      # print macro or a direct stdout() or stderr() handle anywhere else in
+      # src/ fails. pygrep fails on each line that matches.
+      - id: lint-print
+        name: stdout/stderr ownership
+        language: pygrep
+        entry: '(println!|print!|eprint(ln)?!)|(stdout|stderr)\(\)'
+        files: '^src/'
+        exclude: '^src/(ui/|error\.rs$|logging\.rs$)'
+        stages: [pre-commit]
+
   # --- Markdown formatter: dprint (canonical CommonMark + GFM) ---
   #
   # dprint is the single source of truth for markdown whitespace, list

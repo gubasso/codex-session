@@ -55,8 +55,8 @@ natively: `Cargo.toml` for the crate, then `.pre-commit-config.yaml`,
 then the devshell, then the host. The devshell also holds
 `just`, the tools of the hooks that keep `language: system` (`taplo`,
 `dprint`, `lychee`, `cargo-nextest`, `cargo-deny`, `nixfmt`, `statix`), the
-tools that recipes and tests call (`ripgrep`, `cargo-watch`,
-`cargo-insta`, `python3`), and `nodejs`, on which the markdownlint-cli2
+tools that recipes and tests call (`cargo-watch`, `cargo-insta`,
+`python3`), and `nodejs`, on which the markdownlint-cli2
 hook builds. Each system hook names its owner and class in an
 `# owner:` comment. Run `just --list` to see the recipes.
 
@@ -185,8 +185,8 @@ CODEX_SESSION_CHILD_BIN=/path/to/codex \
 2. `cargo clippy --all-targets --all-features -- -D warnings` — clippy
    warnings are denied. The crate also enables the `pedantic` and
    `nursery` groups (see `[lints.clippy]` in `Cargo.toml`).
-3. `just lint-print` — enforces the **stdout/stderr ownership rule**
-   (see below).
+3. `just lint-print` — runs the `lint-print` hook, which enforces the
+   **stdout/stderr ownership rule** (see below) at every commit.
 
 Additional crate-level lints worth knowing:
 
@@ -197,7 +197,8 @@ Additional crate-level lints worth knowing:
 ### Stdout/stderr ownership rule
 
 Only the `src/ui/` module is allowed to write to the terminal. The
-`just lint-print` recipe fails the build if it finds `println!`,
+`lint-print` hook of `.pre-commit-config.yaml`, which `just lint-print`
+runs, fails the commit if it finds `println!`,
 `print!`, `eprint!`, `eprintln!`, or direct `stdout()` / `stderr()`
 handles anywhere in `src/` outside the small set of exempt modules
 (`src/ui/`, `src/error.rs`, `src/logging.rs`).

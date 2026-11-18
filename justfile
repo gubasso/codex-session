@@ -53,20 +53,15 @@ fix:
 
 # --- Quality gates (delegate to the hooks) ---
 
-# Lint gate (cargo-fmt and cargo-clippy hooks + local lint-print).
+# Lint gate (the cargo-fmt, cargo-clippy, and lint-print hooks).
 lint:
     exobrain host-check prek
-    prek run --all-files cargo-fmt cargo-clippy
-    just lint-print
+    prek run --all-files cargo-fmt cargo-clippy lint-print
 
-# Stdout/stderr ownership rule (local; not a hook yet).
+# Stdout/stderr ownership rule. Delegates to the lint-print hook.
 lint-print:
-    @! rg -n '(println!|print!|eprint(ln)?!)' \
-        --glob '!src/ui/**' --glob '!src/error.rs' --glob '!src/logging.rs' \
-        --glob '!tests/**' src
-    @! rg -n '(stdout|stderr)\(\)' \
-        --glob '!src/ui/**' --glob '!src/error.rs' --glob '!src/logging.rs' \
-        --glob '!tests/**' src
+    exobrain host-check prek
+    prek run --all-files lint-print
 
 # Fast unit tests. Delegates to the hook.
 test-unit:

@@ -18,8 +18,8 @@ default_language_version:
 
 repos:
   # --- Housekeeping (auto-fix where possible) ---
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+  # prek runs these in its own binary: no clone, no environment, and no rev.
+  - repo: builtin
     hooks:
       # The two fixers skip the lock files that cargo and nix write. A
       # generated file follows its generator, so no hook rewrites it: the dev

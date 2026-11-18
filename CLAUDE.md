@@ -18,9 +18,13 @@ natively, in this order:
   `just`, and each tool that no owner above can declare. A hook
   that keeps `language: system` names its owner and class in an `# owner:`
   comment.
-- The host: the tools that `host-requirements.toml` lists (`nix`, `git`, and
-  the hook runner `prek`), `bash`, the coreutils, `direnv`, the ELF loader, and
-  the tools that carry credentials.
+- The host: the tools that `host-requirements.toml` lists (`nix`, `git`, the
+  compile cache `kache`, and the hook runner `prek`), `bash`, the coreutils,
+  `direnv`, the ELF loader, and the tools that carry credentials.
+
+`.envrc` sets `RUSTC_WRAPPER=kache`, so a build through direnv goes through
+the compile cache of the host. `KACHE_DISABLED=1` runs one command without it.
+DEVELOPMENT.md gives the command that builds with full debug information.
 
 The agent rule `home/apps/claude-session/rules/dev-environment.md` of
 nix-secrets states the full rule. When a tool is missing, add it to its owner.

@@ -19,6 +19,11 @@ schema = 1
 [tools.exobrain]
 version = ">=1.2.0"
 
+# Global. .envrc routes each rustc call through the compile cache kache, so
+# every cargo build in a shell that direnv activated needs it. The host
+# configuration owns the one kache version, so the file names none.
+[tools.kache]
+
 # Path-scoped: the git hooks, and the gate recipes that run them. prek
 # enforces its own version through minimum_prek_version in
 # .pre-commit-config.yaml, so the file names no floor.

@@ -68,6 +68,26 @@ that [host-requirements.toml](./host-requirements.toml) lists, and
 `direnv`, `bash`, and the coreutils. When a project tool is missing, add
 it to its owner, never to the host.
 
+### Compile cache and dev profile
+
+`.envrc` sets `RUSTC_WRAPPER=kache`, so each rustc call goes through
+[kache](https://github.com/kunobi-ninja/kache), the compile cache of the
+host. The host configuration owns the one kache version. CI enters the
+devshell without direnv, so CI builds without kache. To run one command
+without kache, prefix it with `KACHE_DISABLED=1`, for example
+`KACHE_DISABLED=1 cargo build`.
+
+The dev profile in `Cargo.toml` keeps line tables for this crate and no
+debug information for the dependencies. A backtrace keeps its files and
+lines, but a debugger loses the variable values. If you need a debugger,
+build with full debug information for one command:
+
+```bash
+cargo test --config 'profile.dev.debug="full"' --config 'profile.dev.package."*".debug="full"'
+```
+
+The command rebuilds every crate.
+
 ## First-time setup
 
 ```bash

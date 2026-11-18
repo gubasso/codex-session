@@ -32,7 +32,7 @@ This project's quality gates are defined in [`justfile`](./justfile), which is a
 thin wrapper over the pre-commit hooks in `.pre-commit-config.yaml` (the source
 of truth). The recipes encode project-specific settings the agents don't see
 otherwise — most notably `cargo-nextest` profiles tuned for coding-agent output,
-`clippy-strict`, and a local stdout/stderr-ownership lint.
+`cargo-clippy`, and a local stdout/stderr-ownership lint.
 
 **Principle — the git hooks are the Source of Truth for quality gates.**
 The `justfile` gate recipes MUST delegate to `prek run …` rather than
@@ -45,15 +45,15 @@ non-gate recipes (`build`, `run`, `fmt`, `fix`, `watch`, `clean`).
 `cargo test` / `cargo clippy` / `cargo build --release` will appear to work but
 skip the project's configuration and produce different output than CI.
 
-| Intent                                             | Use                                       | Not                           |
-| -------------------------------------------------- | ----------------------------------------- | ----------------------------- |
-| Run unit tests                                     | `just test-unit`                          | `cargo test --lib`            |
-| Run integration tests                              | `just test-integration`                   | `cargo test --test '*'`       |
-| Run all tests                                      | `just test`                               | `cargo test --workspace`      |
-| Lint (fmt-check + clippy-strict + print-ownership) | `just lint`                               | `cargo clippy -- -D warnings` |
-| Full gate before pushing                           | `just check`                              | hand-rolled combo             |
-| Security audit / unused deps / license             | `just audit`, `just machete`, `just deny` | —                             |
-| Run every pre-commit + pre-push hook (mirrors CI)  | `just precommit-all`                      | —                             |
+| Intent                                            | Use                         | Not                           |
+| ------------------------------------------------- | --------------------------- | ----------------------------- |
+| Run unit tests                                    | `just test-unit`            | `cargo test --lib`            |
+| Run integration tests                             | `just test-integration`     | `cargo test --test '*'`       |
+| Run all tests                                     | `just test`                 | `cargo test --workspace`      |
+| Lint (fmt-check + cargo-clippy + print-ownership) | `just lint`                 | `cargo clippy -- -D warnings` |
+| Full gate before pushing                          | `just check`                | hand-rolled combo             |
+| Security advisories and license / unused deps     | `just deny`, `just machete` | —                             |
+| Run every pre-commit + pre-push hook (mirrors CI) | `just precommit-all`        | —                             |
 
 Inner-loop recipes that are intentionally direct cargo (fast iteration, not
 gates) are fine to invoke as-is: `just build`, `just run -- <args>`,

@@ -7,8 +7,8 @@
 # the corresponding hook ids from .pre-commit-config.yaml. Inner-loop
 # recipes (build, run, watch, fmt, fix, clean) stay as direct
 # cargo invocations because they are about fast local iteration, not
-# gating, and several differ from the hook entries (e.g. `fmt --check`
-# in lint is non-mutating while the `cargo-fmt` hook mutates).
+# gating, and several differ from the hook entries (e.g. `fmt` rewrites
+# the sources while the `cargo-fmt` hook only checks them).
 #
 # No recipe installs the binary. nix-secrets installs the host copy from
 # nix/package.nix. `build` and `run` leave the binary in target/.
@@ -53,11 +53,10 @@ fix:
 
 # --- Quality gates (delegate to the hooks) ---
 
-# Lint gate (fmt --check + clippy-strict hook + local lint-print).
+# Lint gate (cargo-fmt and cargo-clippy hooks + local lint-print).
 lint:
     exobrain host-check prek
-    cargo fmt --check
-    prek run --all-files clippy-strict
+    prek run --all-files cargo-fmt cargo-clippy
     just lint-print
 
 # Stdout/stderr ownership rule (local; not a hook yet).
@@ -104,17 +103,13 @@ precommit-all:
     prek run --all-files --hook-stage pre-commit
     prek run --all-files --hook-stage pre-push
 
-# Security audit (delegates to the cargo-audit hook).
-audit:
-    exobrain host-check prek
-    prek run --all-files --hook-stage pre-push cargo-audit
-
 # Detect unused dependencies (delegates to the cargo-machete hook).
 machete:
     exobrain host-check prek
     prek run --all-files --hook-stage pre-push cargo-machete
 
-# cargo-deny checks (delegates to the cargo-deny hook).
+# cargo-deny checks: advisories, bans, sources, and licenses (delegates to
+# the cargo-deny hook).
 deny:
     exobrain host-check prek
     prek run --all-files --hook-stage pre-push cargo-deny

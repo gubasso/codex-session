@@ -14,6 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The devshell holds no exobrain. The justfile runs `exobrain
+      # host-check`, so the job installs the CLI of the exobrain-tech tag that
+      # .pre-commit-config.yaml pins. `nix develop` keeps it on the PATH.
+      - name: Install the exobrain CLI of the pinned exobrain-tech tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(yq '.repos[] | select(.repo | test("/exobrain-tech(\.git)?/?$")) | .rev' .pre-commit-config.yaml)
+          asset=exobrain-x86_64-unknown-linux-gnu.tar.xz
+          gh release download "$tag" --repo gubasso/exobrain-tech --pattern "$asset" --dir "$RUNNER_TEMP"
+          gh attestation verify "$RUNNER_TEMP/$asset" --repo gubasso/exobrain-tech
+          mkdir -p "$RUNNER_TEMP/exobrain"
+          tar -xJf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/exobrain" --strip-components=1
+          echo "$RUNNER_TEMP/exobrain" >> "$GITHUB_PATH"
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
       - name: Nix cache

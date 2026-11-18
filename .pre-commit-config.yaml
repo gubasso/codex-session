@@ -1,13 +1,20 @@
 # Git hook configuration for codex-session. The host supplies the hook runner
-# prek (host-requirements.toml).
+# prek and the exobrain CLI (host-requirements.toml).
 #
-# Tailored from the dotfiles rust template:
-#   ~/.dotfiles/pre-commit/rust.pre-commit-config.yaml
+# The file copies the common, rust, and nix reference hook sets of
+# exobrain-tech, at the tag of the exobrain-tech entry below. The hook
+# hook-revisions holds each shared `rev` to that tag, and
+# `exobrain hooks sync --to <tag>` moves them. The comment above a hook states
+# each project choice that differs from a set.
 
-# The oldest prek that runs this file:
-# https://prek.j178.dev/reference/configuration/#minimum_prek_version
+# The oldest prek that reads this file. `repo: builtin` needs prek.
 minimum_prek_version: "0.5.7"
+# project: no pre-merge-commit type or stage, because codex-session does not
+# integrate with `rk integrate`.
 default_install_hook_types: [pre-commit, commit-msg, pre-push]
+# A hook with no `stages:` runs at commit. A manifest that declares its own
+# `stages:` wins over this line, so each such hook below states its stages.
+default_stages: [pre-commit]
 
 # The node hook runs on the devShell nodejs. Without this line, the former
 # runner pre-commit picked `default` with an empty cache, and nodeenv failed
@@ -17,61 +24,108 @@ default_language_version:
   node: system
 
 repos:
-  # --- Housekeeping (auto-fix where possible) ---
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+  # --- prek built-in hooks ---
+  #
+  # prek runs these in its own binary: no clone, no environment, and no `rev`.
+  # Where a built-in judges less than its upstream hook by default, its
+  # arguments restore the upstream behavior
+  # (https://prek.j178.dev/0.5.7/reference/built-in-hooks/).
+  #
+  # The fixers rewrite files, so they skip the generated files: the lock files
+  # that cargo and nix write, and the insta snapshots under tests/snapshots/.
+  # typos and editorconfig-checker skip the lock files in _typos.toml and
+  # .editorconfig-checker.json, so a direct run of either tool agrees.
+  #
+  # project: no check-symlinks and no check-xml, because the repository tracks
+  # no symlink and no XML file, and check-hooks-apply refuses a hook that
+  # applies to no file.
+  - repo: builtin
     hooks:
-      # The two fixers skip the lock files that cargo and nix write. A
-      # generated file follows its generator, so no hook rewrites it: the dev
-      # environment rule of nix-secrets,
-      # home/apps/claude-session/rules/dev-environment.md. typos
-      # and editorconfig-checker skip them in _typos.toml and
-      # .editorconfig-checker.json, so a direct run of either tool agrees.
+      # The upstream manifest declares pre-push too, and the built-in copies it.
+      # A fixer never runs at push. The argument keeps a Markdown hard break.
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
-        exclude: '\.snap$|^(Cargo|flake)\.lock$'
+        stages: [pre-commit]
+        exclude: '(^|/)(flake|Cargo)\.lock$|\.snap$'
       - id: end-of-file-fixer
-        exclude: '\.snap$|^(Cargo|flake)\.lock$'
+        stages: [pre-commit]
+        exclude: '(^|/)(flake|Cargo)\.lock$|\.snap$'
+      # The default `auto` keeps the most frequent ending of a file, so a file
+      # that holds only CRLF passes. `--fix=lf` holds every file to LF.
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: '(^|/)(flake|Cargo)\.lock$|\.snap$'
+      # 2 MiB, the most common limit of the owned projects.
       - id: check-added-large-files
-        args: ['--maxkb=2048']
+        args: [--maxkb=2048]
+        stages: [pre-commit]
       - id: check-case-conflict
+      # Without the argument the hook passes outside a merge or a rebase, so a
+      # marker that a resolved conflict left behind lands unseen.
       - id: check-merge-conflict
-        args: ['--assume-in-merge']
-      - id: check-shebang-scripts-are-executable
-        exclude: '\.rs$'
-      - id: check-toml
-      - id: check-yaml
+        args: [--assume-in-merge]
       - id: destroyed-symlinks
+        stages: [pre-commit]
+      - id: check-executables-have-shebangs
+        stages: [pre-commit]
+      # project: exclude Rust sources, because the inner attribute `#![...]` on
+      # the first line of a Rust file reads as a shebang.
+      - id: check-shebang-scripts-are-executable
+        stages: [pre-commit]
+        exclude: '\.rs$'
+      # prek accepts an unknown tag unless it gets --disallow-unknown-tags. The
+      # upstream hook refuses one while it loads the file.
+      - id: check-yaml
+        args: [--disallow-unknown-tags]
+      - id: check-toml
+      # check-json5 parses JSON with comments and trailing commas, so it does
+      # not refuse a commented .json configuration such as dprint.json or a
+      # .jsonc file. `types` resets the filter to every file, and `types_or`
+      # selects json, json5, and jsonc.
+      - id: check-json5
+        types: [file]
+        types_or: [json, json5, jsonc]
       - id: detect-private-key
+      # project: no set holds this hook. develop is protected, and main and
+      # master are refused too, so work happens on a branch.
       - id: no-commit-to-branch
         args: [--branch, develop, --branch, main, --branch, master]
 
   # --- EditorConfig ---
+  #
+  # The upstream `language: golang` hook, which prek builds at the pinned rev.
+  # It checks what no formatter owns: the charset, the line endings, the
+  # trailing whitespace, and the indent style.
+  #   - -disable-insert-final-newline: end-of-file-fixer owns it.
+  #   - -disable-indent-size: each formatter owns the indentation of its files
+  #     (rustfmt, dprint, nixfmt, taplo).
+  # Markdown is excluded: the checker flags fenced code and the odd-width
+  # continuation of an ordered list, and dprint owns Markdown. The project
+  # excludes its generated files in .editorconfig-checker.json, the tool's own
+  # configuration, so a direct run skips them too.
   - repo: https://github.com/editorconfig-checker/editorconfig-checker
-    rev: v3.6.1
+    rev: v4.0.2
     hooks:
       - id: editorconfig-checker
         alias: ec
-        args: [-disable-insert-final-newline, '-exclude', 'LICENSE']
-        # Markdown is owned by dprint + markdownlint-cli2. editorconfig-checker
-        # can't parse markdown (it flags code-fence interiors and the odd-width
-        # ordered-list continuations dprint emits, and defaults to indent_size=4
-        # even when unset), so it must not police .md. eol / final-newline /
-        # trailing-whitespace for markdown are covered by dprint and the
-        # pre-commit-hooks end-of-file-fixer / trailing-whitespace hooks.
+        args: [-disable-insert-final-newline, -disable-indent-size]
         exclude: '\.md$'
 
-  # --- Rust: format & lint (auto-fix) ---
+  # --- Rust: format and lint ---
   - repo: local
     hooks:
-      # owner: devshell (project-environment) cargo fmt is part of the Rust toolchain that the devShell pins.
+      # A check, not a fix: a hook that rewrites a file leaves the staged copy
+      # behind, so `cargo fmt --check` fails and the author formats.
+      # owner: devshell (project-environment) cargo fmt is part of the Rust toolchain that the devshell pins.
       - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt --all
+        name: cargo fmt check
+        entry: cargo fmt --check
         language: system
-        types: [rust]
+        files: '(\.rs|(^|/)Cargo\.(toml|lock)|^rust-toolchain\.toml)$'
         pass_filenames: false
 
+      # project: no set holds this fixer. It applies the machine-applicable
+      # clippy fixes before the gate below judges the code.
       # owner: devshell (project-environment) cargo clippy is part of the Rust toolchain and builds the crate.
       - id: clippy-fix
         name: clippy auto-fix
@@ -80,12 +134,14 @@ repos:
         types: [rust]
         pass_filenames: false
 
+      # --all-targets lints the tests too, so a lint in a test fails at commit
+      # and not first in CI.
       # owner: devshell (project-environment) cargo clippy is part of the Rust toolchain and builds the crate.
-      - id: clippy-strict
-        name: clippy gate
+      - id: cargo-clippy
+        name: cargo clippy
         entry: cargo clippy --all-targets --all-features -- -D warnings
         language: system
-        types: [rust]
+        files: '(\.rs|(^|/)Cargo\.(toml|lock)|^(rust-toolchain|clippy)\.toml)$'
         pass_filenames: false
 
       # owner: devshell (no-hook-language) upstream taplo publishes no pre-commit hook.
@@ -114,7 +170,7 @@ repos:
 
   # --- Table of contents (updates <!--TOC--> blocks; no-op without markers) ---
   - repo: https://github.com/frnmst/md-toc
-    rev: 9.0.0
+    rev: 9.1.0
     hooks:
       - id: md-toc
         # -c: don't gate on TOC list coherence. -p: write in place.
@@ -142,13 +198,14 @@ repos:
   # error-kind string, which is part of the machine-readable error
   # contract.) Snapshot fixtures and the seed allowlist live in _typos.toml.
   - repo: https://github.com/crate-ci/typos
-    rev: v1.46.2
+    rev: v1.52.2
     hooks:
       - id: typos
         # The upstream hook passes --write-changes and --force-exclude. These
         # args replace both and keep --force-exclude, so the extend-exclude of
         # _typos.toml still applies to the files that pre-commit passes.
         args: [--force-exclude]
+        stages: [pre-commit]
 
   # --- Tests (layered per docs-n-notes cli-design/08-testing-strategy.md) ---
   #
@@ -193,6 +250,9 @@ repos:
   #     [profile.pre-push]   default-filter = "kind(test) - binary(/live/)"
   #     [profile.live]       default-filter = "binary(/live/)"
   #
+  # project: these three tiers take the place of the single cargo-nextest hook
+  # of the rust set, because the nextest profiles split the suite by cost and
+  # keep the live tests, which need credentials, apart.
   - repo: local
     hooks:
       # owner: devshell (project-environment) cargo nextest runs the test suite of the crate.
@@ -205,11 +265,13 @@ repos:
         stages: [pre-commit, pre-push]
 
       # owner: devshell (project-environment) cargo nextest runs the test suite of the crate.
+      # A test can read any checked-in file, so the suite runs on every push
+      # and not only on a change of a Rust file.
       - id: cargo-nextest-integration
         name: cargo nextest (integration tests)
         entry: cargo nextest run --profile pre-push --all-features
         language: system
-        types_or: [rust, toml]
+        always_run: true
         pass_filenames: false
         stages: [pre-push]
 
@@ -226,7 +288,7 @@ repos:
 
   # --- Commit message linting (Rust-ecosystem; commit-msg stage) ---
   - repo: https://github.com/crate-ci/committed
-    rev: v1.1.11
+    rev: v1.1.12
     hooks:
       - id: committed
         stages: [commit-msg]
@@ -238,11 +300,14 @@ repos:
       - id: ripsecrets
 
   # --- Heavy checks (pre-push only) ---
+  #
+  # The upstream entry scans the staged index, which is empty at a push, so
+  # this entry scans the history and passes no file names.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
     hooks:
       - id: gitleaks
-        entry: gitleaks git --redact --verbose
+        entry: gitleaks git --redact --verbose --no-banner
         pass_filenames: false
         stages: [pre-push]
 
@@ -251,36 +316,32 @@ repos:
     rev: lychee-v0.24.2
     hooks:
       # The devshell supplies the lychee binary, so the hook installs none.
+      # lychee.toml holds every setting. `prek update` moves this rev to the
+      # pre-release tag `nightly`. Keep the latest release.
       # owner: devshell (no-hook-language) upstream lychee offers only script, docker_image, and system ids.
       - id: lychee-system
         stages: [pre-push]
         types: [markdown]
-        # Args intentionally minimal so lychee.toml owns the behavior.
-        args:
-          - --no-progress
+        args: [--no-progress]
 
   # --- Unused dependency detection ---
   - repo: https://github.com/bnjbvr/cargo-machete
-    rev: v0.9.2
+    rev: v0.10.1
     hooks:
       - id: cargo-machete
         stages: [pre-push]
 
   - repo: local
     hooks:
-      # owner: devshell (project-environment) cargo audit is a cargo subcommand that reads the lock file of the crate.
-      - id: cargo-audit
-        name: cargo audit
-        entry: cargo audit
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-
-      # owner: devshell (project-environment) cargo deny is a cargo subcommand that reads the lock file of the crate.
+      # cargo deny reads the RustSec database that cargo audit reads, and adds
+      # the yanked crates, the bans, the sources, and the licenses, so one
+      # policy file, deny.toml, owns all four, and cargo audit stays out.
+      # owner: devshell (project-environment) cargo deny is a cargo subcommand that reads the lock file of the workspace.
       - id: cargo-deny
         name: cargo deny
-        entry: cargo deny check advisories bans sources
+        entry: cargo deny check
         language: system
+        files: '((^|/)Cargo\.(toml|lock)|^deny\.toml)$'
         pass_filenames: false
         stages: [pre-push]
 
@@ -301,6 +362,35 @@ repos:
         files: '^(src/|nix/|Cargo\.(toml|lock)$|VERSION$|build\.rs$|flake\.(nix|lock)$)'
         stages: [pre-push]
 
+  # --- Nix ---
+  #
+  # The upstream `language: rust` hook, which prek builds with the cargo of
+  # the devshell. Its manifest carries `args: [--fail]` and `types: [nix]`.
+  - repo: https://github.com/astro/deadnix
+    rev: v1.3.2
+    hooks:
+      - id: deadnix
+
+  - repo: local
+    hooks:
+      # The flake publishes nixfmt as its `formatter`, and `nix fmt` and the
+      # editors run it outside prek. The hook formats exactly like them, so it
+      # runs the nixfmt of the same nixpkgs.
+      # owner: devshell (outside-caller) nix fmt runs the nixpkgs nixfmt, so the hook runs the same one.
+      - id: nixfmt
+        name: nixfmt
+        entry: nixfmt
+        language: system
+        types: [nix]
+      # statix walks the tree itself, so the hook passes no file names.
+      # owner: devshell (no-hook-language) statix has no hook in a language that prek builds.
+      - id: statix
+        name: statix
+        entry: statix check
+        language: system
+        types: [nix]
+        pass_filenames: false
+
   # --- A flake holds no language library (pygrep) ---
   - repo: local
     hooks:
@@ -311,17 +401,22 @@ repos:
         files: '(^|/)flake\.nix$|(^|/)nix/.*\.nix$'
         stages: [pre-commit]
 
-  # A flake reference reads the git tree of a checkout, never a path copy of
-  # the whole folder into the Nix store. A flake holds no git hook runner, and
-  # host-requirements.toml parses whenever it changes. The three hooks are
-  # published by exobrain-tech, whose `exobrain` comes from the devShell.
+  # The hooks of exobrain-tech, which call the `exobrain` CLI of the host:
+  #   - no-path-flake-reference: a flake reference reads the git tree.
+  #   - no-hook-runner-in-flake: a flake holds no git hook runner.
+  #   - host-requirements: host-requirements.toml parses.
+  #   - hook-revisions: the revisions of the named sets follow the tag.
   - repo: https://github.com/gubasso/exobrain-tech
-    rev: v1.1.0
+    rev: v1.2.0
     hooks:
       - id: no-path-flake-reference
       - id: no-hook-runner-in-flake
       - id: host-requirements
+      - id: hook-revisions
+        args: [--set, common, --set, rust, --set, nix]
 
+  # project: check-hooks-apply, which no set holds, refuses a hook that
+  # applies to no file.
   - repo: meta
     hooks:
       - id: check-hooks-apply

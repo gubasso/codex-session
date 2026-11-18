@@ -1,9 +1,16 @@
 name: ci
 
-# Every step runs in the devshell of flake.nix, so CI and a local run use
-# the same toolchain from rust-toolchain.toml and flake.lock, and the same
-# clippy. Nix flakes see only git-tracked files, so flake.lock stays
-# committed.
+# CI repeats the two hook stages of .pre-commit-config.yaml in the devshell
+# of flake.nix, so a push that passed its hooks passes CI. CI holds no check
+# of its own. The devshell holds the toolchain from rust-toolchain.toml and
+# flake.lock, and the tools of the `language: system` hooks. `nix develop`
+# keeps the PATH of the runner, so prek and exobrain, the host tools that the
+# steps below install, stay on it. Nix flakes see only git-tracked files, so
+# flake.lock stays committed.
+#
+# DEVELOPMENT.md, section "CI", lists the hooks that CI skips, with their
+# reasons, and the CI-only checks, the report-only jobs, and the scheduled
+# jobs. Each of those three lists is empty.
 
 on:
   push:
@@ -13,10 +20,15 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # gitleaks scans the history at the push stage, so the job fetches all
+      # of it.
       - uses: actions/checkout@v4
-      # The devshell holds no exobrain. The justfile runs `exobrain
-      # host-check`, so the job installs the CLI of the exobrain-tech tag that
-      # .pre-commit-config.yaml pins. `nix develop` keeps it on the PATH.
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The hooks of exobrain-tech call the exobrain CLI, which the devshell
+      # does not hold. The job installs the CLI of the exobrain-tech tag that
+      # .pre-commit-config.yaml pins.
       - name: Install the exobrain CLI of the pinned exobrain-tech tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -28,6 +40,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/exobrain"
           tar -xJf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/exobrain" --strip-components=1
           echo "$RUNNER_TEMP/exobrain" >> "$GITHUB_PATH"
+      # The hook runner is a host tool, so the job installs it as a host does,
+      # at the version of the host. The action also caches the hook
+      # environments of prek between runs.
+      - uses: j178/prek-action@7b101f8338a08d2bd6fdb3625e4e7692428763a3 # v3.1.1
+        with:
+          install-only: true
+          prek-version: "0.5.10"
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
       - name: Nix cache
@@ -38,21 +57,17 @@ jobs:
           # devshell, so the key follows the toolchain of flake.lock and not
           # the rustup toolchain of the runner image.
           cmd-format: nix develop --command {0}
-      - name: toolchain
-        run: nix develop --command bash -c 'cargo --version && cargo clippy --version'
-      - name: fmt
-        run: nix develop --command cargo fmt --check
-      - name: clippy
-        run: nix develop --command cargo clippy --all-targets --all-features -- -D warnings
-      - name: nextest
-        # `--profile ci` activates the retry-tolerant, quiet-output
-        # profile in .config/nextest.toml. Without it nextest falls
-        # back to `[profile.default]` and ignores the CI-specific
-        # retry/timeout/status-level tuning.
-        run: nix develop --command cargo nextest run --profile ci
-      - name: print-lint
-        run: nix develop --command just lint-print
-      - name: nix-build
-        # The package that nix-secrets builds with its own nixpkgs. The
-        # pre-push hook nix-build runs the same command.
-        run: nix build --no-link .#default
+      # The commit stage. no-commit-to-branch guards a local commit. CI makes
+      # no commit, and a push to develop, which a merge makes, checks out
+      # develop, so CI skips that hook.
+      - name: commit stage
+        run: nix develop --command prek run --all-files
+        env:
+          SKIP: no-commit-to-branch
+      # The push stage. cargo-nextest-live calls real endpoints with the OAuth
+      # credentials of a local account, which CI does not have, so CI skips
+      # that hook.
+      - name: push stage
+        run: nix develop --command prek run --all-files --hook-stage pre-push
+        env:
+          SKIP: cargo-nextest-live

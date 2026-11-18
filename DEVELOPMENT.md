@@ -125,10 +125,32 @@ find their tools on the `PATH` of the commit.
 | Build the Nix package       | `nix build .#default`                               |
 | Supply-chain audit          | `just deny` / `just machete`                        |
 
-`just check` (= `lint` + `test`) is the contract every contributor and
-CI run is expected to meet before pushing. CI runs its steps in the same
-devshell, with `nix develop --command`, so it uses the toolchain and the
-clippy of `flake.lock`.
+`just check` (= `lint` + `test`) is the fast gate to run before
+pushing. The pre-push hook and CI run the full gate, both hook stages,
+which `just precommit-all` runs too.
+
+## CI
+
+`.github/workflows/ci.yml` repeats the two hook stages of
+`.pre-commit-config.yaml` in the devshell, with
+`nix develop --command prek run`. CI uses the toolchain and the clippy
+of `flake.lock`, and holds no check of its own, so a push that passed
+its hooks passes CI. The job installs the host tools that the hooks
+need: Nix, prek, and the `exobrain` CLI of the pinned exobrain-tech tag.
+
+CI skips two hooks:
+
+- `no-commit-to-branch`: the hook guards a local commit. CI makes no
+  commit, and a push to `develop`, which a merge makes, checks out
+  `develop`.
+- `cargo-nextest-live`: the live tests call real endpoints with the
+  OAuth credentials of a local account. CI has no such account.
+
+The other lists of CI jobs are empty:
+
+- CI-only checks: none.
+- Report-only jobs: none.
+- Scheduled jobs: none.
 
 ## Running the binary interactively
 

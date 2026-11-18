@@ -54,8 +54,9 @@
             pkgs.dprint
             pkgs.lychee
             pkgs.cargo-nextest
-            pkgs.cargo-audit
             pkgs.cargo-deny
+            pkgs.nixfmt
+            pkgs.statix
             # Recipes and DEVELOPMENT.md: `just lint-print`, `just watch`, and
             # `cargo insta review`.
             pkgs.ripgrep

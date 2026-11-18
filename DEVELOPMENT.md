@@ -54,7 +54,7 @@ dependency has one owner, the most specific file that declares it
 natively: `Cargo.toml` for the crate, then `.pre-commit-config.yaml`,
 then the devshell, then the host. The devshell also holds
 `just`, the tools of the hooks that keep `language: system` (`taplo`,
-`dprint`, `lychee`, `cargo-nextest`, `cargo-audit`, `cargo-deny`), the
+`dprint`, `lychee`, `cargo-nextest`, `cargo-deny`, `nixfmt`, `statix`), the
 tools that recipes and tests call (`ripgrep`, `cargo-watch`,
 `cargo-insta`, `python3`), and `nodejs`, on which the markdownlint-cli2
 hook builds. Each system hook names its owner and class in an
@@ -63,7 +63,7 @@ hook builds. Each system hook names its owner and class in an
 The hook runner prek installs and manages the tools of the hooks whose
 language gets an environment that it builds: `gitleaks`, `ripsecrets`,
 `markdownlint-cli2`, `typos`, `committed`, `md-toc`,
-`editorconfig-checker`, and `cargo-machete`. The host supplies the tools
+`editorconfig-checker`, `cargo-machete`, and `deadnix`. The host supplies the tools
 that [host-requirements.toml](./host-requirements.toml) lists, and
 `direnv`, `bash`, and the coreutils. When a project tool is missing, add
 it to its owner, never to the host.
@@ -103,7 +103,7 @@ find their tools on the `PATH` of the commit.
 | Pre-commit hooks (manual)   | `just precommit`                                    |
 | Pre-commit + pre-push hooks | `just precommit-all`                                |
 | Build the Nix package       | `nix build .#default`                               |
-| Supply-chain audit          | `just audit` / `just machete` / `just deny`         |
+| Supply-chain audit          | `just deny` / `just machete`                        |
 
 `just check` (= `lint` + `test`) is the contract every contributor and
 CI run is expected to meet before pushing. CI runs its steps in the same
@@ -308,7 +308,7 @@ Two architectural patterns to keep in mind:
 - Direct commits to `main`, `master`, and `develop` are blocked by
   `no-commit-to-branch`. Work on a feature branch and open a PR.
 - Run `just check` before pushing; `pre-push` additionally runs
-  `gitleaks`, `cargo-machete`, `cargo-audit`, and `cargo-deny`.
+  `gitleaks`, `cargo-machete`, `cargo-deny`, and the integration tests.
 
 ## Troubleshooting
 
@@ -317,9 +317,8 @@ Two architectural patterns to keep in mind:
   it through `tracing`.
 - **Snapshot mismatches** — inspect with `cargo insta review`. If the
   new output is correct, accept; otherwise revert the code change.
-- **`pre-push` slow** — `cargo-audit` and `cargo-deny` fetch the
-  advisory DB. Run `just audit` / `just deny` ahead of time to warm
-  caches.
+- **`pre-push` slow** — `cargo-deny` fetches the advisory DB. Run
+  `just deny` ahead of time to warm the cache.
 - **Clippy denies a lint you disagree with** — prefer fixing the code.
   `#[allow(...)]` attributes need a one-line justification and should
   be local (function- or block-scoped), never crate-wide.

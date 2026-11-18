@@ -248,10 +248,13 @@ repos:
   #                   network required). `just test-live` delegates to it.
   #                   See docs/wham-usage-api-spec.md §7.
   #
-  # Tier-to-hook mapping (matches 08-testing-strategy.md § CI essentials):
-  #   - pre-commit: unit only           (sub-second budget)
-  #   - pre-push:   unit + integration  (single-digit-seconds budget)
-  #   - live:       pre-push            (`cargo-nextest-live` + `just test-live`)
+  # Tier-to-hook mapping:
+  #   - pre-commit: unit         (sub-second budget)
+  #   - pre-push:   integration  (single-digit-seconds budget)
+  #   - live:       pre-push     (`cargo-nextest-live` + `just test-live`)
+  # The push stage does not rerun the unit tests of the commit stage, as
+  # chapter 04 of the project-bootstrap canon of exobrain-tech requires.
+  # CI runs both stages, so it runs each tier once.
   #
   # Doctests are intentionally omitted: binary-only crate, `cargo test
   # --doc` has nothing to run. Re-add the template's hook if a [lib]
@@ -274,7 +277,7 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
-        stages: [pre-commit, pre-push]
+        stages: [pre-commit]
 
       # owner: devshell (project-environment) cargo nextest runs the test suite of the crate.
       # A test can read any checked-in file, so the suite runs on every push

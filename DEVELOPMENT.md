@@ -34,7 +34,7 @@ RUST_LOG=debug just run -- config status    # verbose tracing
 # Commit & push (main/master/develop are protected; use a branch)
 git checkout -b feat/my-change
 git add -p && git commit -m "feat(cli): ..."
-git push -u origin HEAD        # pre-push runs tests/gitleaks/audit/deny/nix build
+git push -u origin HEAD        # pre-push: integration tests, gitleaks, deny, nix build
 
 # Build the package that nix-secrets installs on the host
 nix build .#default

@@ -104,7 +104,7 @@ repos:
   # excludes its generated files in .editorconfig-checker.json, the tool's own
   # configuration, so a direct run skips them too.
   - repo: https://github.com/editorconfig-checker/editorconfig-checker
-    rev: v3.6.1
+    rev: v4.0.2
     hooks:
       - id: editorconfig-checker
         alias: ec
@@ -170,7 +170,7 @@ repos:
 
   # --- Table of contents (updates <!--TOC--> blocks; no-op without markers) ---
   - repo: https://github.com/frnmst/md-toc
-    rev: 9.0.0
+    rev: 9.1.0
     hooks:
       - id: md-toc
         # -c: don't gate on TOC list coherence. -p: write in place.
@@ -198,7 +198,7 @@ repos:
   # error-kind string, which is part of the machine-readable error
   # contract.) Snapshot fixtures and the seed allowlist live in _typos.toml.
   - repo: https://github.com/crate-ci/typos
-    rev: v1.46.2
+    rev: v1.52.2
     hooks:
       - id: typos
         # The upstream hook passes --write-changes and --force-exclude. These
@@ -288,7 +288,7 @@ repos:
 
   # --- Commit message linting (Rust-ecosystem; commit-msg stage) ---
   - repo: https://github.com/crate-ci/committed
-    rev: v1.1.11
+    rev: v1.1.12
     hooks:
       - id: committed
         stages: [commit-msg]
@@ -326,7 +326,7 @@ repos:
 
   # --- Unused dependency detection ---
   - repo: https://github.com/bnjbvr/cargo-machete
-    rev: v0.9.2
+    rev: v0.10.1
     hooks:
       - id: cargo-machete
         stages: [pre-push]
@@ -407,11 +407,13 @@ repos:
   #   - host-requirements: host-requirements.toml parses.
   #   - hook-revisions: the revisions of the named sets follow the tag.
   - repo: https://github.com/gubasso/exobrain-tech
-    rev: v1.1.0
+    rev: v1.2.0
     hooks:
       - id: no-path-flake-reference
       - id: no-hook-runner-in-flake
       - id: host-requirements
+      - id: hook-revisions
+        args: [--set, common, --set, rust, --set, nix]
 
   # project: check-hooks-apply, which no set holds, refuses a hook that
   # applies to no file.

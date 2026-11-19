@@ -138,19 +138,17 @@ of `flake.lock`, and holds no check of its own, so a push that passed
 its hooks passes CI. The job installs the host tools that the hooks
 need: Nix, prek, and the `exobrain` CLI of the pinned exobrain-tech tag.
 
-CI skips two hooks:
+Each CI step names its hook stage and leaves out the hooks of the prek
+group `local-only`. `prek list --group local-only` and
+`prek list --group ci-only` name every exception. The comment above each
+grouped hook in `.pre-commit-config.yaml` states its reason:
 
-- `no-commit-to-branch`: the hook guards a local commit. CI makes no
-  commit, and a push to `develop`, which a merge makes, checks out
-  `develop`.
-- `cargo-nextest-live`: the live tests call real endpoints with the
-  OAuth credentials of a local account. CI has no such account.
+- `no-commit-to-branch` (`local-only`): CI makes no commit, and a merge
+  pushes `develop`, which CI then checks out.
+- `cargo-nextest-live` (`local-only`): the live tests need the OAuth
+  credentials of a local account, and CI has none.
 
-The other lists of CI jobs are empty:
-
-- CI-only checks: none.
-- Report-only jobs: none.
-- Scheduled jobs: none.
+No hook is `ci-only`. CI has no report-only job and no scheduled job.
 
 ## Running the binary interactively
 

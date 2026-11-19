@@ -88,8 +88,11 @@ repos:
       - id: detect-private-key
       # project: no set holds this hook. develop is protected, and main and
       # master are refused too, so work happens on a branch.
+      # local-only: the hook guards a local commit. CI makes no commit, and a
+      # merge pushes develop, which CI then checks out, so the hook fails there.
       - id: no-commit-to-branch
         args: [--branch, develop, --branch, main, --branch, master]
+        groups: [local-only]
 
   # --- EditorConfig ---
   #
@@ -292,6 +295,8 @@ repos:
 
   - repo: local
     hooks:
+      # local-only: the live tests call real endpoints with the OAuth
+      # credentials of a local account, and CI holds no such account.
       # owner: devshell (project-environment) cargo nextest runs the live tests of the crate.
       - id: cargo-nextest-live
         name: cargo nextest (live API tests)
@@ -300,6 +305,7 @@ repos:
         types: [rust]
         pass_filenames: false
         stages: [pre-push]
+        groups: [local-only]
 
   # --- Commit message linting (Rust-ecosystem; commit-msg stage) ---
   - repo: https://github.com/crate-ci/committed

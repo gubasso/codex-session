@@ -8,9 +8,11 @@ name: ci
 # steps below install, stay on it. Nix flakes see only git-tracked files, so
 # flake.lock stays committed.
 #
-# DEVELOPMENT.md, section "CI", lists the hooks that CI skips, with their
-# reasons, and the CI-only checks, the report-only jobs, and the scheduled
-# jobs. Each of those three lists is empty.
+# Each step names its stage and leaves out the hooks of the group
+# local-only, which CI cannot run. The comment above each such hook in
+# .pre-commit-config.yaml states why, and DEVELOPMENT.md, section "CI",
+# repeats each reason. No hook carries the group ci-only, so the job has no
+# step for the manual stage: prek refuses a --group that matches no hook.
 
 on:
   push:
@@ -57,17 +59,9 @@ jobs:
           # devshell, so the key follows the toolchain of flake.lock and not
           # the rustup toolchain of the runner image.
           cmd-format: nix develop --command {0}
-      # The commit stage. no-commit-to-branch guards a local commit. CI makes
-      # no commit, and a push to develop, which a merge makes, checks out
-      # develop, so CI skips that hook.
+      # A group filter with no --stage also runs the manual hooks, so each
+      # step names its stage.
       - name: commit stage
-        run: nix develop --command prek run --all-files
-        env:
-          SKIP: no-commit-to-branch
-      # The push stage. cargo-nextest-live calls real endpoints with the OAuth
-      # credentials of a local account, which CI does not have, so CI skips
-      # that hook.
+        run: nix develop --command prek run --all-files --stage pre-commit --no-group local-only
       - name: push stage
-        run: nix develop --command prek run --all-files --hook-stage pre-push
-        env:
-          SKIP: cargo-nextest-live
+        run: nix develop --command prek run --all-files --stage pre-push --no-group local-only

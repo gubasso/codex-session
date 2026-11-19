@@ -17,9 +17,8 @@ failure-output = "immediate-final"
 fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 2 }
 
-# Unit-test lane. Wired to BOTH `pre-commit` and `pre-push` git stages
-# (tier-to-hook mapping per docs-n-notes 08-testing-strategy.md: pre-push
-# runs unit + integration, not integration-only).
+# Unit-test lane. Wired to the `pre-commit` git stage only, because the
+# `pre-push` stage does not rerun a commit-stage hook.
 #
 # This crate is binary-only (no [lib]) so unit tests live under
 # `kind(bin)`; `kind(lib)` is kept for forward-compatibility if a
@@ -53,31 +52,6 @@ failure-output = "immediate-final"
 default-filter = "kind(test) - binary(/live/)"
 fail-fast = false
 slow-timeout = { period = "120s", terminate-after = 2 }
-status-level = "fail"
-final-status-level = "fail"
-success-output = "never"
-failure-output = "immediate-final"
-
-# CI lane: everything, with retry tolerance for known-flaky tests.
-#
-# `status-level = "fail"` (not "pass"): in CI logs, per-test pass lines
-# are noise — they multiply output tokens without adding signal for
-# humans triaging a failure or for AI agents parsing the run. The final
-# roll-up still surfaces failures via `final-status-level = "fail"`.
-# Ref: https://nexte.st/docs/configuration/reference/ (status-level)
-#
-# Progress bars auto-disable on non-TTY runners (GitHub Actions). If a
-# future runner emulates a TTY, set `NEXTEST_HIDE_PROGRESS_BAR=1` in
-# the workflow env to suppress redraws — those redraws bloat captured
-# logs that agents later read.
-# Ref: https://nexte.st/docs/running/
-#
-# IMPORTANT: this profile is only active when nextest is invoked with
-# `--profile ci`. See `.github/workflows/ci.yml`.
-[profile.ci]
-fail-fast = false
-slow-timeout = { period = "180s", terminate-after = 2 }
-retries = { backoff = "exponential", count = 2, delay = "1s", max-delay = "10s", jitter = true }
 status-level = "fail"
 final-status-level = "fail"
 success-output = "never"

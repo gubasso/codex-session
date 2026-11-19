@@ -57,9 +57,7 @@
             pkgs.cargo-deny
             pkgs.nixfmt
             pkgs.statix
-            # Recipes and DEVELOPMENT.md: `just lint-print`, `just watch`, and
-            # `cargo insta review`.
-            pkgs.ripgrep
+            # Recipes and DEVELOPMENT.md: `just watch` and `cargo insta review`.
             pkgs.cargo-watch
             pkgs.cargo-insta
             # The signal tests start `python3` from PATH.

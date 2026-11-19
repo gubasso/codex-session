@@ -34,7 +34,7 @@ RUST_LOG=debug just run -- config status    # verbose tracing
 # Commit & push (main/master/develop are protected; use a branch)
 git checkout -b feat/my-change
 git add -p && git commit -m "feat(cli): ..."
-git push -u origin HEAD        # pre-push runs tests/gitleaks/audit/deny/nix build
+git push -u origin HEAD        # pre-push: integration tests, gitleaks, deny, nix build
 
 # Build the package that nix-secrets installs on the host
 nix build .#default
@@ -55,8 +55,8 @@ natively: `Cargo.toml` for the crate, then `.pre-commit-config.yaml`,
 then the devshell, then the host. The devshell also holds
 `just`, the tools of the hooks that keep `language: system` (`taplo`,
 `dprint`, `lychee`, `cargo-nextest`, `cargo-deny`, `nixfmt`, `statix`), the
-tools that recipes and tests call (`ripgrep`, `cargo-watch`,
-`cargo-insta`, `python3`), and `nodejs`, on which the markdownlint-cli2
+tools that recipes and tests call (`cargo-watch`, `cargo-insta`,
+`python3`), and `nodejs`, on which the markdownlint-cli2
 hook builds. Each system hook names its owner and class in an
 `# owner:` comment. Run `just --list` to see the recipes.
 
@@ -125,10 +125,30 @@ find their tools on the `PATH` of the commit.
 | Build the Nix package       | `nix build .#default`                               |
 | Supply-chain audit          | `just deny` / `just machete`                        |
 
-`just check` (= `lint` + `test`) is the contract every contributor and
-CI run is expected to meet before pushing. CI runs its steps in the same
-devshell, with `nix develop --command`, so it uses the toolchain and the
-clippy of `flake.lock`.
+`just check` (= `lint` + `test`) is the fast gate to run before
+pushing. The pre-push hook and CI run the full gate, both hook stages,
+which `just precommit-all` runs too.
+
+## CI
+
+`.github/workflows/ci.yml` repeats the two hook stages of
+`.pre-commit-config.yaml` in the devshell, with
+`nix develop --command prek run`. CI uses the toolchain and the clippy
+of `flake.lock`, and holds no check of its own, so a push that passed
+its hooks passes CI. The job installs the host tools that the hooks
+need: Nix, prek, and the `exobrain` CLI of the pinned exobrain-tech tag.
+
+Each CI step names its hook stage and leaves out the hooks of the prek
+group `local-only`. `prek list --group local-only` and
+`prek list --group ci-only` name every exception. The comment above each
+grouped hook in `.pre-commit-config.yaml` states its reason:
+
+- `no-commit-to-branch` (`local-only`): CI makes no commit, and a merge
+  pushes `develop`, which CI then checks out.
+- `cargo-nextest-live` (`local-only`): the live tests need the OAuth
+  credentials of a local account, and CI has none.
+
+No hook is `ci-only`. CI has no report-only job and no scheduled job.
 
 ## Running the binary interactively
 
@@ -185,8 +205,8 @@ CODEX_SESSION_CHILD_BIN=/path/to/codex \
 2. `cargo clippy --all-targets --all-features -- -D warnings` — clippy
    warnings are denied. The crate also enables the `pedantic` and
    `nursery` groups (see `[lints.clippy]` in `Cargo.toml`).
-3. `just lint-print` — enforces the **stdout/stderr ownership rule**
-   (see below).
+3. `just lint-print` — runs the `lint-print` hook, which enforces the
+   **stdout/stderr ownership rule** (see below) at every commit.
 
 Additional crate-level lints worth knowing:
 
@@ -197,7 +217,8 @@ Additional crate-level lints worth knowing:
 ### Stdout/stderr ownership rule
 
 Only the `src/ui/` module is allowed to write to the terminal. The
-`just lint-print` recipe fails the build if it finds `println!`,
+`lint-print` hook of `.pre-commit-config.yaml`, which `just lint-print`
+runs, fails the commit if it finds `println!`,
 `print!`, `eprint!`, `eprintln!`, or direct `stdout()` / `stderr()`
 handles anywhere in `src/` outside the small set of exempt modules
 (`src/ui/`, `src/error.rs`, `src/logging.rs`).

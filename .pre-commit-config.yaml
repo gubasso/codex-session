@@ -428,7 +428,7 @@ repos:
   #   - host-requirements: host-requirements.toml parses.
   #   - hook-revisions: the revisions of the named sets follow the tag.
   - repo: https://github.com/gubasso/exobrain-tech
-    rev: v1.2.0
+    rev: v2.0.0
     hooks:
       - id: no-path-flake-reference
       - id: no-hook-runner-in-flake

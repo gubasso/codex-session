@@ -14,10 +14,11 @@ schema = 1
 [tools.git]
 
 # Global. The justfile runs `exobrain host-check` before any recipe, the hooks
-# of exobrain-tech call the CLI, and .envrc runs its two warnings. 1.2.0 is the
-# first release that carries `exobrain hooks check`.
+# of exobrain-tech call the CLI, and .envrc runs `exobrain outdated` and
+# `exobrain store-guard`. 2.0.0 is the first release that carries
+# `exobrain outdated`.
 [tools.exobrain]
-version = ">=1.2.0"
+version = ">=2.0.0"
 
 # Global. .envrc routes each rustc call through the compile cache kache, so
 # every cargo build in a shell that direnv activated needs it. The host
